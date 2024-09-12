@@ -133,6 +133,11 @@ public final class CSIv2Util {
             return null;
         }
 
+        if (sslPort == 0) {
+            // no support for transport security.
+            return null;
+        }
+
         TaggedComponent tc;
         try {
             int supports = createTargetSupports(metadata.getTransportConfig());
@@ -305,7 +310,7 @@ public final class CSIv2Util {
             // finally, encode the "realm" name as a CSI.GSS_NT_ExportedName.
             // clientAuthMech should contain the DER encoded GSSUPMechOID at this point.
             String realm = asMeta.getRealm();
-            targetName = createGSSExportedName(clientAuthMech, realm.getBytes());
+            targetName = createGSSExportedName(clientAuthMech, realm.getBytes(StandardCharsets.UTF_8));
 
             context = new AS_ContextSec((short) support, (short) require, clientAuthMech, targetName);
         }
@@ -348,7 +353,7 @@ public final class CSIv2Util {
             support = createTargetSupports(tconfig);
         }
 
-        if (tconfig == null || support == 0 || sslPort < 0) {
+        if (tconfig == null || support == 0 || sslPort == 0) {
             // no support for transport security.
             tc = new TaggedComponent(TAG_NULL_TAG.value, new byte[0]);
         } else {

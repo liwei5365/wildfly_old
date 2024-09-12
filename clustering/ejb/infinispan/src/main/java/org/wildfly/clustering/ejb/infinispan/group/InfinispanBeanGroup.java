@@ -25,32 +25,31 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
-import org.wildfly.clustering.ee.infinispan.Mutator;
-import org.wildfly.clustering.ee.infinispan.Remover;
+import org.wildfly.clustering.ee.Mutator;
+import org.wildfly.clustering.ee.Remover;
 import org.wildfly.clustering.ejb.PassivationListener;
 import org.wildfly.clustering.ejb.infinispan.BeanGroup;
 import org.wildfly.clustering.ejb.infinispan.BeanGroupEntry;
 import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
 
 /**
  * A {@link org.wildfly.clustering.ejb.infinispan.BeanGroup} implementation backed by an infinispan cache.
  *
  * @author Paul Ferraro
  *
- * @param <G> the group identifier type
  * @param <I> the bean identifier type
  * @param <T> the bean type
+ * @param <C> the marshalling context type
  */
-public class InfinispanBeanGroup<G, I, T> implements BeanGroup<G, I, T> {
+public class InfinispanBeanGroup<I, T, C> implements BeanGroup<I, T> {
 
-    private final G id;
-    private final BeanGroupEntry<I, T> entry;
-    private final MarshallingContext context;
+    private final I id;
+    private final BeanGroupEntry<I, T, C> entry;
+    private final C context;
     private final Mutator mutator;
-    private final Remover<G> remover;
+    private final Remover<I> remover;
 
-    public InfinispanBeanGroup(G id, BeanGroupEntry<I, T> entry, MarshallingContext context, Mutator mutator, Remover<G> remover) {
+    public InfinispanBeanGroup(I id, BeanGroupEntry<I, T, C> entry, C context, Mutator mutator, Remover<I> remover) {
         this.id = id;
         this.entry = entry;
         this.context = context;
@@ -59,14 +58,14 @@ public class InfinispanBeanGroup<G, I, T> implements BeanGroup<G, I, T> {
     }
 
     @Override
-    public G getId() {
+    public I getId() {
         return this.id;
     }
 
     private Map<I, T> beans() {
         try {
             return this.entry.getBeans().get(this.context);
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             throw InfinispanEjbLogger.ROOT_LOGGER.deserializationFailure(e, this.id);
         }
     }
@@ -89,8 +88,15 @@ public class InfinispanBeanGroup<G, I, T> implements BeanGroup<G, I, T> {
     }
 
     @Override
-    public T removeBean(I id) {
-        return this.beans().remove(id);
+    public T removeBean(I id, PassivationListener<T> listener) {
+        int usage = this.entry.decrementUsage(id);
+        T bean = this.beans().remove(id);
+        if (bean != null) {
+            if ((usage == 0) && (listener != null)) {
+                listener.postActivate(bean);
+            }
+        }
+        return bean;
     }
 
     @Override
@@ -147,7 +153,7 @@ public class InfinispanBeanGroup<G, I, T> implements BeanGroup<G, I, T> {
     public boolean equals(Object object) {
         if (!(object instanceof BeanGroup)) return false;
         @SuppressWarnings("unchecked")
-        BeanGroup<G, I, T> group = (BeanGroup<G, I, T>) object;
+        BeanGroup<I, T> group = (BeanGroup<I, T>) object;
         return this.id.equals(group.getId());
     }
 

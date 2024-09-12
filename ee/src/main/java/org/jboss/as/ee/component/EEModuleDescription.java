@@ -80,6 +80,11 @@ public final class EEModuleDescription implements ResourceInjectionTarget {
     private String defaultSecurityDomain;
 
     /**
+     * The number of registered startup beans.
+     */
+    private int startupBeansCount;
+
+    /**
      * Construct a new instance.
      *
      * @param applicationName    the application name (which is same as the module name if the .ear is absent)
@@ -108,7 +113,7 @@ public final class EEModuleDescription implements ResourceInjectionTarget {
      */
     public EEModuleClassDescription addOrGetLocalClassDescription(final String className) {
         if (className == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("name");
+            throw EeLogger.ROOT_LOGGER.nullVar("className", "module", moduleName);
         }
         EEModuleClassDescription ret = classDescriptions.get(className);
         if (ret == null) {
@@ -153,10 +158,10 @@ public final class EEModuleDescription implements ResourceInjectionTarget {
         final String componentName = description.getComponentName();
         final String componentClassName = description.getComponentClassName();
         if (componentName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("componentName");
+            throw EeLogger.ROOT_LOGGER.nullVar("componentName", "module", moduleName);
         }
         if (componentClassName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("componentClassName");
+            throw EeLogger.ROOT_LOGGER.nullVar("componentClassName","module", moduleName);
         }
         if (componentsByName.containsKey(componentName)) {
             throw EeLogger.ROOT_LOGGER.componentAlreadyDefined(componentName);
@@ -237,15 +242,15 @@ public final class EEModuleDescription implements ResourceInjectionTarget {
 
     public void setDistinctName(String distinctName) {
         if (distinctName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("distinctName");
+            throw EeLogger.ROOT_LOGGER.nullVar("distinctName", "module", moduleName);
         }
         this.distinctName = distinctName;
     }
 
     /**
-     * Unlike the {@link #getApplicationName()} which follows the Java EE6 spec semantics i.e. application name is the
+     * Unlike the {@link #getApplicationName()} which follows the Jakarta EE spec semantics i.e. application name is the
      * name of the top level deployment (even if it is just a jar and not an ear), this method returns the
-     * application name which follows the EJB spec semantics i.e. the application name is the
+     * application name which follows the Jakarta Enterprise Beans spec semantics i.e. the application name is the
      * .ear name or any configured value in application.xml. This method returns null in the absence of a .ear
      *
      * @return
@@ -326,5 +331,13 @@ public final class EEModuleDescription implements ResourceInjectionTarget {
 
     public void setDefaultSecurityDomain(String defaultSecurityDomain) {
         this.defaultSecurityDomain = defaultSecurityDomain;
+    }
+
+    public int getStartupBeansCount() {
+        return this.startupBeansCount;
+    }
+
+    public int registerStartupBean() {
+        return ++this.startupBeansCount;
     }
 }

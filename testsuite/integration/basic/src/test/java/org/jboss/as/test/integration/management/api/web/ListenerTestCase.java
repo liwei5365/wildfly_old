@@ -26,11 +26,18 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.COM
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OPERATION_HEADERS;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.STEPS;
 import static org.jboss.as.test.integration.management.util.ModelUtil.createOpNode;
+import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.net.Socket;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -38,10 +45,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import javax.security.auth.x500.X500Principal;
+
 import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
@@ -62,9 +70,14 @@ import org.jboss.as.test.integration.security.common.config.realm.ServerIdentity
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.wildfly.security.x500.cert.SelfSignedX509CertificateAndSigningKey;
+
+import io.undertow.util.FileUtils;
 
 /**
  * @author Dominik Pospisil <dpospisi@redhat.com>
@@ -82,10 +95,98 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
     @ArquillianResource
     private URL url;
 
+    private static final char[] GENERATED_KEYSTORE_PASSWORD = "changeit".toCharArray();
+
+    private static final String WORKING_DIRECTORY_LOCATION = "./target/test-classes/security";
+
+    private static final String CLIENT_ALIAS = "client";
+    private static final String CLIENT_2_ALIAS = "client2";
+    private static final String TEST_ALIAS = "test";
+
+    private static final File KEY_STORE_FILE = new File(WORKING_DIRECTORY_LOCATION, "server.keystore");
+    private static final File TRUST_STORE_FILE = new File(WORKING_DIRECTORY_LOCATION, "jsse.keystore");
+
+    private static final String TEST_CLIENT_DN = "CN=Test Client, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+    private static final String TEST_CLIENT_2_DN = "CN=Test Client 2, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+    private static final String AS_7_DN = "CN=AS7, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+
+    private static final String SHA_256_RSA = "SHA256withRSA";
+
+    private static KeyStore loadKeyStore() throws Exception{
+        KeyStore ks = KeyStore.getInstance("JKS");
+        ks.load(null, null);
+        return ks;
+    }
+
+    private static SelfSignedX509CertificateAndSigningKey createSelfSigned(String DN) {
+        return SelfSignedX509CertificateAndSigningKey.builder()
+                .setDn(new X500Principal(DN))
+                .setKeyAlgorithmName("RSA")
+                .setSignatureAlgorithmName(SHA_256_RSA)
+                .build();
+    }
+
+    private static void addKeyEntry(SelfSignedX509CertificateAndSigningKey selfSignedX509CertificateAndSigningKey, KeyStore keyStore) throws Exception {
+        X509Certificate certificate = selfSignedX509CertificateAndSigningKey.getSelfSignedCertificate();
+        keyStore.setKeyEntry(TEST_ALIAS, selfSignedX509CertificateAndSigningKey.getSigningKey(), GENERATED_KEYSTORE_PASSWORD, new X509Certificate[]{certificate});
+    }
+
+    private static void addCertEntry(SelfSignedX509CertificateAndSigningKey selfSignedX509CertificateAndSigningKey, String alias, KeyStore keyStore) throws Exception {
+        X509Certificate certificate = selfSignedX509CertificateAndSigningKey.getSelfSignedCertificate();
+        keyStore.setCertificateEntry(alias, certificate);
+    }
+
+    private static void createTemporaryKeyStoreFile(KeyStore keyStore, File outputFile) throws Exception {
+        try (FileOutputStream fos = new FileOutputStream(outputFile)){
+            keyStore.store(fos, GENERATED_KEYSTORE_PASSWORD);
+        }
+    }
+
+    private static void setUpKeyStores() throws Exception {
+        File workingDir = new File(WORKING_DIRECTORY_LOCATION);
+        if (workingDir.exists() == false) {
+            workingDir.mkdirs();
+        }
+
+        KeyStore keyStore = loadKeyStore();
+        KeyStore trustStore = loadKeyStore();
+
+        SelfSignedX509CertificateAndSigningKey testClientSelfSignedX509CertificateAndSigningKey = createSelfSigned(TEST_CLIENT_DN);
+        SelfSignedX509CertificateAndSigningKey testClient2SelfSignedX509CertificateAndSigningKey = createSelfSigned(TEST_CLIENT_2_DN);
+        SelfSignedX509CertificateAndSigningKey aS7SelfSignedX509CertificateAndSigningKey = createSelfSigned(AS_7_DN);
+
+        addCertEntry(testClient2SelfSignedX509CertificateAndSigningKey, CLIENT_2_ALIAS, keyStore);
+        addCertEntry(testClientSelfSignedX509CertificateAndSigningKey, CLIENT_ALIAS, keyStore);
+        addKeyEntry(aS7SelfSignedX509CertificateAndSigningKey, keyStore);
+
+        addCertEntry(testClient2SelfSignedX509CertificateAndSigningKey, CLIENT_2_ALIAS, trustStore);
+        addCertEntry(testClientSelfSignedX509CertificateAndSigningKey, CLIENT_ALIAS, trustStore);
+
+        createTemporaryKeyStoreFile(keyStore, KEY_STORE_FILE);
+        createTemporaryKeyStoreFile(trustStore, TRUST_STORE_FILE);
+    }
+
+    private static void deleteKeyStoreFiles() {
+        File[] testFiles = {
+                KEY_STORE_FILE,
+                TRUST_STORE_FILE
+        };
+        for (File file : testFiles) {
+            if (file.exists()) {
+                file.delete();
+            }
+        }
+    }
+
+    @AfterClass
+    public static void afterTests() {
+        deleteKeyStoreFiles();
+    }
+
     @Deployment
     public static Archive<?> getDeployment() {
-        JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "dummy.jar");
-        ja.addClass(ListenerTestCase.class);
+        WebArchive ja = ShrinkWrap.create(WebArchive.class, "proxy.war");
+        ja.addClasses(ListenerTestCase.class, RemoteIpServlet.class);
         return ja;
     }
 
@@ -118,9 +219,8 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         addListener(Listener.HTTPS);
 
         // check that the connector is live
-        try {
+        try (CloseableHttpClient httpClient = TestHttpClientUtils.getHttpsClient(null)){
             String cURL = "https://" + url.getHost() + ":8181";
-            HttpClient httpClient = TestHttpClientUtils.wrapHttpsClient(new DefaultHttpClient());
             HttpGet get = new HttpGet(cURL);
 
             HttpResponse hr = httpClient.execute(get);
@@ -129,8 +229,6 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         } finally {
             removeListener(Listener.HTTPS);
         }
-
-
     }
 
     @Test
@@ -143,7 +241,7 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
     public void testAddAndRemoveRollbacks() throws Exception {
 
         // execute and rollback add socket
-        ModelNode addSocketOp = getAddSocketBindingOp(Listener.HTTPJIO);
+        ModelNode addSocketOp = getAddSocketBindingOp(Listener.HTTP);
         ModelNode ret = executeAndRollbackOperation(addSocketOp);
         assertTrue("failed".equals(ret.get("outcome").asString()));
 
@@ -151,7 +249,7 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         executeOperation(addSocketOp);
 
         // execute and rollback add connector
-        ModelNode addConnectorOp = getAddListenerOp(Listener.HTTPJIO);
+        ModelNode addConnectorOp = getAddListenerOp(Listener.HTTP, false);
         ret = executeAndRollbackOperation(addConnectorOp);
         assertTrue("failed".equals(ret.get("outcome").asString()));
 
@@ -159,10 +257,10 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         executeOperation(addConnectorOp);
 
         // check it is listed
-        assertTrue(getListenerList().get("http").contains("test-" + Listener.HTTPJIO.getName() + "-listener"));
+        assertTrue(getListenerList().get("http").contains("test-" + Listener.HTTP.getName() + "-listener"));
 
         // execute and rollback remove connector
-        ModelNode removeConnOp = getRemoveConnectorOp(Listener.HTTPJIO);
+        ModelNode removeConnOp = getRemoveConnectorOp(Listener.HTTP);
         ret = executeAndRollbackOperation(removeConnOp);
         assertEquals("failed", ret.get("outcome").asString());
 
@@ -176,7 +274,7 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         assertFalse("Connector not removed.", WebUtil.testHttpURL(cURL));
 
         // execute and rollback remove socket binding
-        ModelNode removeSocketOp = getRemoveSocketBindingOp(Listener.HTTPJIO);
+        ModelNode removeSocketOp = getRemoveSocketBindingOp(Listener.HTTP);
         ret = executeAndRollbackOperation(removeSocketOp);
         assertEquals("failed", ret.get("outcome").asString());
 
@@ -184,14 +282,45 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         executeOperation(removeSocketOp);
     }
 
+    @Test
+    public void testProxyProtocolOverHTTP() throws Exception {
+        addListener(Listener.HTTP, true);
+        try (Socket s = new Socket(url.getHost(), 8181)) {
+            s.getOutputStream().write("PROXY TCP4 1.2.3.4 5.6.7.8 444 555\r\nGET /proxy/addr HTTP/1.0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            String result = FileUtils.readFile(s.getInputStream());
+            Assert.assertTrue(result, result.contains("result:1.2.3.4:444 5.6.7.8:555"));
+        } finally {
+            removeListener(Listener.HTTP);
+        }
+    }
+
+
+    @Test
+    public void testProxyProtocolOverHTTPS() throws Exception {
+        addListener(Listener.HTTPS, true);
+        try (Socket s = new Socket(url.getHost(), 8181)) {
+            s.getOutputStream().write("PROXY TCP4 1.2.3.4 5.6.7.8 444 555\r\n".getBytes(StandardCharsets.US_ASCII));
+            Socket ssl = TestHttpClientUtils.getSslContext().getSocketFactory().createSocket(s, url.getHost(), HTTPS_PORT, true);
+            ssl.getOutputStream().write("GET /proxy/addr HTTP/1.0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            String result = FileUtils.readFile(ssl.getInputStream());
+            Assert.assertTrue(result, result.contains("result:1.2.3.4:444 5.6.7.8:555"));
+        } finally {
+            removeListener(Listener.HTTPS);
+        }
+    }
+
     private void addListener(Listener conn) throws Exception {
+        addListener(conn, false);
+    }
+
+    private void addListener(Listener conn, boolean proxyProtocol) throws Exception {
 
         // add socket binding
         ModelNode op = getAddSocketBindingOp(conn);
         executeOperation(op);
 
         // add connector
-        op = getAddListenerOp(conn);
+        op = getAddListenerOp(conn, proxyProtocol);
         executeOperation(op);
 
         // check it is listed
@@ -204,11 +333,14 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
         return op;
     }
 
-    private ModelNode getAddListenerOp(Listener conn) {
+    private ModelNode getAddListenerOp(Listener conn, boolean proxyProtocol) {
         final ModelNode composite = Util.getEmptyOperation(COMPOSITE, new ModelNode());
         final ModelNode steps = composite.get(STEPS);
         ModelNode op = createOpNode("subsystem=undertow/server=default-server/" + conn.getScheme() + "-listener=test-" + conn.getName() + "-listener", "add");
         op.get("socket-binding").set("test-" + conn.getName() + socketBindingCount);
+        if(proxyProtocol) {
+            op.get("proxy-protocol").set(true);
+        }
         if (conn.isSecure()) {
             op.get("security-realm").set("ssl-realm");
         }
@@ -273,6 +405,7 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
     static class SecurityRealmsSetup extends AbstractSecurityRealmsServerSetupTask {
         @Override
         protected SecurityRealm[] getSecurityRealms() throws Exception {
+            setUpKeyStores();
             URL keystoreResource = Thread.currentThread().getContextClassLoader().getResource("security/server.keystore");
             URL truststoreResource = Thread.currentThread().getContextClassLoader().getResource("security/jsse.keystore");
 
@@ -285,6 +418,7 @@ public class ListenerTestCase extends ContainerResourceMgmtTestBase {
                     .keystorePassword("changeit")
                     .keystorePath(truststoreResource.getPath())
                     .build();
+
             return new SecurityRealm[]{new SecurityRealm.Builder()
                     .name("ssl-realm")
                     .serverIdentity(

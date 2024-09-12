@@ -25,7 +25,7 @@ package org.jboss.as.test.integration.ejb.stateful.passivation;
 /**
  * @author <a href="mailto:andrew.rubinger@jboss.org">ALR</a>
  */
-public interface TestPassivationRemote {
+public interface TestPassivationRemote extends AutoCloseable {
     String EXPECTED_RESULT = "true";
 
     /**
@@ -50,17 +50,17 @@ public interface TestPassivationRemote {
 
     void addEntity(int id, String name);
 
-    /**
-     * Annotate for removing.
-     */
-    void remove();
+    void removeEntity(int id);
 
     Employee getSuperEmployee();
-    
+
     /**
-     * returns a value of a property of a CDI bean 
+     * returns a value of a property of a Jakarta Contexts and Dependency Injection bean
      */
     String getManagedBeanMessage();
-    
+
     void setManagedBeanMessage(String message);
+
+    @Override
+    void close();
 }

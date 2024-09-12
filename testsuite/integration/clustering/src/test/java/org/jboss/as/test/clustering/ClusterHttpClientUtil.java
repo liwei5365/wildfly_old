@@ -21,8 +21,8 @@
  */
 package org.jboss.as.test.clustering;
 
-import static org.junit.Assert.*;
-import static org.jboss.as.test.clustering.ClusteringTestConstants.GRACE_TIME_TO_REPLICATE;
+import static org.jboss.as.test.clustering.cluster.AbstractClusteringTestCase.GRACE_TIME_TO_REPLICATE;
+import static org.junit.Assert.assertEquals;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -30,6 +30,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -44,7 +45,6 @@ import org.apache.http.impl.client.HttpClients;
  * Helper class to start and stop container including a deployment.
  *
  * @author Radoslav Husar
- * @version April 2012
  */
 public final class ClusterHttpClientUtil {
 
@@ -74,14 +74,9 @@ public final class ClusterHttpClientUtil {
 
     /**
      * Tries a get on the provided client with default GRACE_TIME_TO_MEMBERSHIP_CHANGE.
-     *
-     * @param client
-     * @param url
-     * @return HTTP response
-     * @throws IOException
      */
     public static HttpResponse tryGet(final HttpClient client, final String url) throws IOException {
-        return tryGet(client, url, ClusteringTestConstants.GRACE_TIME_TO_REPLICATE);
+        return tryGet(client, url, GRACE_TIME_TO_REPLICATE);
     }
 
     public static HttpResponse tryGet(final HttpClient client, final HttpUriRequest r) throws IOException {
@@ -96,12 +91,6 @@ public final class ClusterHttpClientUtil {
 
     /**
      * Tries a get on the provided client with specified graceTime in milliseconds.
-     *
-     * @param client
-     * @param url
-     * @param graceTime
-     * @return
-     * @throws IOException
      */
     public static HttpResponse tryGet(final HttpClient client, final String url, final long graceTime) throws IOException {
         return tryGet(client, new HttpGet(url));
@@ -109,11 +98,6 @@ public final class ClusterHttpClientUtil {
 
     /**
      * Tries a get on the provided client consuming the request body.
-     *
-     * @param client
-     * @param url
-     * @return response body as string
-     * @throws IOException
      */
     public static String tryGetAndConsume(final HttpClient client, final String url) throws IOException {
         // Get the response
@@ -121,7 +105,7 @@ public final class ClusterHttpClientUtil {
 
         // Consume it
         StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(response.getEntity().getContent()), 4096)) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), StandardCharsets.UTF_8), 4096)) {
             String line;
             while ((line = br.readLine()) != null) {
                 sb.append(line);

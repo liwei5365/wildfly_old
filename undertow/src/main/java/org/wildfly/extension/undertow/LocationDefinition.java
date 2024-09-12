@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -22,49 +22,53 @@
 
 package org.wildfly.extension.undertow;
 
-import org.jboss.as.controller.AttributeDefinition;
-import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.PersistentResourceDefinition;
-import org.jboss.as.controller.ServiceRemoveStepHandler;
-import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
-import org.jboss.as.controller.operations.validation.StringLengthValidator;
-import org.jboss.dmr.ModelType;
-import org.jboss.msc.service.ServiceName;
-import org.wildfly.extension.undertow.filters.FilterRefDefinition;
-
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.PersistentResourceDefinition;
+import org.jboss.as.controller.ServiceRemoveStepHandler;
+import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
+import org.jboss.as.controller.SimpleResourceDefinition;
+import org.jboss.as.controller.capability.DynamicNameMappers;
+import org.jboss.as.controller.capability.RuntimeCapability;
+import org.jboss.as.controller.operations.validation.StringLengthValidator;
+import org.jboss.dmr.ModelType;
+import org.jboss.msc.service.ServiceName;
+import org.wildfly.extension.undertow.filters.FilterRefDefinition;
+
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2013 Red Hat Inc.
  */
 class LocationDefinition extends PersistentResourceDefinition {
+    static final RuntimeCapability<Void> LOCATION_CAPABILITY = RuntimeCapability.Builder.of(Capabilities.CAPABILITY_LOCATION, true, LocationService.class)
+            .addRequirements(Capabilities.CAPABILITY_UNDERTOW)
+            .setDynamicNameMapper(DynamicNameMappers.GRAND_PARENT)
+            .build();
+
     static final AttributeDefinition HANDLER = new SimpleAttributeDefinitionBuilder(Constants.HANDLER, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setValidator(new StringLengthValidator(1))
+            .setCapabilityReference(Capabilities.CAPABILITY_HANDLER)
+            .setRestartAllServices()
             .build();
     private static final List<? extends PersistentResourceDefinition> CHILDREN = Collections.unmodifiableList(Arrays.asList(FilterRefDefinition.INSTANCE));
     static final LocationDefinition INSTANCE = new LocationDefinition();
 
 
     private LocationDefinition() {
-        super(UndertowExtension.PATH_LOCATION,
-                UndertowExtension.getResolver(Constants.HOST, Constants.LOCATION),
-                LocationAdd.INSTANCE,
-                new ServiceRemoveStepHandler(LocationAdd.INSTANCE) {
-
+        super(new SimpleResourceDefinition.Parameters(UndertowExtension.PATH_LOCATION, UndertowExtension.getResolver(Constants.HOST, Constants.LOCATION))
+                .setAddHandler(LocationAdd.INSTANCE)
+                .setRemoveHandler( new ServiceRemoveStepHandler(LocationAdd.INSTANCE) {
                     @Override
                     protected ServiceName serviceName(String name, PathAddress address) {
-                        final PathAddress hostAddress = address.subAddress(0, address.size() - 1);
-                        final PathAddress serverAddress = hostAddress.subAddress(0, hostAddress.size() - 1);
-                        final String serverName = serverAddress.getLastElement().getValue();
-                        final String hostName = hostAddress.getLastElement().getValue();
-                        return UndertowService.locationServiceName(serverName, hostName, name);
+                        return LOCATION_CAPABILITY.getCapabilityServiceName(address);
                     }
-                }
-        );
+                })
+                .addCapabilities(LOCATION_CAPABILITY));
     }
 
     @Override

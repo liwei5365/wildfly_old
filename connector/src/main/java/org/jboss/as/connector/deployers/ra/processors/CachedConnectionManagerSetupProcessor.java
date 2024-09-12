@@ -26,10 +26,12 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
 import javax.resource.ResourceException;
 
 import org.jboss.as.connector.util.ConnectorServices;
 import org.jboss.as.ee.component.Attachments;
+import org.jboss.as.server.deployment.AttachmentKey;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
@@ -52,7 +54,7 @@ import org.jboss.msc.value.InjectedValue;
 public class CachedConnectionManagerSetupProcessor implements DeploymentUnitProcessor {
 
     private static final ServiceName SERVICE_NAME = ServiceName.of("jca", "cachedConnectionManagerSetupProcessor");
-
+    private static final AttachmentKey<SetupAction> ATTACHMENT_KEY = AttachmentKey.create(SetupAction.class);
 
     @Override
     public void deploy(final DeploymentPhaseContext phaseContext) throws DeploymentUnitProcessingException {
@@ -62,21 +64,24 @@ public class CachedConnectionManagerSetupProcessor implements DeploymentUnitProc
 
         phaseContext.getServiceTarget().addService(serviceName, action)
                 .addDependency(ConnectorServices.CCM_SERVICE, CachedConnectionManager.class, action.cachedConnectionManager)
+                .addDependency(ConnectorServices.NON_TX_CCM_SERVICE, CachedConnectionManager.class, action.noTxCcmValue)
                 .install();
         deploymentUnit.addToAttachmentList(Attachments.WEB_SETUP_ACTIONS, action);
         deploymentUnit.addToAttachmentList(Attachments.OTHER_EE_SETUP_ACTIONS, action);
-
+        deploymentUnit.putAttachment(ATTACHMENT_KEY, action);
     }
 
     @Override
-    public void undeploy(final DeploymentUnit context) {
-
+    public void undeploy(final DeploymentUnit deploymentUnit) {
+        SetupAction action = deploymentUnit.removeAttachment(ATTACHMENT_KEY);
+        deploymentUnit.getAttachmentList(Attachments.OTHER_EE_SETUP_ACTIONS).remove(action);
+        deploymentUnit.getAttachmentList(Attachments.WEB_SETUP_ACTIONS).remove(action);
     }
 
     private static class CachedConnectionManagerSetupAction implements SetupAction, Service<Void> {
 
         private final InjectedValue<CachedConnectionManager> cachedConnectionManager = new InjectedValue<CachedConnectionManager>();
-
+        private final InjectedValue<CachedConnectionManager> noTxCcmValue = new InjectedValue<CachedConnectionManager>();
 
         private final ServiceName serviceName;
 
@@ -90,6 +95,10 @@ public class CachedConnectionManagerSetupProcessor implements DeploymentUnitProc
         @Override
         public void setup(final Map<String, Object> properties) {
             try {
+                final CachedConnectionManager noTxCcm = noTxCcmValue.getOptionalValue();
+                if (noTxCcm != null) {
+                    noTxCcm.pushMetaAwareObject(this, unsharable);
+                }
                 final CachedConnectionManager connectionManager = cachedConnectionManager.getOptionalValue();
                 if (connectionManager != null) {
                     connectionManager.pushMetaAwareObject(this, unsharable);
@@ -105,6 +114,10 @@ public class CachedConnectionManagerSetupProcessor implements DeploymentUnitProc
                 final CachedConnectionManager connectionManager = cachedConnectionManager.getOptionalValue();
                 if (connectionManager != null) {
                     connectionManager.popMetaAwareObject(unsharable);
+                }
+                final CachedConnectionManager noTxCcm = noTxCcmValue.getOptionalValue();
+                if (noTxCcm != null) {
+                    noTxCcm.popMetaAwareObject(unsharable);
                 }
             } catch (ResourceException e) {
                 throw new RuntimeException(e);

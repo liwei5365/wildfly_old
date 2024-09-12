@@ -22,50 +22,54 @@
 package org.jboss.as.ejb3.component.stateful;
 
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
+import java.rmi.RemoteException;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
+import javax.ejb.ConcurrentAccessException;
+import javax.ejb.ConcurrentAccessTimeoutException;
 import javax.ejb.EJBException;
 import javax.ejb.EJBLocalObject;
 import javax.ejb.EJBObject;
+import javax.ejb.RemoveException;
 import javax.ejb.TimerService;
 
 import org.jboss.as.ee.component.BasicComponentInstance;
 import org.jboss.as.ee.component.ComponentInstance;
+import org.jboss.as.ee.component.ComponentIsStoppedException;
 import org.jboss.as.ee.component.ComponentView;
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.cache.Cache;
+import org.jboss.as.ejb3.cache.CacheFactory;
 import org.jboss.as.ejb3.cache.StatefulObjectFactory;
 import org.jboss.as.ejb3.component.DefaultAccessTimeoutService;
 import org.jboss.as.ejb3.component.EJBBusinessMethod;
+import org.jboss.as.ejb3.component.EJBComponentUnavailableException;
 import org.jboss.as.ejb3.component.allowedmethods.AllowedMethodsInformation;
 import org.jboss.as.ejb3.component.session.SessionBeanComponent;
 import org.jboss.as.ejb3.concurrency.AccessTimeoutDetails;
+import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.naming.ManagedReference;
 import org.jboss.as.server.CurrentServiceContainer;
-import org.jboss.as.server.ServerEnvironment;
 import org.jboss.ejb.client.EJBClient;
 import org.jboss.ejb.client.SessionID;
 import org.jboss.ejb.client.StatefulEJBLocator;
+import org.jboss.ejb.client.UUIDSessionID;
 import org.jboss.invocation.Interceptor;
 import org.jboss.invocation.InterceptorContext;
 import org.jboss.invocation.InterceptorFactory;
 import org.jboss.invocation.InterceptorFactoryContext;
 import org.jboss.msc.service.ServiceContainer;
 import org.jboss.msc.service.ServiceController;
+import org.wildfly.clustering.ejb.IdentifierFactory;
+import org.wildfly.clustering.ejb.PassivationListener;
 import org.wildfly.extension.requestcontroller.ControlPoint;
 import org.wildfly.extension.requestcontroller.RunResult;
 import org.wildfly.security.manager.WildFlySecurityManager;
-
-import org.jboss.as.ejb3.cache.CacheFactory;
-import org.jboss.msc.value.Value;
-import org.wildfly.clustering.ejb.IdentifierFactory;
-import org.wildfly.clustering.ejb.PassivationListener;
 
 /**
  * Stateful Session Bean
@@ -73,8 +77,6 @@ import org.wildfly.clustering.ejb.PassivationListener;
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
  */
 public class StatefulSessionComponent extends SessionBeanComponent implements StatefulObjectFactory<StatefulSessionComponentInstance>, PassivationListener<StatefulSessionComponentInstance>, IdentifierFactory<SessionID> {
-
-    public static final Object SESSION_ID_REFERENCE_KEY = new Object();
 
     private volatile Cache<SessionID, StatefulSessionComponentInstance> cache;
 
@@ -93,7 +95,7 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
     private Interceptor postActivateInterceptor;
     private final Map<EJBBusinessMethod, AccessTimeoutDetails> methodAccessTimeouts;
     private final DefaultAccessTimeoutService defaultAccessTimeoutProvider;
-    private final Value<CacheFactory> cacheFactory;
+    private final Supplier<CacheFactory<SessionID, StatefulSessionComponentInstance>> cacheFactory;
     private final InterceptorFactory ejb2XRemoveMethod;
     private Interceptor ejb2XRemoveMethodInterceptor;
 
@@ -114,6 +116,7 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
     protected StatefulSessionComponent(final StatefulSessionComponentCreateService ejbComponentCreateService) {
         super(ejbComponentCreateService);
 
+        ejbComponentCreateService.setDefaultStatefulSessionTimeout();
         this.afterBegin = ejbComponentCreateService.getAfterBegin();
         this.afterBeginMethod = ejbComponentCreateService.getAfterBeginMethod();
         this.afterCompletion = ejbComponentCreateService.getAfterCompletion();
@@ -203,11 +206,11 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
             return AccessController.doPrivileged(new PrivilegedAction<EJBObject>() {
                 @Override
                 public EJBObject run() {
-                   return EJBClient.createProxy(new StatefulEJBLocator<EJBObject>((Class<EJBObject>) view.getViewClass(), locatorAppName, getModuleName(), getComponentName(), getDistinctName(), getSessionIdOf(ctx), getCache().getStrictAffinity(), WildFlySecurityManager.getPropertyPrivileged(ServerEnvironment.NODE_NAME, null)));
+                   return EJBClient.createProxy(new StatefulEJBLocator<EJBObject>((Class<EJBObject>) view.getViewClass(), locatorAppName, getModuleName(), getComponentName(), getDistinctName(), getSessionIdOf(ctx), getCache().getStrictAffinity()));
                 }
             });
         } else {
-            return EJBClient.createProxy(new StatefulEJBLocator<EJBObject>((Class<EJBObject>) view.getViewClass(), locatorAppName, getModuleName(), getComponentName(), getDistinctName(), getSessionIdOf(ctx), this.getCache().getStrictAffinity(), WildFlySecurityManager.getPropertyPrivileged(ServerEnvironment.NODE_NAME, null)));
+            return EJBClient.createProxy(new StatefulEJBLocator<EJBObject>((Class<EJBObject>) view.getViewClass(), locatorAppName, getModuleName(), getComponentName(), getDistinctName(), getSessionIdOf(ctx), this.getCache().getStrictAffinity()));
         }
     }
 
@@ -251,7 +254,7 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
         } else {
             try {
                 RunResult result = controlPoint.beginRequest();
-                if(result == RunResult.REJECTED) {
+                if (result == RunResult.REJECTED) {
                     throw EjbLogger.ROOT_LOGGER.containerSuspended();
                 }
                 try {
@@ -259,6 +262,8 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
                 } finally {
                     controlPoint.requestComplete();
                 }
+            } catch (EJBComponentUnavailableException | ComponentIsStoppedException e) {
+                throw e;
             } catch (Exception e) {
                 throw new EJBException(e);
             }
@@ -270,11 +275,7 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
 
     @Override
     public SessionID createIdentifier() {
-        final UUID uuid = UUID.randomUUID();
-        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-        bb.putLong(uuid.getMostSignificantBits());
-        bb.putLong(uuid.getLeastSignificantBits());
-        return SessionID.createSessionID(bb.array());
+        return new UUIDSessionID(UUID.randomUUID());
     }
 
     @Override
@@ -334,10 +335,10 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
     }
 
     @Override
-    public void start() {
-        super.start();
+    public synchronized void init() {
+        super.init();
 
-        this.cache = this.cacheFactory.getValue().createCache(this, this, this);
+        this.cache = this.cacheFactory.get().createCache(this, this, this);
         this.cache.start();
     }
 
@@ -393,5 +394,23 @@ public class StatefulSessionComponent extends SessionBeanComponent implements St
             return CurrentServiceContainer.getServiceContainer();
         }
         return AccessController.doPrivileged(CurrentServiceContainer.GET_ACTION);
+    }
+
+    @Override
+    public boolean isRemotable(Throwable throwable) {
+        return cache.isRemotable(throwable);
+    }
+
+    public boolean shouldDiscard(Exception ex, Method method) {
+
+        // Detect app exception
+        if (getApplicationException(ex.getClass(), method) != null // it's an application exception, just throw it back.
+            || ex instanceof ConcurrentAccessTimeoutException
+            || ex instanceof ConcurrentAccessException) {
+            return false;
+        }
+
+        return (!(ex instanceof RemoveException)
+                && (ex instanceof RuntimeException || ex instanceof RemoteException));
     }
 }

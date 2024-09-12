@@ -69,11 +69,12 @@ public class ClassLoaderContextHandleFactory implements ContextHandleFactory {
         return new ClassLoaderSetupContextHandle(classLoader);
     }
 
-    private static class ClassLoaderSetupContextHandle implements SetupContextHandle {
+    static class ClassLoaderSetupContextHandle implements SetupContextHandle {
 
+        private static final long serialVersionUID = -2669625643479981561L;
         private final ClassLoader classLoader;
 
-        private ClassLoaderSetupContextHandle(ClassLoader classLoader) {
+        ClassLoaderSetupContextHandle(ClassLoader classLoader) {
             this.classLoader = classLoader;
         }
 
@@ -102,6 +103,7 @@ public class ClassLoaderContextHandleFactory implements ContextHandleFactory {
 
     private static class ClassLoaderResetContextHandle implements ResetContextHandle {
 
+        private static final long serialVersionUID = -579159484365527468L;
         private final ClassLoader previous;
 
         private ClassLoaderResetContextHandle(ClassLoader previous) {

@@ -21,19 +21,24 @@
  */
 package org.wildfly.clustering.server.dispatcher;
 
-import org.jgroups.Channel;
-import org.wildfly.clustering.jgroups.spi.ChannelFactory;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
-import org.wildfly.clustering.server.group.JGroupsNodeFactory;
+import java.nio.ByteBuffer;
+import java.time.Duration;
+import java.util.function.Function;
+import java.util.function.Predicate;
+
+import org.jboss.as.clustering.context.Contextualizer;
+import org.jgroups.JChannel;
+import org.wildfly.clustering.marshalling.spi.ByteBufferMarshaller;
 
 /**
  * Configuration for a {@link ChannelCommandDispatcherFactory}.
  * @author Paul Ferraro
  */
 public interface ChannelCommandDispatcherFactoryConfiguration {
-    ChannelFactory getChannelFactory();
-    Channel getChannel();
-    JGroupsNodeFactory getNodeFactory();
-    MarshallingContext getMarshallingContext();
-    long getTimeout();
+    Predicate<ByteBuffer> getUnknownForkPredicate();
+    JChannel getChannel();
+    ByteBufferMarshaller getMarshaller();
+    Duration getTimeout();
+    Function<ClassLoader, ByteBufferMarshaller> getMarshallerFactory();
+    Function<ClassLoader, Contextualizer> getContextualizerFactory();
 }

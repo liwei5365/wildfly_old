@@ -176,7 +176,7 @@ public final class ViewService implements Service<ComponentView> {
 
         public ManagedReference createInstance(Map<Object, Object> contextData) throws Exception {
             // view instance creation can lead to instantiating application component classes (like the MDB implementation class
-            // or even the EJB implementation class of a no-interface view exposing bean). Such class initialization needs to
+            // or even the Jakarta Enterprise Beans implementation class of a no-interface view exposing bean). Such class initialization needs to
             // have the TCCL set to the component/application's classloader. @see https://issues.jboss.org/browse/WFLY-3989
             final ClassLoader oldTCCL = WildFlySecurityManager.getCurrentContextClassLoaderPrivileged();
             try {
@@ -190,6 +190,9 @@ public final class ViewService implements Service<ComponentView> {
 
         @Override
         public Object invoke(InterceptorContext interceptorContext) throws Exception {
+            if(component instanceof BasicComponent) {
+                ((BasicComponent) component).waitForComponentStart();
+            }
             final Method method = interceptorContext.getMethod();
             final Interceptor interceptor = viewInterceptors.get(method);
             return interceptor.processInvocation(interceptorContext);

@@ -24,6 +24,7 @@
 
 package org.jboss.as.connector.subsystems.datasources;
 
+import static org.jboss.as.connector.subsystems.datasources.Constants.DATASOURCE_CLASS_INFO;
 import static org.jboss.as.connector.subsystems.datasources.Constants.JDBC_DRIVER_NAME;
 
 import java.util.List;
@@ -35,9 +36,6 @@ import org.jboss.as.controller.access.constraint.ApplicationTypeConfig;
 import org.jboss.as.controller.access.management.AccessConstraintDefinition;
 import org.jboss.as.controller.access.management.ApplicationTypeAccessConstraintDefinition;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 
 /**
  * Stefano Maestri
@@ -63,26 +61,14 @@ public class JdbcDriverDefinition extends SimpleResourceDefinition {
         for (AttributeDefinition attribute : Constants.JDBC_DRIVER_ATTRIBUTES) {
             resourceRegistration.registerReadOnlyAttribute(attribute, null);
         }
+        if (resourceRegistration.getProcessType().isServer()) {
+            resourceRegistration.registerReadOnlyAttribute(DATASOURCE_CLASS_INFO, GetDataSourceClassInfoOperationHandler.INSTANCE);
+        }
     }
 
     @Override
     public List<AccessConstraintDefinition> getAccessConstraints() {
         return accessConstraints;
-    }
-
-    static void registerTransformers110(ResourceTransformationDescriptionBuilder parenBuilder) {
-
-        parenBuilder.addChildResource(PATH_DRIVER).getAttributeBuilder()
-                .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, Constants.DRIVER_MINOR_VERSION, Constants.DRIVER_MAJOR_VERSION)
-                .setDiscard(DiscardAttributeChecker.UNDEFINED, Constants.DRIVER_DATASOURCE_CLASS_NAME)
-                .end();
-    }
-
-    static void registerTransformers111(ResourceTransformationDescriptionBuilder parenBuilder) {
-
-        parenBuilder.addChildResource(PATH_DRIVER).getAttributeBuilder()
-                .setDiscard(DiscardAttributeChecker.UNDEFINED, Constants.DRIVER_DATASOURCE_CLASS_NAME)
-                .end();
     }
 
 }

@@ -22,6 +22,8 @@
 package org.jboss.as.ejb3.tx;
 
 import javax.ejb.TransactionAttributeType;
+import javax.transaction.Status;
+import javax.transaction.Transaction;
 
 import org.jboss.as.ee.component.Component;
 import org.jboss.as.ee.component.ComponentInterceptorFactory;
@@ -32,13 +34,14 @@ import org.jboss.invocation.Interceptor;
 import org.jboss.invocation.InterceptorContext;
 import org.jboss.invocation.InterceptorFactoryContext;
 import org.jboss.invocation.proxy.MethodIdentifier;
+import org.wildfly.transaction.client.ContextTransactionManager;
 
 /**
  * Transaction interceptor for Singleton and Stateless beans,
  *
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
  */
-public class LifecycleCMTTxInterceptor extends CMTTxInterceptor implements Interceptor {
+public class LifecycleCMTTxInterceptor extends CMTTxInterceptor {
 
     private final TransactionAttributeType transactionAttributeType;
     private final int transactionTimeout;
@@ -47,7 +50,6 @@ public class LifecycleCMTTxInterceptor extends CMTTxInterceptor implements Inter
         this.transactionAttributeType = transactionAttributeType;
         this.transactionTimeout = transactionTimeout;
     }
-
 
     @Override
     public Object processInvocation(InterceptorContext invocation) throws Exception {
@@ -68,6 +70,24 @@ public class LifecycleCMTTxInterceptor extends CMTTxInterceptor implements Inter
                 return supports(invocation, component);
             default:
                 throw EjbLogger.ROOT_LOGGER.unknownTxAttributeOnInvocation(transactionAttributeType, invocation);
+        }
+    }
+
+    @Override
+    protected Object notSupported(InterceptorContext invocation, EJBComponent component) throws Exception {
+        Transaction tx = ContextTransactionManager.getInstance().getTransaction();
+        int status = (tx != null) ? tx.getStatus() : Status.STATUS_NO_TRANSACTION;
+        // If invocation was triggered from Synchronization.afterCompletion(...)
+        // then skip suspend/resume of associated tx since JTS refuses to resume a completed tx
+        switch (status) {
+            case Status.STATUS_NO_TRANSACTION:
+            case Status.STATUS_COMMITTED:
+            case Status.STATUS_ROLLEDBACK: {
+                return invokeInNoTx(invocation, component);
+            }
+            default: {
+                return super.notSupported(invocation, component);
+            }
         }
     }
 
@@ -110,12 +130,14 @@ public class LifecycleCMTTxInterceptor extends CMTTxInterceptor implements Inter
             if (treatRequiredAsRequiresNew && txAttr == TransactionAttributeType.REQUIRED) {
                 txAttr = TransactionAttributeType.REQUIRES_NEW;
             }
-            if(!treatRequiredAsRequiresNew ) {
-                if(txAttr != TransactionAttributeType.NOT_SUPPORTED &&
-                        txAttr != TransactionAttributeType.REQUIRES_NEW) {
-                    EjbLogger.ROOT_LOGGER.invalidTransactionTypeForSfsbLifecycleMethod(txAttr, methodIdentifier, ejb.getComponentClass());
-                    txAttr = TransactionAttributeType.NOT_SUPPORTED;
+            if (!treatRequiredAsRequiresNew
+                    && txAttr != TransactionAttributeType.NOT_SUPPORTED
+                    && txAttr != TransactionAttributeType.REQUIRES_NEW) {
+                if (ejb.isTransactionAttributeTypeExplicit(MethodIntf.BEAN, methodIdentifier)) {
+                    EjbLogger.ROOT_LOGGER.invalidTransactionTypeForSfsbLifecycleMethod(txAttr, methodIdentifier,
+                            ejb.getComponentClass());
                 }
+                txAttr = TransactionAttributeType.NOT_SUPPORTED;
             }
             final LifecycleCMTTxInterceptor interceptor = new LifecycleCMTTxInterceptor(txAttr, txTimeout);
             return interceptor;

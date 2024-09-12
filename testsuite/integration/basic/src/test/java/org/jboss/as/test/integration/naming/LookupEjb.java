@@ -1,9 +1,8 @@
 package org.jboss.as.test.integration.naming;
 
-import com.sun.jndi.ldap.LdapCtx;
-
 import javax.annotation.Resource;
 import javax.ejb.Stateless;
+import javax.naming.ldap.LdapContext;
 
 /**
  * @author Stuart Douglas
@@ -12,9 +11,9 @@ import javax.ejb.Stateless;
 public class LookupEjb {
 
     @Resource(lookup = "java:global/ldap/dc=jboss,dc=org")
-    private LdapCtx ldapCtx;
+    private LdapContext ldapCtx;
 
-    public LdapCtx getLdapCtx() {
+    public LdapContext getLdapCtx() {
         return ldapCtx;
     }
 }

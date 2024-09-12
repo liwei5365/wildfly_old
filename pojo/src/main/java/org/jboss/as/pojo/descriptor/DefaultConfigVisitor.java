@@ -35,6 +35,7 @@ import org.jboss.msc.service.ServiceName;
  * Default config visitor.
  *
  * @author <a href="mailto:ales.justin@jboss.org">Ales Justin</a>
+ * @author <a href="mailto:ropalka@jboss.org">Richard Opalka</a>
  */
 public class DefaultConfigVisitor extends AbstractConfigVisitor {
     private final ServiceBuilder builder;
@@ -86,35 +87,25 @@ public class DefaultConfigVisitor extends AbstractConfigVisitor {
 
     @Override
     public void addDependency(ServiceName name) {
-        builder.addDependency(name);
-    }
-
-    @Override
-    public void addOptionalDependency(ServiceName dependency) {
-        builder.addDependency(ServiceBuilder.DependencyType.OPTIONAL, dependency);
+        builder.requires(name);
     }
 
     @Override
     public void addDependency(ServiceName name, Injector injector) {
-        builder.addDependency(name, injector);
-    }
-
-    @Override
-    public void addOptionalDependency(ServiceName dependency, Injector injector) {
-        builder.addDependency(ServiceBuilder.DependencyType.OPTIONAL, dependency, injector);
+        builder.addDependency(name, Object.class, injector);
     }
 
     @Override
     public void addDependency(String bean, BeanState state) {
         if (state != BeanState.DESCRIBED)
-            builder.addDependency(BeanMetaDataConfig.toBeanName(bean, BeanState.DESCRIBED));
-        builder.addDependency(BeanMetaDataConfig.toBeanName(bean, state));
+            builder.requires(BeanMetaDataConfig.toBeanName(bean, BeanState.DESCRIBED));
+        builder.requires(BeanMetaDataConfig.toBeanName(bean, state));
     }
 
     @Override
     public void addDependency(String bean, BeanState state, Injector injector) {
         if (state != BeanState.DESCRIBED)
-            builder.addDependency(BeanMetaDataConfig.toBeanName(bean, BeanState.DESCRIBED));
-        builder.addDependency(BeanMetaDataConfig.toBeanName(bean, state), injector);
+            builder.requires(BeanMetaDataConfig.toBeanName(bean, BeanState.DESCRIBED));
+        builder.addDependency(BeanMetaDataConfig.toBeanName(bean, state), Object.class, injector);
     }
 }

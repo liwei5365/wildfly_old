@@ -25,14 +25,20 @@ import org.wildfly.clustering.ee.Batch;
 
 /**
  * A factory for creating a session manager.
+ * @param <SC> the ServletContext specification type
+ * @param <LC> the local context type
+ * @param <B> the batch type
  * @author Paul Ferraro
  */
-public interface SessionManagerFactory<B extends Batch> {
+public interface SessionManagerFactory<SC, LC, B extends Batch> extends AutoCloseable {
     /**
      * Create as session manager using the specified context and identifier factory.
      * @param context a session context
      * @param idFactory a session identifier factory
      * @return a new session manager
      */
-    <C> SessionManager<C, B> createSessionManager(SessionManagerConfiguration<C> configuration);
+    SessionManager<LC, B> createSessionManager(SessionManagerConfiguration<SC> configuration);
+
+    @Override
+    void close();
 }

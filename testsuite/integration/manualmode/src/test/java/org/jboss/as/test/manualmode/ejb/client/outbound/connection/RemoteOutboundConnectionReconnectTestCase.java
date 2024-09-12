@@ -22,6 +22,13 @@
 
 package org.jboss.as.test.manualmode.ejb.client.outbound.connection;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
+import javax.naming.Context;
+import javax.naming.NamingException;
+
 import org.jboss.arquillian.container.test.api.ContainerController;
 import org.jboss.arquillian.container.test.api.Deployer;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -30,11 +37,6 @@ import org.jboss.arquillian.container.test.api.TargetsContainer;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.test.manualmode.ejb.Util;
-import org.jboss.ejb.client.ContextSelector;
-import org.jboss.ejb.client.EJBClientConfiguration;
-import org.jboss.ejb.client.EJBClientContext;
-import org.jboss.ejb.client.PropertiesBasedEJBClientConfiguration;
-import org.jboss.ejb.client.remoting.ConfigBasedEJBClientContextSelector;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -45,15 +47,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import javax.naming.Context;
-import javax.naming.NamingException;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
-
 /**
- * Tests that an EJB client context containing a reference to a remote outbound connection, has the ability to
+ * Tests that an Jakarta Enterprise Beans client context containing a reference to a remote outbound connection, has the ability to
  * reconnect a failed connection
  *
  * @author Jaikiran Pai
@@ -81,20 +76,15 @@ public class RemoteOutboundConnectionReconnectTestCase {
     private Deployer deployer;
 
     private Context context;
-    private ContextSelector<EJBClientContext> previousClientContextSelector;
 
     @Before
     public void before() throws Exception {
-        this.context = Util.createNamingContext();
-        // setup the client context selector
-        this.previousClientContextSelector = setupEJBClientContextSelector();
+        final Properties ejbClientProperties = setupEJBClientProperties();
+        this.context = Util.createNamingContext(ejbClientProperties);
     }
 
     @After
     public void after() throws NamingException {
-        if (this.previousClientContextSelector != null) {
-            EJBClientContext.setSelector(this.previousClientContextSelector);
-        }
         this.context.close();
     }
 
@@ -130,7 +120,7 @@ public class RemoteOutboundConnectionReconnectTestCase {
         this.container.start(JBOSSAS_WITH_REMOTE_OUTBOUND_CONNECTION_NON_CLUSTERED);
         boolean defaultContainerStarted = false;
         try {
-            // deploy a deployment which contains jboss-ejb-client.xml that contains an EJB receiver pointing
+            // deploy a deployment which contains jboss-ejb-client.xml that contains an Jakarta Enterprise Beans receiver pointing
             // to a server which hasn't yet started. Should succeed without throwing deployment error
             this.deployer.deploy(DEPLOYMENT_WITH_JBOSS_EJB_CLIENT_XML);
             // To make sure deployment succeeded and invocations are possible, call an independent bean
@@ -139,16 +129,16 @@ public class RemoteOutboundConnectionReconnectTestCase {
             final String echoFromIndependentBean = independentBean.echo(msg);
             Assert.assertEquals("Unexpected echo from independent bean", msg, echoFromIndependentBean);
 
-            // now try invoking the EJB (which calls a delegate bean on other server) on this server. 
-            // should fail with no EJB receivers, since the other server
+            // now try invoking the Jakarta Enterprise Beans (which calls a delegate bean on other server) on this server.
+            // should fail with no Jakarta Enterprise Beans receivers, since the other server
             // which can handle the delegate bean invocation hasn't yet started.
             try {
                 final RemoteEcho dependentBean = (RemoteEcho) context.lookup("ejb:/" + SERVER_ONE_MODULE_NAME + "//" + EchoOnServerOne.class.getSimpleName() + "!" + RemoteEcho.class.getName());
                 final String echoBeforeOtherServerStart = dependentBean.echo(msg);
                 Assert.fail("Invocation on bean when was expected to fail due to other server being down");
             } catch (Exception e) {
-                // expected 
-                logger.info("Got the expected exception on invoking a bean when other server was down", e);
+                // expected
+                logger.trace("Got the expected exception on invoking a bean when other server was down", e);
             }
             // now start the main server
             this.container.start(JBOSSAS_NON_CLUSTERED);
@@ -156,7 +146,7 @@ public class RemoteOutboundConnectionReconnectTestCase {
             // deploy to this container
             this.deployer.deploy(DEFAULT_AS_DEPLOYMENT);
 
-            // now invoke the EJB (which had failed earlier)
+            // now invoke the Jakarta Enterprise Beans (which had failed earlier)
             final RemoteEcho dependentBean = (RemoteEcho) context.lookup("ejb:/" + SERVER_ONE_MODULE_NAME + "//" + EchoOnServerOne.class.getSimpleName() + "!" + RemoteEcho.class.getName());
             final String echoAfterOtherServerStarted = dependentBean.echo(msg);
             Assert.assertEquals("Unexpected echo from bean", EchoOnServerTwo.ECHO_PREFIX + msg, echoAfterOtherServerStarted);
@@ -184,7 +174,7 @@ public class RemoteOutboundConnectionReconnectTestCase {
      * Deploy (X) to server A. X contains a jboss-ejb-client.xml pointing to server B. The deployment and invocations
      * must succeed.
      * Now stop server (B). Invoke again on the bean. Invocation should fail since server B is down. Now
-     * restart server B and invoke again on the bean. Invocation should pass since the EJB client context is
+     * restart server B and invoke again on the bean. Invocation should pass since the Jakarta Enterprise Beans client context is
      * expected to reconnect to the restarted server B.
      *
      * @throws Exception
@@ -208,8 +198,8 @@ public class RemoteOutboundConnectionReconnectTestCase {
             final String echoFromIndependentBean = independentBean.echo(msg);
             Assert.assertEquals("Unexpected echo from independent bean", msg, echoFromIndependentBean);
 
-            // now try invoking the EJB (which calls a delegate bean on other server) on this server.
-            // should fail with no EJB receivers, since the other server
+            // now try invoking the Jakarta Enterprise Beans (which calls a delegate bean on other server) on this server.
+            // should fail with no Jakarta Enterprise Beans receivers, since the other server
             // which can handle the delegate bean invocation hasn't yet started.
             final RemoteEcho dependentBean = (RemoteEcho) context.lookup("ejb:/" + SERVER_ONE_MODULE_NAME + "//" + EchoOnServerOne.class.getSimpleName() + "!" + RemoteEcho.class.getName());
             final String echoBeforeShuttingDownServer = dependentBean.echo(msg);
@@ -224,7 +214,7 @@ public class RemoteOutboundConnectionReconnectTestCase {
                 Assert.fail("Invocation on bean when was expected to fail due to other server being down");
             } catch (Exception e) {
                 // expected
-                logger.info("Got the expected exception on invoking a bean when other server was down", e);
+                logger.trace("Got the expected exception on invoking a bean when other server was down", e);
             }
 
             // now restart the main server
@@ -255,14 +245,13 @@ public class RemoteOutboundConnectionReconnectTestCase {
     }
 
     /**
-     * Sets up the EJB client context to use a selector which processes and sets up EJB receivers
-     * based on this testcase specific jboss-ejb-client.properties file
+     * Sets up the Jakarta Enterprise Beans client properties based on this testcase specific jboss-ejb-client.properties file
      *
      * @return
      * @throws java.io.IOException
      */
-    private static ContextSelector<EJBClientContext> setupEJBClientContextSelector() throws IOException {
-        // setup the selector
+    private static Properties setupEJBClientProperties() throws IOException {
+        // setup the properties
         final String clientPropertiesFile = "org/jboss/as/test/manualmode/ejb/client/outbound/connection/jboss-ejb-client.properties";
         final InputStream inputStream = RemoteOutboundConnectionReconnectTestCase.class.getClassLoader().getResourceAsStream(clientPropertiesFile);
         if (inputStream == null) {
@@ -270,9 +259,6 @@ public class RemoteOutboundConnectionReconnectTestCase {
         }
         final Properties properties = new Properties();
         properties.load(inputStream);
-        final EJBClientConfiguration ejbClientConfiguration = new PropertiesBasedEJBClientConfiguration(properties);
-        final ConfigBasedEJBClientContextSelector selector = new ConfigBasedEJBClientContextSelector(ejbClientConfiguration);
-
-        return EJBClientContext.setSelector(selector);
+        return properties;
     }
 }

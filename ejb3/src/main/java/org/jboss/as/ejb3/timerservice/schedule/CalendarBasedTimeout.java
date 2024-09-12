@@ -29,7 +29,6 @@ import java.util.TimeZone;
 
 import javax.ejb.ScheduleExpression;
 
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.timerservice.schedule.attribute.DayOfMonth;
 import org.jboss.as.ejb3.timerservice.schedule.attribute.DayOfWeek;
 import org.jboss.as.ejb3.timerservice.schedule.attribute.Hour;
@@ -38,7 +37,7 @@ import org.jboss.as.ejb3.timerservice.schedule.attribute.Month;
 import org.jboss.as.ejb3.timerservice.schedule.attribute.Second;
 import org.jboss.as.ejb3.timerservice.schedule.attribute.Year;
 
-import static org.jboss.as.ejb3.logging.EjbLogger.ROOT_LOGGER;
+import static org.jboss.as.ejb3.logging.EjbLogger.EJB3_TIMER_LOGGER;
 
 /**
  * CalendarBasedTimeout
@@ -114,7 +113,7 @@ public class CalendarBasedTimeout {
      */
     public CalendarBasedTimeout(ScheduleExpression schedule) {
         if (schedule == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpression(this.getClass().getName());
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpression(this.getClass().getName());
         }
         // make sure that the schedule doesn't have null values for its various attributes
         this.nullCheckScheduleAttributes(schedule);
@@ -134,20 +133,20 @@ public class CalendarBasedTimeout {
         this.dayOfMonth = new DayOfMonth(schedule.getDayOfMonth());
         this.month = new Month(schedule.getMonth());
         this.year = new Year(schedule.getYear());
-        if (schedule.getTimezone() != null && schedule.getTimezone().trim().isEmpty() == false) {
+        String timezoneId = schedule.getTimezone();
+        if (timezoneId != null && !(timezoneId = timezoneId.trim()).isEmpty()) {
             // If the timezone ID wasn't valid, then Timezone.getTimeZone returns
             // GMT, which may not always be desirable.
             // So we first check to see if the timezone id specified is available in
             // timezone ids in the system. If it's available then we log a WARN message
             // and fallback on the server's timezone.
-            String timezoneId = schedule.getTimezone();
             String[] availableTimeZoneIDs = TimeZone.getAvailableIDs();
             if (availableTimeZoneIDs != null && Arrays.asList(availableTimeZoneIDs).contains(timezoneId)) {
                 this.timezone = TimeZone.getTimeZone(timezoneId);
             } else {
-                ROOT_LOGGER.unknownTimezoneId(timezoneId, TimeZone.getDefault().getID());
                 // use server's timezone
                 this.timezone = TimeZone.getDefault();
+                EJB3_TIMER_LOGGER.unknownTimezoneId(timezoneId, this.timezone.getID());
             }
         } else {
             this.timezone = TimeZone.getDefault();
@@ -203,14 +202,17 @@ public class CalendarBasedTimeout {
         nextCal.setTimeZone(this.timezone);
         Date start = this.scheduleExpression.getStart();
         if (start != null && currentCal.getTime().before(start)) {
+            //this may result in a millisecond component, however that is ok
+            //otherwise WFLY-6561 will rear its only head
+            //also as the start time may include milliseconds this is technically correct
             nextCal.setTime(start);
         } else {
             if (increment) {
                 // increment the current second by 1
                 nextCal.add(Calendar.SECOND, 1);
             }
+            nextCal.add(Calendar.MILLISECOND, -nextCal.get(Calendar.MILLISECOND));
         }
-        nextCal.add(Calendar.MILLISECOND, -nextCal.get(Calendar.MILLISECOND));
         nextCal.setFirstDayOfWeek(Calendar.SUNDAY);
 
         nextCal = this.computeNextTime(nextCal);
@@ -259,6 +261,10 @@ public class CalendarBasedTimeout {
         if (nextMinute == null) {
             return null;
         }
+        // reset second if minute was changed  (Fix WFLY-5955)
+        if( nextMinute != currentMinute) {
+            nextSecond = this.second.getNextMatch(0);
+        }
         // compute next hour
         if (nextMinute < currentMinute) {
             currentHour++;
@@ -267,18 +273,27 @@ public class CalendarBasedTimeout {
         if (nextHour == null) {
             return null;
         }
+        if(nextHour != currentHour) {
+            // reset second/minute if hour changed  (Fix WFLY-5955)
+            nextSecond = this.second.getNextMatch(0);
+            nextMinute = this.minute.getNextMatch(0);
+        }
 
         final int nextTimeInSeconds = nextHour*3600 + nextMinute*60 + nextSecond;
         if (nextTimeInSeconds == currentTimeInSeconds) {
             // no change in time
             return nextCal;
         }
+
+        // Set the time before adding the a day. If we do it after,
+        // we could be using an invalid DST value in setTime method
+        setTime(nextCal, nextHour, nextMinute, nextSecond);
+
         // time change
         if (nextTimeInSeconds < currentTimeInSeconds) {
             // advance to next day
             nextCal.add(Calendar.DATE, 1);
         }
-        setTime(nextCal, nextHour, nextMinute, nextSecond);
 
         return nextCal;
     }
@@ -513,25 +528,25 @@ public class CalendarBasedTimeout {
 
     private void nullCheckScheduleAttributes(ScheduleExpression schedule) {
         if (schedule.getSecond() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionSecond(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionSecond(schedule);
         }
         if (schedule.getMinute() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionMinute(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionMinute(schedule);
         }
         if (schedule.getHour() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionHour(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionHour(schedule);
         }
         if (schedule.getDayOfMonth() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionDayOfMonth(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionDayOfMonth(schedule);
         }
         if (schedule.getDayOfWeek() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionDayOfWeek(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionDayOfWeek(schedule);
         }
         if (schedule.getMonth() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionMonth(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionMonth(schedule);
         }
         if (schedule.getYear() == null) {
-            throw EjbLogger.ROOT_LOGGER.invalidScheduleExpressionYear(schedule);
+            throw EJB3_TIMER_LOGGER.invalidScheduleExpressionYear(schedule);
         }
     }
 
@@ -569,12 +584,18 @@ public class CalendarBasedTimeout {
     }
 
     private void setTime(Calendar calendar, int hour, int minute, int second) {
+        int dst = calendar.get(Calendar.DST_OFFSET);
         calendar.clear(Calendar.HOUR_OF_DAY);
         calendar.set(Calendar.HOUR_OF_DAY, hour);
         calendar.clear(Calendar.MINUTE);
         calendar.set(Calendar.MINUTE, minute);
         calendar.clear(Calendar.SECOND);
         calendar.set(Calendar.SECOND, second);
+        // restore summertime offset WFLY-9537
+        // this is to avoid to have the standard time (winter) set by GregorianCalendar
+        // after clear and set the time explicit
+        // see comment for computeTime() -> http://grepcode.com/file/repository.grepcode.com/java/root/jdk/openjdk/8-b132/java/util/GregorianCalendar.java#2776
+        calendar.set(Calendar.DST_OFFSET, dst);
     }
 
 }

@@ -30,8 +30,11 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketException;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.Map;
 
+import org.jboss.as.network.SocketBinding;
 import org.jboss.as.network.SocketBindingManager;
 import org.jgroups.util.SocketFactory;
 
@@ -42,64 +45,84 @@ import org.jgroups.util.SocketFactory;
 public class ManagedSocketFactory implements SocketFactory {
 
     private final SocketBindingManager manager;
+    // Maps a JGroups service name its associated SocketBinding
+    private final Map<String, SocketBinding> socketBindings;
 
-    public ManagedSocketFactory(SocketBindingManager manager) {
+    public ManagedSocketFactory(SocketBindingManager manager, Map<String, SocketBinding> socketBindings) {
         this.manager = manager;
+        this.socketBindings = socketBindings;
+    }
+
+    private String getSocketBindingName(String name) {
+        SocketBinding socketBinding = this.socketBindings.get(name);
+        return (socketBinding != null) ? socketBinding.getName() : name;
     }
 
     @Override
     public Socket createSocket(String name) throws IOException {
-        return this.manager.getSocketFactory().createSocket(name);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getSocketFactory().createSocket(socketBindingName);
     }
 
     @Override
     public Socket createSocket(String name, String host, int port) throws IOException {
-        return this.manager.getSocketFactory().createSocket(name, host, port);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getSocketFactory().createSocket(socketBindingName, host, port);
     }
 
     @Override
     public Socket createSocket(String name, InetAddress address, int port) throws IOException {
-        return this.manager.getSocketFactory().createSocket(name, address, port);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getSocketFactory().createSocket(socketBindingName, address, port);
     }
 
     @Override
     public Socket createSocket(String name, String host, int port, InetAddress localHost, int localPort) throws IOException {
-        return this.manager.getSocketFactory().createSocket(name, host, port, localHost, localPort);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getSocketFactory().createSocket(socketBindingName, host, port, localHost, localPort);
     }
 
     @Override
     public Socket createSocket(String name, InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
-        return this.manager.getSocketFactory().createSocket(name, address, port, localAddress, localPort);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getSocketFactory().createSocket(socketBindingName, address, port, localAddress, localPort);
     }
 
     @Override
     public ServerSocket createServerSocket(String name) throws IOException {
-        return this.manager.getServerSocketFactory().createServerSocket(name);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getServerSocketFactory().createServerSocket(socketBindingName);
     }
 
     @Override
     public ServerSocket createServerSocket(String name, int port) throws IOException {
-        return this.manager.getServerSocketFactory().createServerSocket(name, port);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getServerSocketFactory().createServerSocket(socketBindingName, port);
     }
 
     @Override
     public ServerSocket createServerSocket(String name, int port, int backlog) throws IOException {
-        return this.manager.getServerSocketFactory().createServerSocket(name, port, backlog);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getServerSocketFactory().createServerSocket(socketBindingName, port, backlog);
     }
 
     @Override
     public ServerSocket createServerSocket(String name, int port, int backlog, InetAddress ifAddress) throws IOException {
-        return this.manager.getServerSocketFactory().createServerSocket(name, port, backlog, ifAddress);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.getServerSocketFactory().createServerSocket(socketBindingName, port, backlog, ifAddress);
     }
 
     @Override
     public DatagramSocket createDatagramSocket(String name) throws SocketException {
-        return this.createDatagramSocket(name, 0);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.createDatagramSocket(socketBindingName);
     }
 
     @Override
     public DatagramSocket createDatagramSocket(String name, SocketAddress address) throws SocketException {
-        return this.manager.createDatagramSocket(name, address);
+        if (address == null) return this.createDatagramSocket(name);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.createDatagramSocket(socketBindingName, address);
     }
 
     @Override
@@ -114,7 +137,8 @@ public class ManagedSocketFactory implements SocketFactory {
 
     @Override
     public MulticastSocket createMulticastSocket(String name) throws IOException {
-        return this.createMulticastSocket(name, 0);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.createMulticastSocket(socketBindingName);
     }
 
     @Override
@@ -124,7 +148,23 @@ public class ManagedSocketFactory implements SocketFactory {
 
     @Override
     public MulticastSocket createMulticastSocket(String name, SocketAddress address) throws IOException {
-        return this.manager.createMulticastSocket(name, address);
+        if (address == null) return this.createMulticastSocket(name);
+        String socketBindingName = this.getSocketBindingName(name);
+        return this.manager.createMulticastSocket(socketBindingName, address);
+    }
+
+    @Override
+    public SocketChannel createSocketChannel(String name) throws IOException {
+        SocketChannel channel = SocketChannel.open();
+        this.manager.getNamedRegistry().registerChannel(name, channel);
+        return channel;
+    }
+
+    @Override
+    public ServerSocketChannel createServerSocketChannel(String name) throws IOException {
+        ServerSocketChannel channel = ServerSocketChannel.open();
+        this.manager.getNamedRegistry().registerChannel(name, channel);
+        return channel;
     }
 
     @Override
@@ -150,6 +190,6 @@ public class ManagedSocketFactory implements SocketFactory {
 
     @Override
     public Map<Object, String> getSockets() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 }

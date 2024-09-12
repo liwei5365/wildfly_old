@@ -36,7 +36,6 @@ import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.test.integration.security.common.AbstractSecurityDomainsServerSetupTask;
 import org.jboss.as.test.integration.security.common.AddRoleLoginModule;
 import org.jboss.as.test.integration.security.common.SecurityTestConstants;
-import org.jboss.as.test.integration.security.common.Utils;
 import org.jboss.as.test.integration.security.common.config.JSSE;
 import org.jboss.as.test.integration.security.common.config.SecureStore;
 import org.jboss.as.test.integration.security.common.config.SecurityDomain;
@@ -44,12 +43,15 @@ import org.jboss.as.test.integration.security.common.config.SecurityModule;
 import org.jboss.as.test.integration.security.common.servlets.PrincipalPrintingServlet;
 import org.jboss.as.test.integration.security.common.servlets.SimpleSecuredServlet;
 import org.jboss.as.test.integration.security.common.servlets.SimpleServlet;
+import org.jboss.as.test.shared.ServerSnapshot;
 import org.jboss.as.test.shared.TestSuiteEnvironment;
 import org.jboss.logging.Logger;
 import org.jboss.security.auth.spi.CertRolesLoginModule;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -78,9 +80,18 @@ public class CertificateRolesLoginModuleTestCase extends AbstractCertificateLogi
     @ArquillianResource
     private Deployer deployer;
 
+    private static AutoCloseable snapshot;
+
+    private static ManagementClient managementClient;
+
+    @BeforeClass
+    public static void noJDK14Plus() {
+        Assume.assumeFalse("Avoiding JDK 14 due to https://issues.jboss.org/browse/WFCORE-4532", "14".equals(System.getProperty("java.specification.version")));
+    }
+
     @Deployment(name = APP_NAME, testable = false, managed = false)
     public static WebArchive deployment() {
-        LOGGER.info("Start deployment " + APP_NAME);
+        LOGGER.trace("Start deployment " + APP_NAME);
         final WebArchive war = ShrinkWrap.create(WebArchive.class, APP_NAME + ".war");
         war.addClasses(AddRoleLoginModule.class, SimpleServlet.class, SimpleSecuredServlet.class, PrincipalPrintingServlet.class);
         war.addAsWebInfResource(DatabaseCertLoginModuleTestCase.class.getPackage(), "web.xml", "web.xml");
@@ -93,19 +104,19 @@ public class CertificateRolesLoginModuleTestCase extends AbstractCertificateLogi
     @Test
     @InSequence(-1)
     public void startAndSetupContainer() throws Exception {
-
-        LOGGER.info("*** starting server");
+        LOGGER.trace("*** starting server");
         containerController.start(CONTAINER);
         ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
-        ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
+        managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
+                TestSuiteEnvironment.getServerPort(), "remote+http");
+        snapshot = ServerSnapshot.takeSnapshot(managementClient);
 
-        LOGGER.info("*** will configure server now");
+        LOGGER.trace("*** will configure server now");
         AbstractCertificateLoginModuleTestCase.HTTPSConnectorSetup.INSTANCE.setup(managementClient, CONTAINER);
         SecurityDomainsSetup.INSTANCE.setup(managementClient, CONTAINER);
 
-        LOGGER.info("*** reloading server");
-        executeReloadAndWaitForCompletion(client, 100000);
+        LOGGER.trace("*** reloading server");
+        executeReloadAndWaitForCompletion(managementClient, 100000);
         deployer.deploy(APP_NAME);
     }
 
@@ -126,15 +137,8 @@ public class CertificateRolesLoginModuleTestCase extends AbstractCertificateLogi
     public void stopContainer() throws Exception {
 
         deployer.undeploy(APP_NAME);
-        final ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
-        final ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
-
-        LOGGER.info("*** reseting test configuration");
-        AbstractCertificateLoginModuleTestCase.HTTPSConnectorSetup.INSTANCE.tearDown(managementClient, CONTAINER);
-        SecurityDomainsSetup.INSTANCE.tearDown(managementClient, CONTAINER);
-
-        LOGGER.info("*** stopping container");
+        snapshot.close();
+        managementClient.close();
         containerController.stop(CONTAINER);
     }
 

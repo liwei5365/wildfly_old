@@ -24,11 +24,12 @@ package org.wildfly.clustering.web.sso;
 /**
  * Represents a single sign on entry for a user.
  * @author Paul Ferraro
- * @param the authentication identity type
- * @param the deployment identifier type
- * @param the local context type
+ * @param <A> the authentication identity type
+ * @param <D> the deployment identifier type
+ * @param <S> the session identifier type
+ * @param <L> the local context type
  */
-public interface SSO<A, D, L> {
+public interface SSO<A, D, S, L> {
     /**
      * A unique identifier for this SSO.
      * @return a unique identifier
@@ -45,7 +46,7 @@ public interface SSO<A, D, L> {
      * Returns the session for which the user is authenticated.
      * @return
      */
-    Sessions<D> getSessions();
+    Sessions<D, S> getSessions();
 
     /**
      * Invalidates this SSO.

@@ -23,7 +23,8 @@ package org.jboss.as.test.integration.web.reverseproxy;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.OperateOnDeployment;
@@ -50,18 +51,20 @@ import java.util.Set;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ALLOW_RESOURCE_SERVICE_RESTART;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OPERATION_HEADERS;
 import static org.jboss.as.test.integration.management.util.ModelUtil.createOpNode;
+import org.jboss.as.test.shared.ServerReload;
+import org.junit.FixMethodOrder;
+import org.junit.runners.MethodSorters;
 
 /**
  */
 @RunWith(Arquillian.class)
 @RunAsClient
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ReverseProxyTestCase {
 
     @ContainerResource
     private ManagementClient managementClient;
     private static ManagementClient mc;
-
-    DefaultHttpClient httpclient = new DefaultHttpClient();
 
     @Before
     public void setup() throws Exception {
@@ -75,6 +78,8 @@ public class ReverseProxyTestCase {
             addr.add("reverse-proxy", "myproxy");
             op.get(ModelDescriptionConstants.OP_ADDR).set(addr);
             op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.ADD);
+            op.get("max-request-time").set(60000);
+            op.get("connection-idle-timeout").set(60000);
             ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
 
             //add the hosts
@@ -175,7 +180,6 @@ public class ReverseProxyTestCase {
 
         op = createOpNode("socket-binding-group=standard-sockets/remote-destination-outbound-socket-binding=proxy-host", "remove");
         ManagementOperations.executeOperation(mc.getControllerClient(), op);
-
     }
 
     @ArquillianResource
@@ -199,7 +203,7 @@ public class ReverseProxyTestCase {
     }
 
 
-    private String performCall(String urlPattern) throws Exception {
+    private String performCall(CloseableHttpClient httpclient, String urlPattern) throws Exception {
         HttpResponse res =  httpclient.execute(new HttpGet("http://" + url.getHost() + ":" + url.getPort() + "/proxy/" + urlPattern));
         Assert.assertEquals(200, res.getStatusLine().getStatusCode());
         return EntityUtils.toString(res.getEntity());
@@ -207,18 +211,44 @@ public class ReverseProxyTestCase {
 
     @Test
     public void testReverseProxy() throws Exception {
-        final Set<String> results = new HashSet<>();
-        for (int i = 0; i < 10; ++i) {
-            results.add(performCall("name"));
+
+        try (CloseableHttpClient httpclient =  HttpClients.createDefault()){
+            final Set<String> results = new HashSet<>();
+            for (int i = 0; i < 10; ++i) {
+                results.add(performCall(httpclient,"name"));
+            }
+            Assert.assertEquals(2, results.size());
+            Assert.assertTrue(results.contains("server1"));
+            Assert.assertTrue(results.contains("server2"));
+            //TODO: re-add JVM route based sticky session testing
+            //String session = performCall("name?session=true");
+            //sticky sessions should stick it to this node
+            //for (int i = 0; i < 10; ++i) {
+            //    Assert.assertEquals(session, performCall("name"));
+            //}
         }
-        Assert.assertEquals(2, results.size());
-        Assert.assertTrue(results.contains("server1"));
-        Assert.assertTrue(results.contains("server2"));
-        //TODO: re-add JVM route based sticky session testing
-        //String session = performCall("name?session=true");
-        //sticky sessions should stick it to this node
-        //for (int i = 0; i < 10; ++i) {
-        //    Assert.assertEquals(session, performCall("name"));
-        //}
+    }
+
+    private void configureMaxRequestTime(int value) throws Exception {
+        ModelNode op = new ModelNode();
+        op.get(ModelDescriptionConstants.OP_ADDR).add(ModelDescriptionConstants.SUBSYSTEM, "undertow");
+        op.get(ModelDescriptionConstants.OP_ADDR).add("configuration", "handler");
+        op.get(ModelDescriptionConstants.OP_ADDR).add("reverse-proxy", "myproxy");
+        op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.WRITE_ATTRIBUTE_OPERATION);
+        op.get(ModelDescriptionConstants.NAME).set("max-request-time");
+        op.get(ModelDescriptionConstants.VALUE).set(value);
+
+        ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
+        ServerReload.reloadIfRequired(managementClient);
+    }
+
+    @Test
+    public void testReverseProxyMaxRequestTime() throws Exception {
+        // set the max-request-time to a lower value than the wait
+        configureMaxRequestTime(10);
+        try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
+            HttpResponse res = httpclient.execute(new HttpGet("http://" + url.getHost() + ":" + url.getPort() + "/proxy/name?wait=50"));
+            Assert.assertEquals("Service Unaviable expected because max-request-time is set to 10ms", 503, res.getStatusLine().getStatusCode());
+        }
     }
 }

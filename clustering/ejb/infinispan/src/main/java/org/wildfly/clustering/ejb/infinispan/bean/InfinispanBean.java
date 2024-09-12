@@ -21,15 +21,15 @@
  */
 package org.wildfly.clustering.ejb.infinispan.bean;
 
-import java.util.Date;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoField;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.wildfly.clustering.ee.infinispan.Mutator;
+import org.wildfly.clustering.ee.Mutator;
 import org.wildfly.clustering.ejb.Bean;
 import org.wildfly.clustering.ejb.PassivationListener;
 import org.wildfly.clustering.ejb.RemoveListener;
-import org.wildfly.clustering.ejb.Time;
 import org.wildfly.clustering.ejb.infinispan.BeanEntry;
 import org.wildfly.clustering.ejb.infinispan.BeanGroup;
 import org.wildfly.clustering.ejb.infinispan.BeanRemover;
@@ -40,22 +40,21 @@ import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
  *
  * @author Paul Ferraro
  *
- * @param <G> the group identifier type
  * @param <I> the bean identifier type
  * @param <T> the bean type
  */
-public class InfinispanBean<G, I, T> implements Bean<G, I, T> {
+public class InfinispanBean<I, T> implements Bean<I, T> {
 
     private final I id;
-    private final BeanEntry<G> entry;
-    private final BeanGroup<G, I, T> group;
+    private final BeanEntry<I> entry;
+    private final BeanGroup<I, T> group;
     private final Mutator mutator;
     private final BeanRemover<I, T> remover;
-    private final Time timeout;
+    private final Duration timeout;
     private final PassivationListener<T> listener;
     private final AtomicBoolean valid = new AtomicBoolean(true);
 
-    public InfinispanBean(I id, BeanEntry<G> entry, BeanGroup<G, I, T> group, Mutator mutator, BeanRemover<I, T> remover, Time timeout, PassivationListener<T> listener) {
+    public InfinispanBean(I id, BeanEntry<I> entry, BeanGroup<I, T> group, Mutator mutator, BeanRemover<I, T> remover, Duration timeout, PassivationListener<T> listener) {
         this.id = id;
         this.entry = entry;
         this.group = group;
@@ -71,16 +70,18 @@ public class InfinispanBean<G, I, T> implements Bean<G, I, T> {
     }
 
     @Override
-    public G getGroupId() {
+    public I getGroupId() {
         return this.entry.getGroupId();
     }
 
     @Override
     public boolean isExpired() {
-        if (this.timeout == null) return false;
-        Date lastAccessedTime = this.entry.getLastAccessedTime();
-        long timeout = this.timeout.convert(TimeUnit.MILLISECONDS);
-        return (lastAccessedTime != null) && (timeout > 0) ? ((System.currentTimeMillis() - lastAccessedTime.getTime()) >= timeout) : false;
+        return this.entry.isExpired(this.timeout) && this.group.isCloseable();
+    }
+
+    @Override
+    public boolean isValid() {
+        return this.valid.get();
     }
 
     @Override
@@ -88,7 +89,6 @@ public class InfinispanBean<G, I, T> implements Bean<G, I, T> {
         if (this.valid.compareAndSet(true, false)) {
             InfinispanEjbLogger.ROOT_LOGGER.tracef("Removing bean %s", this.id);
             this.remover.remove(this.id, listener);
-            this.close();
         }
     }
 
@@ -107,8 +107,10 @@ public class InfinispanBean<G, I, T> implements Bean<G, I, T> {
     @Override
     public void close() {
         if (this.valid.get()) {
-            Date lastAccessedTime = this.entry.getLastAccessedTime();
-            this.entry.setLastAccessedTime(new Date());
+            Instant lastAccessedTime = this.entry.getLastAccessedTime();
+            Instant now = Instant.now();
+            // Reduce precision to millis
+            this.entry.setLastAccessedTime((now.getNano() % 1_000_000) > 0 ? now.with(ChronoField.MILLI_OF_SECOND, now.get(ChronoField.MILLI_OF_SECOND)) : now);
             if (lastAccessedTime != null) {
                 this.mutator.mutate();
             }
@@ -122,7 +124,7 @@ public class InfinispanBean<G, I, T> implements Bean<G, I, T> {
     public boolean equals(Object object) {
         if (!(object instanceof Bean)) return false;
         @SuppressWarnings("unchecked")
-        Bean<G, I, T> bean = (Bean<G, I, T>) object;
+        Bean<I, T> bean = (Bean<I, T>) object;
         return this.id.equals(bean.getId());
     }
 

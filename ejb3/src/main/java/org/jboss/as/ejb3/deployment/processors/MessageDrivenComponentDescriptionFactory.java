@@ -22,15 +22,13 @@
 
 package org.jboss.as.ejb3.deployment.processors;
 
-import static org.jboss.as.ejb3.deployment.processors.AbstractDeploymentUnitProcessor.getEjbJarDescription;
+import static org.jboss.as.ejb3.deployment.processors.AnnotatedEJBComponentDescriptionDeploymentUnitProcessor.getEjbJarDescription;
 import static org.jboss.as.ejb3.deployment.processors.ViewInterfaces.getPotentialViewInterfaces;
 
-import java.lang.reflect.Modifier;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
-
 import javax.ejb.MessageDriven;
 import javax.jms.MessageListener;
 
@@ -41,6 +39,8 @@ import org.jboss.as.ejb3.component.messagedriven.DefaultResourceAdapterService;
 import org.jboss.as.ejb3.component.messagedriven.MessageDrivenComponentDescription;
 import org.jboss.as.ejb3.deployment.EjbJarDescription;
 import org.jboss.as.ejb3.logging.EjbLogger;
+import org.jboss.as.ejb3.util.EjbValidationsUtil;
+import org.jboss.as.server.deployment.Attachments;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.EjbDeploymentMarker;
@@ -50,7 +50,6 @@ import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
-import org.jboss.metadata.ejb.jboss.ejb3.JBossGenericBeanMetaData;
 import org.jboss.metadata.ejb.spec.ActivationConfigMetaData;
 import org.jboss.metadata.ejb.spec.ActivationConfigPropertiesMetaData;
 import org.jboss.metadata.ejb.spec.ActivationConfigPropertyMetaData;
@@ -67,9 +66,11 @@ import org.jboss.msc.service.ServiceRegistry;
 public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescriptionFactory {
 
     private static final DotName MESSAGE_DRIVEN_ANNOTATION_NAME = DotName.createSimple(MessageDriven.class.getName());
+    private final boolean defaultMdbPoolAvailable;
 
-    public MessageDrivenComponentDescriptionFactory(final boolean appclient) {
+    public MessageDrivenComponentDescriptionFactory(final boolean appclient, final boolean defaultMdbPoolAvailable) {
         super(appclient);
+        this.defaultMdbPoolAvailable = defaultMdbPoolAvailable;
     }
 
     @Override
@@ -101,7 +102,7 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
         for (final AnnotationInstance messageBeanAnnotation : messageBeanAnnotations) {
             final AnnotationTarget target = messageBeanAnnotation.target();
             final ClassInfo beanClassInfo = (ClassInfo) target;
-            if (!assertMDBClassValidity(beanClassInfo)) {
+            if (! EjbValidationsUtil.assertEjbClassValidity(beanClassInfo).isEmpty() ) {
                 continue;
             }
             final String ejbName = beanClassInfo.name().local();
@@ -116,52 +117,40 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
                 beanClassName = override(beanClassInfo.name().toString(), beanMetaData.getEjbClass());
                 deploymentDescriptorEnvironment = new DeploymentDescriptorEnvironment("java:comp/env/", beanMetaData);
 
-                if (beanMetaData instanceof MessageDrivenBeanMetaData) {
-                    //It may actually be GenericBeanMetadata instance
-                    final MessageDrivenBeanMetaData mdb = (MessageDrivenBeanMetaData) beanMetaData;
-                    messagingType = mdb.getMessagingType();
-                    final ActivationConfigMetaData activationConfigMetaData = mdb.getActivationConfig();
-                    if (activationConfigMetaData != null) {
-                        final ActivationConfigPropertiesMetaData propertiesMetaData = activationConfigMetaData.getActivationConfigProperties();
-                        if (propertiesMetaData != null) {
-                            for (final ActivationConfigPropertyMetaData propertyMetaData : propertiesMetaData) {
-                                activationConfigProperties.put(propertyMetaData.getKey(), propertyMetaData.getValue());
-                            }
+                messagingType = beanMetaData.getMessagingType();
+                final ActivationConfigMetaData activationConfigMetaData = beanMetaData.getActivationConfig();
+                if (activationConfigMetaData != null) {
+                    final ActivationConfigPropertiesMetaData propertiesMetaData = activationConfigMetaData
+                            .getActivationConfigProperties();
+                    if (propertiesMetaData != null) {
+                        for (final ActivationConfigPropertyMetaData propertyMetaData : propertiesMetaData) {
+                            activationConfigProperties.put(propertyMetaData.getKey(), propertyMetaData.getValue());
                         }
                     }
-                } else if (beanMetaData instanceof JBossGenericBeanMetaData) {
-                    //TODO: fix the hierarchy so this is not needed
-                    final JBossGenericBeanMetaData mdb = (JBossGenericBeanMetaData) beanMetaData;
-                    messagingType = mdb.getMessagingType();
-                    final ActivationConfigMetaData activationConfigMetaData = mdb.getActivationConfig();
-                    if (activationConfigMetaData != null) {
-                        final ActivationConfigPropertiesMetaData propertiesMetaData = activationConfigMetaData.getActivationConfigProperties();
-                        if (propertiesMetaData != null) {
-                            for (final ActivationConfigPropertyMetaData propertyMetaData : propertiesMetaData) {
-                                activationConfigProperties.put(propertyMetaData.getKey(), propertyMetaData.getValue());
-                            }
-                        }
-                    }
-                } else {
-                    messagingType = null;
                 }
-                messageListenerInterfaceName = messagingType != null ? messagingType : getMessageListenerInterface(compositeIndex, messageBeanAnnotation);
+                messageListenerInterfaceName = messagingType != null ? messagingType : getMessageListenerInterface(compositeIndex, messageBeanAnnotation, deploymentUnit);
 
             } else {
                 beanClassName = beanClassInfo.name().toString();
-                messageListenerInterfaceName = getMessageListenerInterface(compositeIndex, messageBeanAnnotation);
+                messageListenerInterfaceName = getMessageListenerInterface(compositeIndex, messageBeanAnnotation, deploymentUnit);
             }
             final String defaultResourceAdapterName = this.getDefaultResourceAdapterName(deploymentUnit.getServiceRegistry());
-            final MessageDrivenComponentDescription beanDescription = new MessageDrivenComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnitServiceName, messageListenerInterfaceName, activationConfigProperties, defaultResourceAdapterName, beanMetaData);
+            final MessageDrivenComponentDescription beanDescription = new MessageDrivenComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, messageListenerInterfaceName, activationConfigProperties, defaultResourceAdapterName, beanMetaData, defaultMdbPoolAvailable);
             beanDescription.setDeploymentDescriptorEnvironment(deploymentDescriptorEnvironment);
 
             addComponent(deploymentUnit, beanDescription);
+
+            final AnnotationValue mappedNameValue = messageBeanAnnotation.value("mappedName");
+            if (mappedNameValue != null && !mappedNameValue.asString().isEmpty()) {
+                EjbLogger.ROOT_LOGGER.mappedNameNotSupported(mappedNameValue != null ? mappedNameValue.asString() : "",
+                        ejbName);
+            }
         }
 
         EjbDeploymentMarker.mark(deploymentUnit);
     }
 
-    private String getMessageListenerInterface(final CompositeIndex compositeIndex, final AnnotationInstance messageBeanAnnotation) throws DeploymentUnitProcessingException {
+    private String getMessageListenerInterface(final CompositeIndex compositeIndex, final AnnotationInstance messageBeanAnnotation, final DeploymentUnit deploymentUnit) throws DeploymentUnitProcessingException {
         final AnnotationValue value = messageBeanAnnotation.value("messageListenerInterface");
         if (value != null)
             return value.asClass().name().toString();
@@ -170,7 +159,16 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
         // check super class(es) of the bean
         DotName superClassDotName = beanClass.superName();
         while (interfaces.isEmpty() && superClassDotName != null && !superClassDotName.toString().equals(Object.class.getName())) {
-            final ClassInfo superClass = compositeIndex.getClassByName(superClassDotName);
+            ClassInfo superClass = compositeIndex.getClassByName(superClassDotName);
+            if (superClass == null) {
+                final DeploymentUnit parent = deploymentUnit.getParent();
+                if (parent != null) {
+                    final CompositeIndex parentIndex = parent.getAttachment(Attachments.COMPOSITE_ANNOTATION_INDEX);
+                    if (parentIndex != null) {
+                        superClass = parentIndex.getClassByName(superClassDotName);
+                    }
+                }
+            }
             if (superClass == null) {
                 break;
             }
@@ -178,38 +176,10 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
             // move to next super class
             superClassDotName = superClass.superName();
         }
-
         if (interfaces.size() != 1)
             throw EjbLogger.ROOT_LOGGER.mdbDoesNotImplementNorSpecifyMessageListener(beanClass);
         return interfaces.iterator().next().toString();
     }
-
-
-    /**
-     * Returns true if the passed <code>mdbClass</code> meets the requirements set by the EJB3 spec about
-     * bean implementation classes. The passed <code>mdbClass</code> must not be an interface and must be public
-     * and not final and not abstract. If it passes these requirements then this method returns true. Else it returns false.
-     *
-     * @param mdbClass The MDB class
-     * @return
-     */
-    private boolean assertMDBClassValidity(final ClassInfo mdbClass) {
-        final short flags = mdbClass.flags();
-        final String className = mdbClass.name().toString();
-        // must *not* be an interface
-        if (Modifier.isInterface(flags)) {
-            EjbLogger.DEPLOYMENT_LOGGER.mdbClassCannotBeAnInterface(className);
-            return false;
-        }
-        // bean class must be public, must *not* be abstract or final
-        if (!Modifier.isPublic(flags) || Modifier.isAbstract(flags) || Modifier.isFinal(flags)) {
-            EjbLogger.DEPLOYMENT_LOGGER.mdbClassMustBePublicNonAbstractNonFinal(className);
-            return false;
-        }
-        // valid class
-        return true;
-    }
-
 
     private Properties getActivationConfigProperties(final ActivationConfigMetaData activationConfig) {
         final Properties activationConfigProps = new Properties();
@@ -241,7 +211,7 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
         }
         final Properties activationConfigProps = getActivationConfigProperties(mdb.getActivationConfig());
         final String defaultResourceAdapterName = this.getDefaultResourceAdapterName(deploymentUnit.getServiceRegistry());
-        final MessageDrivenComponentDescription mdbComponentDescription = new MessageDrivenComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit.getServiceName(), messageListenerInterface, activationConfigProps, defaultResourceAdapterName, mdb);
+        final MessageDrivenComponentDescription mdbComponentDescription = new MessageDrivenComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, messageListenerInterface, activationConfigProps, defaultResourceAdapterName, mdb, defaultMdbPoolAvailable);
         mdbComponentDescription.setDeploymentDescriptorEnvironment(new DeploymentDescriptorEnvironment("java:comp/env/", mdb));
         addComponent(deploymentUnit, mdbComponentDescription);
     }
@@ -268,7 +238,7 @@ public class MessageDrivenComponentDescriptionFactory extends EJBComponentDescri
      */
     private String getDefaultResourceAdapterName(final ServiceRegistry serviceRegistry) {
         if (appclient) {
-            // we must report the MDB, but we can't use any MDB/JCA facilities
+            // we must report the MDB, but we can't use any MDB/Jakarta Connectors facilities
             return "n/a";
         }
         final ServiceController<DefaultResourceAdapterService> serviceController = (ServiceController<DefaultResourceAdapterService>) serviceRegistry.getRequiredService(DefaultResourceAdapterService.DEFAULT_RA_NAME_SERVICE_NAME);

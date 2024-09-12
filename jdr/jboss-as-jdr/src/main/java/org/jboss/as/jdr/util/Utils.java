@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +41,7 @@ public final class Utils {
     }
 
     public static List<String> readLines(InputStream input) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input,StandardCharsets.UTF_8));
         List<String> result = new ArrayList<String>();
         String line = reader.readLine();
 
@@ -52,22 +53,33 @@ public final class Utils {
     }
 
     public static String toString(VirtualFile r) throws IOException {
-        return new String(toBytes(r));
+        return new String(toBytes(r), StandardCharsets.UTF_8);
     }
 
     public static byte[] toBytes(VirtualFile r) throws IOException {
-        byte [] buffer = new byte[1024];
-        InputStream is = r.openStream();
-
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        int bytesRead = is.read(buffer);
-        while( bytesRead > -1 ) {
-            os.write(buffer, 0, bytesRead);
-            bytesRead = is.read(buffer);
+        try(InputStream is = r.openStream()) {
+            return toByteArray(is);
         }
+    }
 
-        Utils.safelyClose(is);
-        return os.toByteArray();
+    /**
+     * Reads the content of an {@code InputStream} as {@code byte[]}.
+     * This does not close the InputStream
+     *
+     * @param is the input stream
+     * @return the byte array read from the input stream
+     * @throws IOException if an I/O error occurs
+     */
+    static byte[] toByteArray(InputStream is) throws IOException {
+        byte [] buffer = new byte[1024];
+        try(ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+            int bytesRead = is.read(buffer);
+            while( bytesRead > -1 ) {
+                os.write(buffer, 0, bytesRead);
+                bytesRead = is.read(buffer);
+            }
+            return os.toByteArray();
+        }
     }
 
     /**

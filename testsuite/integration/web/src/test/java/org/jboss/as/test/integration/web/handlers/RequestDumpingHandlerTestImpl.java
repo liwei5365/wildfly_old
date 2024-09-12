@@ -2,11 +2,12 @@ package org.jboss.as.test.integration.web.handlers;
 
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -15,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -65,9 +65,9 @@ public abstract class RequestDumpingHandlerTestImpl {
 
     /**
      * Constructor that immediately executes test body.
-     * 
-     * @param uri testing URI to connect to
-     * @param logFilePath path to log file in which are logged request dumps
+     *
+     * @param uri             testing URI to connect to
+     * @param logFilePath     path to log file in which are logged request dumps
      * @param requestDumperOn whether request dumping feature is enabled at all
      */
     public RequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
@@ -78,7 +78,7 @@ public abstract class RequestDumpingHandlerTestImpl {
     /***
      * Abstract method which implements way of performing request to the server. It should be implemented depending on what type
      * of request we want to perform (HTTP, HTTPS, etc.).
-     * 
+     *
      * @param uri testing URI to connect to
      * @return 2dimensional array - request (as a first member) and response (as a second member) headers arrays; in case that
      *         there is no simple way how to obtain request and response headers then returns null
@@ -89,7 +89,7 @@ public abstract class RequestDumpingHandlerTestImpl {
     /**
      * Common test body part.
      *
-     * @param uri deployment URI
+     * @param uri             deployment URI
      * @param requestDumperOn whether RequestDumpingHandler is turned on
      * @throws Exception
      */
@@ -99,7 +99,7 @@ public abstract class RequestDumpingHandlerTestImpl {
         if (logFilePath.toFile().exists() && logFilePath.toFile().isFile()) {
             skipBytes = logFilePath.toFile().length();
         } else {
-            log.info("The log file ('" + logFilePath + "') does not exist yet, that is ok.");
+            log.trace("The log file ('" + logFilePath + "') does not exist yet, that is ok.");
         }
 
         // Perform request on server...
@@ -122,9 +122,9 @@ public abstract class RequestDumpingHandlerTestImpl {
 
     /**
      * Reads content of the file into a string variable.
-     * 
+     *
      * @param logFilePath
-     * @param skipBytes number of bytes from the beginning of the file that should be skipped
+     * @param skipBytes   number of bytes from the beginning of the file that should be skipped
      * @return content of the file as a string
      * @throws FileNotFoundException
      */
@@ -133,10 +133,10 @@ public abstract class RequestDumpingHandlerTestImpl {
         Assert.assertTrue("The '" + logFilePath + "' is not a file", logFilePath.toFile().isFile());
 
         // logfile exists -> read its content...
-        LineNumberReader lnr = new LineNumberReader(new FileReader(logFilePath.toFile()));
+        LineNumberReader lnr = new LineNumberReader(Files.newBufferedReader(logFilePath, StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
 
-        log.info("I am skipping '" + skipBytes + "' bytes from the beggining of the file.");
+        log.trace("I am skipping '" + skipBytes + "' bytes from the beggining of the file.");
         lnr.skip(skipBytes);
 
         String input;
@@ -151,11 +151,11 @@ public abstract class RequestDumpingHandlerTestImpl {
     /**
      * Searching log for request dump of request to particular path. If no such request dump is found there is sanity loop to
      * ensure that system has had enough time to write data to the disk.
-     * 
+     *
      * @param logFilePath path to log file
-     * @param path URI path searched for in log file
-     * @param skipBytes number of bytes from the beginning of the file that should be skipped
-     * @param expected whether we expect to find given path
+     * @param path        URI path searched for in log file
+     * @param skipBytes   number of bytes from the beginning of the file that should be skipped
+     * @param expected    whether we expect to find given path
      * @throws FileNotFoundException
      */
     private void testLogForDumpWithURL(Path logFilePath, String path, long skipBytes, boolean expected) throws Exception {
@@ -181,7 +181,7 @@ public abstract class RequestDumpingHandlerTestImpl {
             Thread.sleep(SLEEP_TIMEOUT);
         } while (currTime - startTime < TOTAL_DELAY);
 
-        log.info("I have read following content of the file '" + logFilePath + "':\n" + content + "\n---END-OF-FILE-OUTPUT---");
+        log.trace("I have read following content of the file '" + logFilePath + "':\n" + content + "\n---END-OF-FILE-OUTPUT---");
 
         // Finally compare search result with our expectation...
         Assert.assertEquals("Searching for pattern: '" + pattern + "' in log file ('" + logFilePath.toString() + "')",
@@ -192,21 +192,20 @@ public abstract class RequestDumpingHandlerTestImpl {
      * Check request dumper data.
      *
      * @param logFilePath path to log file
-     * @param skipBytes number of bytes from the beginning of the file that should be skipped
-     * @param reqHdrs request headers
-     * @param respHdrs response headers
-     * @param host server IP address
-     * @param port server listening port
-     * @param path URI path
-     * @throws FileNotFoundException
+     * @param skipBytes   number of bytes from the beginning of the file that should be skipped
+     * @param reqHdrs     request headers
+     * @param respHdrs    response headers
+     * @param host        server IP address
+     * @param port        server listening port
+     * @param path        URI path
+     * @throws IOException
      */
-    private void checkReqDumpData(Path logFilePath, long skipBytes, Header[] reqHdrs, Header[] respHdrs, String host, int port,
-            String path) throws FileNotFoundException, IOException {
+    private void checkReqDumpData(Path logFilePath, long skipBytes, Header[] reqHdrs, Header[] respHdrs, String host, int port, String path) throws IOException {
         String content = readLogFile(logFilePath, skipBytes);
 
         // Split into request and response part:
         String request = content.substring(0, content.indexOf("-RESPONSE-"));
-        String response = content.substring(content.indexOf("-RESPONSE-"), content.length());
+        String response = content.substring(content.indexOf("-RESPONSE-"));
 
         // Check request dump part...
         searchInFile(request, "-+REQUEST-+");
@@ -241,13 +240,13 @@ public abstract class RequestDumpingHandlerTestImpl {
      * Search for request and response headers. Respect that they might be in different order.
      *
      * @param content content in which is searched
-     * @param hdrs array of headers which should be searched for; if null then no check will be performed; if zero length then
-     *        no header line is expected in the log
+     * @param hdrs    array of headers which should be searched for; if null then no check will be performed; if zero length then
+     *                no header line is expected in the log
      * @throws FileNotFoundException
      */
     private void searchForHeaders(String content, Header[] hdrs) throws FileNotFoundException {
         if (hdrs == null) {
-            log.info("No array with headers given -> skipping testing header content in log file.");
+            log.trace("No array with headers given -> skipping testing header content in log file.");
             return;
         }
 
@@ -271,7 +270,7 @@ public abstract class RequestDumpingHandlerTestImpl {
      * Searches in given content for given pattern.
      *
      * @param content content of the file as a string
-     * @param regExp regular expression that is searched in the file
+     * @param regExp  regular expression that is searched in the file
      */
     private void searchInFile(String content, String regExp) {
         searchInFile(content, regExp, true);
@@ -280,8 +279,8 @@ public abstract class RequestDumpingHandlerTestImpl {
     /**
      * Searches in given content for given pattern.
      *
-     * @param content content of the file as a string
-     * @param regExp regular expression that is searched in the file
+     * @param content  content of the file as a string
+     * @param regExp   regular expression that is searched in the file
      * @param expected whether searching pattern is expected to be found or not
      */
     private void searchInFile(String content, String regExp, boolean expected) {
@@ -294,9 +293,9 @@ public abstract class RequestDumpingHandlerTestImpl {
 
     /**
      * Counts number of occurrences of given string in given content.
-     * 
+     *
      * @param content in this content will be searching for given pattern
-     * @param regExp given pattern to search in content
+     * @param regExp  given pattern to search in content
      * @return number of occurrences in given content
      */
     private int countMatch(String content, String regExp) {
@@ -313,13 +312,12 @@ public abstract class RequestDumpingHandlerTestImpl {
 
     /**
      * Testing class which implements HTTPS requests on server.
-     * 
-     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      *
+     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      */
     static class HttpsRequestDumpingHandlerTestImpl extends RequestDumpingHandlerTestImpl {
 
-        public HttpsRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
+        HttpsRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
             super(uri, logFilePath, requestDumperOn);
         }
 
@@ -329,7 +327,7 @@ public abstract class RequestDumpingHandlerTestImpl {
             scheme = "https";
 
             // Create a trust manager that does not validate certificate chains
-            TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
+            TrustManager[] trustAllCerts = new TrustManager[]{new X509TrustManager() {
 
                 @Override
                 public X509Certificate[] getAcceptedIssuers() {
@@ -343,7 +341,7 @@ public abstract class RequestDumpingHandlerTestImpl {
                 @Override
                 public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
                 }
-            } };
+            }};
 
             SSLContext sc = SSLContext.getInstance("TLS");
             sc.init(null, trustAllCerts, new java.security.SecureRandom());
@@ -360,7 +358,7 @@ public abstract class RequestDumpingHandlerTestImpl {
                 }
             });
 
-            BufferedReader br = new BufferedReader(new InputStreamReader(httpsConn.getInputStream()));
+            BufferedReader br = new BufferedReader(new InputStreamReader(httpsConn.getInputStream(), StandardCharsets.UTF_8));
 
             StringBuilder sb = new StringBuilder();
             String input;
@@ -374,7 +372,7 @@ public abstract class RequestDumpingHandlerTestImpl {
             Header[][] reqAndrespHeaders = new Header[2][];
             reqAndrespHeaders[1] = retrieveHeaders(httpsConn.getHeaderFields());
 
-            log.info("The content of the URL ('" + uri + "'):\n" + sb.toString());
+            log.trace("The content of the URL ('" + uri + "'):\n" + sb.toString());
 
             Assert.assertEquals(200, httpsConn.getResponseCode());
             Assert.assertEquals("Could not reach expected content via http request", "A file", sb.toString());
@@ -400,13 +398,12 @@ public abstract class RequestDumpingHandlerTestImpl {
 
     /**
      * Testing class that implements standard HTTP requests.
-     * 
-     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      *
+     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      */
     static class HttpRequestDumpingHandlerTestImpl extends RequestDumpingHandlerTestImpl {
 
-        public HttpRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
+        HttpRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
             super(uri, logFilePath, requestDumperOn);
         }
 
@@ -414,8 +411,7 @@ public abstract class RequestDumpingHandlerTestImpl {
         public Header[][] performRequest(URI uri) throws Exception {
             Header[][] ret = new Header[2][];
 
-            CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-            try {
+            try (CloseableHttpClient httpClient = HttpClientBuilder.create().build()) {
                 HttpGet httpget = new HttpGet(uri.toURL().toExternalForm() + "file.txt");
 
                 HttpContext localContext = new BasicHttpContext();
@@ -431,26 +427,19 @@ public abstract class RequestDumpingHandlerTestImpl {
 
                 String result = EntityUtils.toString(response.getEntity());
                 Assert.assertEquals("Could not reach expected content via http request", "A file", result);
-            } finally {
-                // When HttpClient instance is no longer needed,
-                // shut down the connection manager to ensure
-                // immediate deallocation of all system resources
-                httpClient.close();
             }
-
             return ret;
         }
     }
 
     /**
      * Testing class that implements standard websocket requests via http upgrade.
-     * 
-     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      *
+     * @author <a href="mailto:jstourac@redhat.com">Jan Stourac</a>
      */
     static class WsRequestDumpingHandlerTestImpl extends RequestDumpingHandlerTestImpl {
 
-        public WsRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
+        WsRequestDumpingHandlerTestImpl(URI uri, Path logFilePath, boolean requestDumperOn) throws Exception {
             super(uri, logFilePath, requestDumperOn);
         }
 

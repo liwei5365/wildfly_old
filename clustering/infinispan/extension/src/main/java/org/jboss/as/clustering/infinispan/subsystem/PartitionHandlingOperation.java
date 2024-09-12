@@ -25,6 +25,7 @@ package org.jboss.as.clustering.infinispan.subsystem;
 import org.infinispan.AdvancedCache;
 import org.infinispan.partitionhandling.AvailabilityMode;
 import org.jboss.as.clustering.controller.Operation;
+import org.jboss.as.controller.ExpressionResolver;
 import org.jboss.as.controller.OperationDefinition;
 import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.dmr.ModelNode;
@@ -37,7 +38,7 @@ public enum PartitionHandlingOperation implements Operation<AdvancedCache<?, ?>>
 
     FORCE_AVAILABLE("force-available") {
         @Override
-        public ModelNode execute(AdvancedCache<?, ?> cache) {
+        public ModelNode execute(ExpressionResolver expressionResolver, ModelNode operation, AdvancedCache<?, ?> cache) {
             cache.setAvailability(AvailabilityMode.AVAILABLE);
             return null;
         }
@@ -46,7 +47,9 @@ public enum PartitionHandlingOperation implements Operation<AdvancedCache<?, ?>>
     private final OperationDefinition definition;
 
     PartitionHandlingOperation(String name) {
-        this.definition = new SimpleOperationDefinitionBuilder(name, new InfinispanResourceDescriptionResolver(PartitionHandlingResourceDefinition.PATH)).setRuntimeOnly().build();
+        this.definition = new SimpleOperationDefinitionBuilder(name, InfinispanExtension.SUBSYSTEM_RESOLVER.createChildResolver(PartitionHandlingRuntimeResourceDefinition.PATH))
+                .setRuntimeOnly()
+                .build();
     }
 
     @Override

@@ -21,28 +21,23 @@
  */
 package org.jboss.as.test.smoke.deployment.rar.tests.earmultirar;
 
+import static org.junit.Assert.assertNotNull;
+
+import javax.annotation.Resource;
+
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
-import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
-import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.smoke.deployment.rar.MultipleAdminObject1;
 import org.jboss.as.test.smoke.deployment.rar.MultipleAdminObject2;
 import org.jboss.as.test.smoke.deployment.rar.MultipleConnectionFactory1;
 import org.jboss.as.test.smoke.deployment.rar.MultipleConnectionFactory2;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import javax.annotation.Resource;
-
-import static org.junit.Assert.assertNotNull;
 
 
 /**
@@ -50,7 +45,7 @@ import static org.junit.Assert.assertNotNull;
  *         Deployment of a RAR packaged inside an EAR.
  */
 @RunWith(Arquillian.class)
-public class EarPackagedMultiRarDeploymentTestCase extends ContainerResourceMgmtTestBase {
+public class EarPackagedMultiRarDeploymentTestCase {
 
     /**
      * Define the deployment
@@ -72,22 +67,21 @@ public class EarPackagedMultiRarDeploymentTestCase extends ContainerResourceMgmt
                 .addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "ironjacamar.xml", "ironjacamar.xml");
 
         ResourceAdapterArchive raa2 =
-                        ShrinkWrap.create(ResourceAdapterArchive.class, subDeploymentName2);
+                ShrinkWrap.create(ResourceAdapterArchive.class, subDeploymentName2);
 
-                raa2.addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "ra2.xml", "ra.xml")
-                        .addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "ironjacamar2.xml", "ironjacamar.xml");
+        raa2.addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "ra2.xml", "ra.xml")
+                .addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "ironjacamar2.xml", "ironjacamar.xml");
 
         final EnterpriseArchive ear = ShrinkWrap.create(EnterpriseArchive.class, deploymentName);
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "multiple.jar");
         ja.addPackage(MultipleConnectionFactory1.class.getPackage()).
-                addClasses(EarPackagedMultiRarDeploymentTestCase.class,  MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class);
+                addClasses(EarPackagedMultiRarDeploymentTestCase.class);
 
         ja.addPackage(AbstractMgmtTestBase.class.getPackage());
         ear.addAsLibrary(ja);
         ear.addAsModule(raa);
         ear.addAsModule(raa2);
-        ear.addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "application.xml", "application.xml")
-        .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli\n"), "MANIFEST.MF");
+        ear.addAsManifestResource(EarPackagedMultiRarDeploymentTestCase.class.getPackage(), "application.xml", "application.xml");
         return ear;
     }
 
@@ -104,8 +98,6 @@ public class EarPackagedMultiRarDeploymentTestCase extends ContainerResourceMgmt
 
     @Resource(mappedName = "java:jboss/Name4")
     private MultipleAdminObject2 adminObject2;
-
-
 
 
     /**

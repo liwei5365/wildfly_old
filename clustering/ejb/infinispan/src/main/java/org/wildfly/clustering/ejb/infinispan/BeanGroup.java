@@ -33,8 +33,8 @@ import org.wildfly.clustering.ejb.PassivationListener;
  * @param <I> the bean identifier type
  * @param <T> the bean type
  */
-public interface BeanGroup<G, I, T> extends AutoCloseable {
-    G getId();
+public interface BeanGroup<I, T> extends AutoCloseable {
+    I getId();
 
     boolean isCloseable();
 
@@ -43,7 +43,7 @@ public interface BeanGroup<G, I, T> extends AutoCloseable {
     void addBean(I id, T bean);
     T getBean(I id, PassivationListener<T> listener);
     boolean releaseBean(I id, PassivationListener<T> listener);
-    T removeBean(I id);
+    T removeBean(I id, PassivationListener<T> listener);
 
     void prePassivate(I id, PassivationListener<T> listener);
     void postActivate(I id, PassivationListener<T> listener);

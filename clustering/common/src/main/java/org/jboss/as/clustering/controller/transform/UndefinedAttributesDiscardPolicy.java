@@ -22,7 +22,7 @@
 
 package org.jboss.as.clustering.controller.transform;
 
-import java.util.Collection;
+import java.util.Arrays;
 
 import org.jboss.as.clustering.controller.Attribute;
 import org.jboss.as.controller.PathAddress;
@@ -41,9 +41,13 @@ import org.jboss.dmr.ModelNode;
  */
 public class UndefinedAttributesDiscardPolicy implements DynamicDiscardPolicy {
 
-    private final Collection<Attribute> attributes;
+    private final Iterable<Attribute> attributes;
 
-    public UndefinedAttributesDiscardPolicy(Collection<Attribute> attributes) {
+    public UndefinedAttributesDiscardPolicy(Attribute... attributes) {
+        this(Arrays.asList(attributes));
+    }
+
+    public UndefinedAttributesDiscardPolicy(Iterable<Attribute> attributes) {
         this.attributes = attributes;
     }
 
@@ -51,7 +55,7 @@ public class UndefinedAttributesDiscardPolicy implements DynamicDiscardPolicy {
     public DiscardPolicy checkResource(TransformationContext context, PathAddress address) {
         ModelNode model = Resource.Tools.readModel(context.readResourceFromRoot(address));
         for (Attribute attribute : this.attributes) {
-            if (model.hasDefined(attribute.getDefinition().getName())) {
+            if (model.hasDefined(attribute.getName())) {
                 return DiscardPolicy.REJECT_AND_WARN;
             }
         }

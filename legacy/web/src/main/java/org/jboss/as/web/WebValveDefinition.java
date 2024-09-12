@@ -49,26 +49,26 @@ import org.jboss.dmr.ModelType;
 public class WebValveDefinition extends ModelOnlyResourceDefinition {
 
     protected static final SimpleAttributeDefinition MODULE = new SimpleAttributeDefinitionBuilder(Constants.MODULE, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
             .setValidator(new StringLengthValidator(1))
             .build();
     protected static final SimpleAttributeDefinition CLASS_NAME = new SimpleAttributeDefinitionBuilder(Constants.CLASS_NAME, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
             .setValidator(new StringLengthValidator(1))
             .build();
     protected static final SimpleAttributeDefinition ENABLED = new SimpleAttributeDefinitionBuilder(Constants.ENABLED, ModelType.BOOLEAN)
-            .setAllowNull(true)
+            .setRequired(false)
             .setAllowExpression(true)
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-            .setDefaultValue(new ModelNode(true))
+            .setDefaultValue(ModelNode.TRUE)
             .build();
     protected static final PropertiesAttributeDefinition PARAMS = new PropertiesAttributeDefinition.Builder(Constants.PARAM, true)
             .setAllowExpression(true)
             .build();
     protected static final SimpleAttributeDefinition PATH = new SimpleAttributeDefinitionBuilder(Constants.PATH, ModelType.STRING)
-            .setAllowNull(true)
+            .setRequired(false)
             .setAllowExpression(true)
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
             .setValidator(new StringLengthValidator(1, true, true))

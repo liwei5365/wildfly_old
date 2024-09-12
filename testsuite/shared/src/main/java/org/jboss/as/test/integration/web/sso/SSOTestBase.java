@@ -30,6 +30,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -103,8 +104,8 @@ public abstract class SSOTestBase {
             log.debug("Prepare /war2/index.html get");
             checkAccessAllowed(httpclient, warB2 + "index.html");
 
-            // Access a secured servlet that calls a secured ejb in war2 to test
-            // propagation of the SSO identity to the ejb container.
+            // Access a secured servlet that calls a secured Jakarta Enterprise Beans in war2 to test
+            // propagation of the SSO identity to the Jakarta Enterprise Beans container.
             checkAccessAllowed(httpclient, warB2 + "EJBServlet");
 
             // Now try logging out of war2
@@ -150,8 +151,8 @@ public abstract class SSOTestBase {
             log.debug("Prepare /war2/index.html get");
             checkAccessAllowed(httpclient, warB2 + "index.html");
 
-            // Access a secured servlet that calls a secured ejb in war2 to test
-            // propagation of the SSO identity to the ejb container.
+            // Access a secured servlet that calls a secured Jakarta Enterprise Beans in war2 to test
+            // propagation of the SSO identity to the Jakarta Enterprise Beans container.
             checkAccessAllowed(httpclient, warB2 + "EJBServlet");
 
             // Do the same test on war6 to test SSO auth replication with no auth
@@ -248,7 +249,7 @@ public abstract class SSOTestBase {
         List<NameValuePair> formparams = new ArrayList<>();
         formparams.add(new BasicNameValuePair("j_username", "user1"));
         formparams.add(new BasicNameValuePair("j_password", "password1"));
-        formPost.setEntity(new UrlEncodedFormEntity(formparams, "UTF-8"));
+        formPost.setEntity(new UrlEncodedFormEntity(formparams, StandardCharsets.UTF_8));
 
         HttpResponse postResponse = httpConn.execute(formPost);
         try {
@@ -408,11 +409,11 @@ public abstract class SSOTestBase {
 
     public static void applyUpdates(final List<ModelNode> updates, final ModelControllerClient client) throws Exception {
         for (ModelNode update : updates) {
-            //log.info("+++ Update on " + client + ":\n" + update.toString());
+            //log.trace("+++ Update on " + client + ":\n" + update.toString());
             ModelNode result = client.execute(new OperationBuilder(update).build());
             if (result.hasDefined("outcome") && "success".equals(result.get("outcome").asString())) {
                 if (result.hasDefined("result"))
-                    log.info(result.get("result"));
+                    log.trace(result.get("result"));
             } else if (result.hasDefined("failure-description")) {
                 throw new RuntimeException(result.get("failure-description").toString());
             } else {
@@ -440,13 +441,13 @@ public abstract class SSOTestBase {
                         if ((result.hasDefined("result")) && (result.get("result").asString().equals("running")))
                             return true;
                     }
-                    log.info("Server is down.");
+                    log.trace("Server is down.");
                     throw new Exception("Connector not available.");
                 }
             });
         } catch (TimeoutException e) {
             throw new RuntimeException("Timeout on restart operation. " + e.getMessage());
         }
-        log.info("Server is up.");
+        log.trace("Server is up.");
     }
 }

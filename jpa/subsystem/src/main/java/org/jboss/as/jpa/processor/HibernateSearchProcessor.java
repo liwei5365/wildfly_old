@@ -56,7 +56,10 @@ import org.jipijapa.plugin.spi.PersistenceUnitMetadata;
 public class HibernateSearchProcessor implements DeploymentUnitProcessor {
 
     private static final DotName SEARCH_INDEXED_ANNOTATION_NAME = DotName.createSimple("org.hibernate.search.annotations.Indexed");
-    private static final ModuleIdentifier defaultSearchModule = ModuleIdentifier.fromString(Configuration.PROVIDER_MODULE_HIBERNATE_SEARCH);
+    private static final ModuleIdentifier defaultSearchModule =
+            ModuleIdentifier.fromString(Configuration.PROVIDER_MODULE_HIBERNATE_SEARCH);
+
+
     private static final String NONE = "none";
     private static final String IGNORE = "auto";  // if set to `auto`, will behave like not having set the property
 
@@ -107,7 +110,7 @@ public class HibernateSearchProcessor implements DeploymentUnitProcessor {
             // add Hibernate Search module dependency if application is using the Hibernate Search Indexed annotation
             final CompositeIndex index = deploymentUnit.getAttachment(org.jboss.as.server.deployment.Attachments.COMPOSITE_ANNOTATION_INDEX);
             List<AnnotationInstance> annotations = index.getAnnotations(SEARCH_INDEXED_ANNOTATION_NAME);
-            if (annotations != null && annotations.size() > 0) {
+            if (annotations != null && !annotations.isEmpty()) {
                 moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, defaultSearchModule, false, true, true, false));
                 ROOT_LOGGER.debugf("deployment %s contains %s annotation, added %s dependency", deploymentUnit.getName(), SEARCH_INDEXED_ANNOTATION_NAME, defaultSearchModule);
             }

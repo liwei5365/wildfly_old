@@ -35,13 +35,13 @@ import javax.persistence.SynchronizationType;
 @Stateful
 public class InnerUnsynchronizedSFSB {
     @PersistenceContext(unitName = "unsynchronized", synchronization = SynchronizationType.UNSYNCHRONIZED)
-        EntityManager em;
+    EntityManager em;
 
     public Employee find(int id) {
         return em.find(Employee.class, id);
     }
 
-    // join persistence context to jta transaction to save pending changes to database
+    // join persistence context to Jakarta Transactions transaction to save pending changes to database
     public void joinTransaction() {
         em.joinTransaction();
     }

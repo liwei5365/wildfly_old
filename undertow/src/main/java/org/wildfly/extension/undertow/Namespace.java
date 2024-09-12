@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -37,12 +37,23 @@ enum Namespace {
     UNDERTOW_1_1("urn:jboss:domain:undertow:1.1"),
     UNDERTOW_1_2("urn:jboss:domain:undertow:1.2"),
     UNDERTOW_2_0("urn:jboss:domain:undertow:2.0"),
-    UNDERTOW_3_0("urn:jboss:domain:undertow:3.0");
+    UNDERTOW_3_0("urn:jboss:domain:undertow:3.0"),
+    UNDERTOW_3_1("urn:jboss:domain:undertow:3.1"),
+    UNDERTOW_4_0("urn:jboss:domain:undertow:4.0"),
+    UNDERTOW_5_0("urn:jboss:domain:undertow:5.0"),
+    UNDERTOW_6_0("urn:jboss:domain:undertow:6.0"),
+    UNDERTOW_7_0("urn:jboss:domain:undertow:7.0"),
+    UNDERTOW_8_0("urn:jboss:domain:undertow:8.0"),
+    UNDERTOW_9_0("urn:jboss:domain:undertow:9.0"),
+    UNDERTOW_10_0("urn:jboss:domain:undertow:10.0"),
+    UNDERTOW_11_0("urn:jboss:domain:undertow:11.0"),
+    UNDERTOW_12_0("urn:jboss:domain:undertow:12.0"),
+    ;
 
     /**
      * The current namespace version.
      */
-    public static final Namespace CURRENT = UNDERTOW_2_0;
+    public static final Namespace CURRENT = UNDERTOW_12_0;
 
     private final String name;
 

@@ -18,6 +18,7 @@ import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.naming.spi.ObjectFactory;
 
+import org.jboss.as.server.deployment.ModuleClassFactory;
 import org.jboss.invocation.proxy.ProxyConfiguration;
 import org.jboss.invocation.proxy.ProxyFactory;
 import org.jboss.modules.Module;
@@ -27,6 +28,7 @@ import org.wildfly.security.manager.WildFlySecurityManager;
 
 /**
  * An ObjectFactory that binds an arbitrary InitialContext into JNDI.
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class ExternalContextObjectFactory implements ObjectFactory {
 
@@ -118,7 +120,9 @@ public class ExternalContextObjectFactory implements ObjectFactory {
         ProxyConfiguration config = new ProxyConfiguration();
         config.setClassLoader(loader);
         config.setSuperClass(initialContextClass);
+        config.setClassFactory(ModuleClassFactory.INSTANCE);
         config.setProxyName(initialContextClassName + "$$$$Proxy" + PROXY_ID.incrementAndGet());
+        config.setProtectionDomain(context.getClass().getProtectionDomain());
         ProxyFactory<?> factory = new ProxyFactory<Object>(config);
         return (Context) factory.newInstance(new CachedContext(context));
     }
@@ -157,7 +161,7 @@ public class ExternalContextObjectFactory implements ObjectFactory {
     private static boolean useStringLookup(Hashtable<?, ?> environment) {
         Object val = environment.get(LOOKUP_BY_STRING);
         if (val instanceof String) {
-            return Boolean.valueOf((String) val);
+            return Boolean.parseBoolean((String) val);
         }
         return false;
     }
@@ -169,7 +173,7 @@ public class ExternalContextObjectFactory implements ObjectFactory {
     private static class LookupByStringContext implements Context {
         private final Context context;
 
-        public LookupByStringContext(Context context) {
+        LookupByStringContext(Context context) {
             this.context = context;
         }
 

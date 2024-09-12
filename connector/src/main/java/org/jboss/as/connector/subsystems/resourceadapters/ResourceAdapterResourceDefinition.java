@@ -21,18 +21,8 @@
 */
 package org.jboss.as.connector.subsystems.resourceadapters;
 
+import static org.jboss.as.connector._private.Capabilities.RESOURCE_ADAPTER_CAPABILITY;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RESOURCEADAPTER_NAME;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.STATISTICS_ENABLED;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DEFAULT_GROUP;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DEFAULT_GROUPS;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DEFAULT_PRINCIPAL;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DOMAIN;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_MAPPING_GROUP;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_MAPPING_GROUPS;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_MAPPING_REQUIRED;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_MAPPING_USER;
-import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_MAPPING_USERS;
 
 import java.util.List;
 
@@ -48,10 +38,6 @@ import org.jboss.as.controller.access.management.AccessConstraintDefinition;
 import org.jboss.as.controller.access.management.ApplicationTypeAccessConstraintDefinition;
 import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
-import org.jboss.dmr.ModelNode;
 
 /**
  *
@@ -64,17 +50,27 @@ public class ResourceAdapterResourceDefinition extends SimpleResourceDefinition 
 
     // The ManagedConnectionPool implementation used by default by versions < 4.0.0 (WildFly 10)
 
-
     private final boolean readOnly;
     private final boolean runtimeOnlyRegistrationValid;
     private final List<AccessConstraintDefinition> accessConstraints;
 
     public ResourceAdapterResourceDefinition(boolean readOnly, boolean runtimeOnlyRegistrationValid) {
-        super(PathElement.pathElement(RESOURCEADAPTER_NAME), RESOLVER, readOnly ? null : RaAdd.INSTANCE, readOnly ? null : RaRemove.INSTANCE);
+        super(getParameters(readOnly));
         this.readOnly = readOnly;
         this.runtimeOnlyRegistrationValid = runtimeOnlyRegistrationValid;
         ApplicationTypeConfig atc = new ApplicationTypeConfig(ResourceAdaptersExtension.SUBSYSTEM_NAME, RESOURCEADAPTER_NAME);
         accessConstraints = new ApplicationTypeAccessConstraintDefinition(atc).wrapAsList();
+    }
+
+    private static Parameters getParameters(boolean readOnly) {
+        Parameters parameters = new Parameters(PathElement.pathElement(RESOURCEADAPTER_NAME), RESOLVER);
+        if (!readOnly) {
+            parameters.setAddHandler(RaAdd.INSTANCE)
+                    .setRemoveHandler(RaRemove.INSTANCE)
+                    .setCapabilities(RESOURCE_ADAPTER_CAPABILITY);
+        }
+
+        return parameters;
     }
 
     @Override
@@ -106,39 +102,5 @@ public class ResourceAdapterResourceDefinition extends SimpleResourceDefinition 
     public List<AccessConstraintDefinition> getAccessConstraints() {
         return accessConstraints;
     }
-
-
-    static void registerTransformers300(ResourceTransformationDescriptionBuilder parentBuilder) {
-        ResourceTransformationDescriptionBuilder builder = parentBuilder.addChildResource(PathElement.pathElement(RESOURCEADAPTER_NAME));
-        ConnectionDefinitionResourceDefinition.registerTransformer300(builder);
-    }
-
-    static void registerTransformers200(ResourceTransformationDescriptionBuilder parentBuilder) {
-        ResourceTransformationDescriptionBuilder builder = parentBuilder.addChildResource(PathElement.pathElement(RESOURCEADAPTER_NAME))
-                .getAttributeBuilder()
-                .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(false, true, new ModelNode(false)), STATISTICS_ENABLED)
-                .addRejectCheck(RejectAttributeChecker.DEFINED, STATISTICS_ENABLED)
-                .end();
-        ConnectionDefinitionResourceDefinition.registerTransformer200(builder);
-    }
-
-    static void registerTransformers130(ResourceTransformationDescriptionBuilder parentBuilder) {
-        ResourceTransformationDescriptionBuilder builder = parentBuilder.addChildResource(PathElement.pathElement(RESOURCEADAPTER_NAME))
-                .getAttributeBuilder()
-                .setDiscard(DiscardAttributeChecker.UNDEFINED, WM_SECURITY_MAPPING_USER, WM_SECURITY_MAPPING_GROUP,
-                        WM_SECURITY_MAPPING_GROUPS, WM_SECURITY_MAPPING_USERS, WM_SECURITY_DEFAULT_GROUP,
-                        WM_SECURITY_DEFAULT_GROUPS, WM_SECURITY_DEFAULT_PRINCIPAL)
-                .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(false, true, new ModelNode(false)), WM_SECURITY, WM_SECURITY_MAPPING_REQUIRED, STATISTICS_ENABLED)
-                .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(false, true, new ModelNode("other")), WM_SECURITY_DOMAIN)
-                .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.MODULE, WM_SECURITY, WM_SECURITY_MAPPING_USER, WM_SECURITY_MAPPING_GROUP,
-                        WM_SECURITY_MAPPING_GROUPS, WM_SECURITY_MAPPING_USERS, WM_SECURITY_DEFAULT_GROUP,
-                        WM_SECURITY_DEFAULT_GROUPS, WM_SECURITY_DEFAULT_PRINCIPAL, WM_SECURITY_MAPPING_REQUIRED,
-                        WM_SECURITY_DOMAIN, STATISTICS_ENABLED)
-
-                .end();
-
-        ConnectionDefinitionResourceDefinition.registerTransformer130(builder);
-    }
-
 
 }

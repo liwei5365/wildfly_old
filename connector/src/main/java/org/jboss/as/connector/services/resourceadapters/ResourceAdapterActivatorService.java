@@ -26,6 +26,9 @@ import static org.jboss.as.connector.logging.ConnectorLogger.DEPLOYMENT_CONNECTO
 
 import java.io.File;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -68,6 +71,7 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
 
     private CommonDeployment deploymentMD;
     private ContextNames.BindInfo bindInfo;
+    private final List<String> jndiAliases = new ArrayList<>();
     private boolean createBinderService = true;
 
     public ResourceAdapterActivatorService(final Connector cmd, final Activation activation, ClassLoader cl,
@@ -81,9 +85,9 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
     }
 
     public ContextNames.BindInfo getBindInfo(String jndi) {
-        if (bindInfo != null)
+        if (bindInfo != null) {
             return bindInfo;
-
+        }
         return ContextNames.bindInfoFor(jndi);
     }
 
@@ -91,6 +95,20 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
         this.bindInfo = bindInfo;
     }
 
+    public void addJndiAlias(String alias) {
+        this.jndiAliases.add(alias);
+    }
+
+    public void addJndiAliases(Collection<String> aliases) {
+        this.jndiAliases.addAll(aliases);
+    }
+
+    @Override
+    public Collection<String> getJndiAliases() {
+        return Collections.unmodifiableList(this.jndiAliases);
+    }
+
+    @Override
     public boolean isCreateBinderService() {
         return createBinderService;
     }
@@ -163,7 +181,7 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
         public CommonDeployment doDeploy() throws Throwable {
 
             this.setConfiguration(getConfig().getValue());
-            //never validate bean for services activated in this way (JMS)
+            //never validate bean for services activated in this way (Jakarta Messaging)
             this.getConfiguration().setBeanValidation(false);
 
             this.start();
@@ -184,7 +202,7 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
                 if (ra != null && ra.getOutboundResourceadapter() != null
                         && ra.getOutboundResourceadapter().getConnectionDefinitions() != null) {
                     List<org.jboss.jca.common.api.metadata.spec.ConnectionDefinition> cdMetas = ra.getOutboundResourceadapter().getConnectionDefinitions();
-                    if (cdMetas.size() > 0) {
+                    if (!cdMetas.isEmpty()) {
                         for (org.jboss.jca.common.api.metadata.spec.ConnectionDefinition cdMeta : cdMetas) {
                             raMcfClasses.add(cdMeta.getManagedConnectionFactoryClass().getValue());
                         }
@@ -193,7 +211,7 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
 
                 if (ra != null && ra.getAdminObjects() != null) {
                     List<org.jboss.jca.common.api.metadata.spec.AdminObject> aoMetas = ra.getAdminObjects();
-                    if (aoMetas.size() > 0) {
+                    if (!aoMetas.isEmpty()) {
                         for (org.jboss.jca.common.api.metadata.spec.AdminObject aoMeta : aoMetas) {
                             raAoClasses.add(aoMeta.getAdminobjectClass().getValue());
                         }
@@ -201,7 +219,7 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
                 }
 
                 // Pure inflow
-                if (raMcfClasses.size() == 0 && raAoClasses.size() == 0)
+                if (raMcfClasses.isEmpty() && raAoClasses.isEmpty())
                     return true;
 
 
@@ -209,8 +227,8 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
                     Set<String> ijMcfClasses = new HashSet<String>();
                     Set<String> ijAoClasses = new HashSet<String>();
 
-                    boolean mcfSingle = false;
-                    boolean aoSingle = false;
+                    boolean mcfSingle = raMcfClasses.size() == 1;
+                    boolean aoSingle = raAoClasses.size() == 1;
 
                     boolean mcfOk = true;
                     boolean aoOk = true;
@@ -218,22 +236,17 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
                     if (activation.getConnectionDefinitions() != null) {
                         for (ConnectionDefinition def : activation.getConnectionDefinitions()) {
                             String clz = def.getClassName();
-
-                            if (clz == null) {
-                                if (raMcfClasses.size() == 1) {
-                                    mcfSingle = true;
-                                }
-                            } else {
+                            if (clz != null) {
                                 ijMcfClasses.add(clz);
                             }
                         }
                     }
 
                     if (!mcfSingle) {
-                        Iterator<String> it = raMcfClasses.iterator();
+                        Iterator<String> it = ijMcfClasses.iterator();
                         while (mcfOk && it.hasNext()) {
                             String clz = it.next();
-                            if (!ijMcfClasses.contains(clz))
+                            if (!raMcfClasses.contains(clz))
                                 mcfOk = false;
                         }
                     }
@@ -241,21 +254,17 @@ public final class ResourceAdapterActivatorService extends AbstractResourceAdapt
                     if (activation.getAdminObjects() != null) {
                         for (AdminObject def : activation.getAdminObjects()) {
                             String clz = def.getClassName();
-                            if (clz == null) {
-                                if (raAoClasses.size() == 1) {
-                                    aoSingle = true;
-                                }
-                            } else {
+                            if (clz != null) {
                                 ijAoClasses.add(clz);
                             }
                         }
                     }
 
                     if (!aoSingle) {
-                        Iterator<String> it = raAoClasses.iterator();
+                        Iterator<String> it = ijAoClasses.iterator();
                         while (aoOk && it.hasNext()) {
                             String clz = it.next();
-                            if (!ijAoClasses.contains(clz))
+                            if (!raAoClasses.contains(clz))
                                 aoOk = false;
                         }
                     }

@@ -48,23 +48,26 @@ public class StartupMergingProcessor extends AbstractMergingProcessor<SingletonC
         EEModuleClassDescription clazz = applicationClasses.getClassByName(componentClass.getName());
         if (clazz != null) {
             final ClassAnnotationInformation<Startup, Object> data = clazz.getAnnotationInformation(Startup.class);
-            if (data != null) {
-                if (!data.getClassLevelAnnotations().isEmpty()) {
-                    description.initOnStartup();
-                }
+            if (data != null
+                    && !data.getClassLevelAnnotations().isEmpty()) {
+                description.initOnStartup();
+                description.getModuleDescription().registerStartupBean();
             }
         }
     }
 
     @Override
     protected void handleDeploymentDescriptor(final DeploymentUnit deploymentUnit, final DeploymentReflectionIndex deploymentReflectionIndex, final Class<?> componentClass, final SingletonComponentDescription description) throws DeploymentUnitProcessingException {
-        SessionBeanMetaData data = description.getDescriptorData();
-        if (data instanceof SessionBean31MetaData) {
-            SessionBean31MetaData singletonBeanMetaData = (SessionBean31MetaData) data;
-            Boolean initOnStartup = singletonBeanMetaData.isInitOnStartup();
-            if (initOnStartup != null && initOnStartup) {
-                description.initOnStartup();
+        if (!description.isInitOnStartup()) {
+            SessionBeanMetaData data = description.getDescriptorData();
+            if (data instanceof SessionBean31MetaData) {
+                SessionBean31MetaData singletonBeanMetaData = (SessionBean31MetaData) data;
+                Boolean initOnStartup = singletonBeanMetaData.isInitOnStartup();
+                if (initOnStartup != null && initOnStartup) {
+                    description.initOnStartup();
+                    description.getModuleDescription().registerStartupBean();
+                }
             }
-        }
+        } // else skip. This is already marked as InitOnStartup by @Startup annotation.
     }
 }

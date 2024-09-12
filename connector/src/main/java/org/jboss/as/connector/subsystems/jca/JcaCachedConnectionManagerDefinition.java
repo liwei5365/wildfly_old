@@ -22,9 +22,10 @@
 
 package org.jboss.as.connector.subsystems.jca;
 
+import static org.jboss.as.connector.subsystems.jca.Constants.CACHED_CONNECTION_MANAGER;
+
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.PathElement;
-import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
 import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
@@ -38,8 +39,6 @@ import org.jboss.as.controller.transform.description.ResourceTransformationDescr
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
-import static org.jboss.as.connector.subsystems.jca.Constants.CACHED_CONNECTION_MANAGER;
-
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2012 Red Hat Inc.
  */
@@ -50,8 +49,8 @@ public class JcaCachedConnectionManagerDefinition extends SimpleResourceDefiniti
     private JcaCachedConnectionManagerDefinition() {
         super(PATH_CACHED_CONNECTION_MANAGER,
                 JcaExtension.getResourceDescriptionResolver(PATH_CACHED_CONNECTION_MANAGER.getKey()),
-                CachedConnectionManagerAdd.INSTANCE,
-                ReloadRequiredRemoveStepHandler.INSTANCE);
+                 CachedConnectionManagerAdd.INSTANCE,
+                 CachedConnectionManagerRemove.INSTANCE);
     }
 
     @Override
@@ -84,41 +83,41 @@ public class JcaCachedConnectionManagerDefinition extends SimpleResourceDefiniti
 
         }
 
-    public static enum CcmParameters {
+    public enum CcmParameters {
         DEBUG(SimpleAttributeDefinitionBuilder.create("debug", ModelType.BOOLEAN)
                 .setAllowExpression(true)
-                .setAllowNull(true)
-                .setDefaultValue(new ModelNode().set(false))
+                .setRequired(false)
+                .setDefaultValue(ModelNode.FALSE)
                 .setMeasurementUnit(MeasurementUnit.NONE)
                 .setRestartAllServices()
                 .setXmlName("debug")
                 .build()),
         ERROR(SimpleAttributeDefinitionBuilder.create("error", ModelType.BOOLEAN)
                 .setAllowExpression(true)
-                .setAllowNull(true)
-                .setDefaultValue(new ModelNode().set(false))
+                .setRequired(false)
+                .setDefaultValue(ModelNode.FALSE)
                 .setMeasurementUnit(MeasurementUnit.NONE)
                 .setRestartAllServices()
                 .setXmlName("error")
                 .build()),
         IGNORE_UNKNOWN_CONNECTIONS(SimpleAttributeDefinitionBuilder.create("ignore-unknown-connections", ModelType.BOOLEAN)
                 .setAllowExpression(true)
-                .setAllowNull(true)
-                .setDefaultValue(new ModelNode().set(false))
+                .setRequired(false)
+                .setDefaultValue(ModelNode.FALSE)
                 .setMeasurementUnit(MeasurementUnit.NONE)
                 .setRestartAllServices()
                 .setXmlName("ignore-unknown-connections")
                 .build()),
         INSTALL(SimpleAttributeDefinitionBuilder.create("install", ModelType.BOOLEAN)
                 .setAllowExpression(false)
-                .setAllowNull(true)
-                .setDefaultValue(new ModelNode().set(false))
+                .setRequired(false)
+                .setDefaultValue(ModelNode.FALSE)
                 .setMeasurementUnit(MeasurementUnit.NONE)
                 .setRestartAllServices()
                 .build());
 
 
-        private CcmParameters(SimpleAttributeDefinition attribute) {
+        CcmParameters(SimpleAttributeDefinition attribute) {
             this.attribute = attribute;
         }
 
@@ -130,16 +129,18 @@ public class JcaCachedConnectionManagerDefinition extends SimpleResourceDefiniti
     }
 
 
-    public static enum CcmOperations {
+    public enum CcmOperations {
         GET_NUMBER_OF_CONNECTIONS(new SimpleOperationDefinitionBuilder("get-number-of-connections", JcaExtension.getResourceDescriptionResolver(PATH_CACHED_CONNECTION_MANAGER.getKey()))
                 .setRuntimeOnly()
+                .setReadOnly()
                 .build()),
         LIST_CONNECTIONS(new SimpleOperationDefinitionBuilder("list-connections", JcaExtension.getResourceDescriptionResolver(PATH_CACHED_CONNECTION_MANAGER.getKey()))
                 .setRuntimeOnly()
+                .setReadOnly()
                 .build());
 
 
-        private CcmOperations(SimpleOperationDefinition operation) {
+        CcmOperations(SimpleOperationDefinition operation) {
             this.operation = operation;
         }
 

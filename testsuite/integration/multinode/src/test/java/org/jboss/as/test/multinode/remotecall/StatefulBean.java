@@ -52,14 +52,14 @@ public class StatefulBean {
 
     private InitialContext getInitialContext() throws NamingException {
         final Properties props = new Properties();
-        // setup the ejb: namespace URL factory
+        // setup the Jakarta Enterprise Beans: namespace URL factory
         props.put(Context.URL_PKG_PREFIXES, "org.jboss.ejb.client.naming");
         return new InitialContext(props);
     }
 
     public void localCall() throws Exception {
         InitialContext jndiContext = getInitialContext();
-        log.info("Calling Local remotely...  " + jndiContext.getEnvironment());
+        log.trace("Calling Local remotely...  " + jndiContext.getEnvironment());
         StatelessLocal stateless = (StatelessLocal) jndiContext.lookup("ejb:/" + RemoteLocalCallTestCase.ARCHIVE_NAME_SERVER
                 + "//" + StatelessBean.class.getSimpleName() + "!" + StatelessLocal.class.getName());
         stateless.method();
@@ -67,7 +67,7 @@ public class StatefulBean {
 
     public void localHomeCall() throws Exception {
         InitialContext jndiContext = getInitialContext();
-        log.info("Calling LocalHome remotely...  " + jndiContext.getEnvironment());
+        log.trace("Calling LocalHome remotely...  " + jndiContext.getEnvironment());
         StatelessLocalHome statelessHome = (StatelessLocalHome) jndiContext.lookup("ejb:/"
                 + RemoteLocalCallTestCase.ARCHIVE_NAME_SERVER + "//" + StatelessBean.class.getSimpleName() + "!"
                 + StatelessLocalHome.class.getName());
@@ -78,17 +78,17 @@ public class StatefulBean {
     public int remoteCall() throws Exception {
         ++methodCount;
         InitialContext jndiContext = getInitialContext();
-        log.info("Calling Remote... " + jndiContext.getEnvironment());
+        log.trace("Calling Remote... " + jndiContext.getEnvironment());
         StatefulRemote stateful = (StatefulRemote) jndiContext.lookup("ejb:/" + RemoteLocalCallTestCase.ARCHIVE_NAME_SERVER
                 + "//" + StatefulBean.class.getSimpleName() + "!" + StatefulRemote.class.getName() + "?stateful");
-        log.info("We have got statefulbean...");
+        log.trace("We have got statefulbean...");
         return stateful.method();
     }
 
     public int remoteHomeCall() throws Exception {
         ++homeMethodCount;
         InitialContext jndiContext = new InitialContext();
-        log.info("Calling RemoteHome... " + jndiContext.getEnvironment());
+        log.trace("Calling RemoteHome... " + jndiContext.getEnvironment());
         StatefulRemoteHome statefulHome = (StatefulRemoteHome) jndiContext.lookup("ejb:/"
                 + RemoteLocalCallTestCase.ARCHIVE_NAME_SERVER + "//" + StatefulBean.class.getSimpleName() + "!"
                 + StatefulRemoteHome.class.getName());
@@ -98,14 +98,14 @@ public class StatefulBean {
 
     public int method() throws Exception {
         ++methodCount;
-        log.info("Method called " + methodCount);
+        log.trace("Method called " + methodCount);
         return methodCount;
     }
 
     public int homeMethod() throws Exception {
-        log.info("Before adding ++ is homeMethodCount: " + homeMethodCount);
+        log.trace("Before adding ++ is homeMethodCount: " + homeMethodCount);
         ++homeMethodCount;
-        log.info("HomeMethod called " + homeMethodCount);
+        log.trace("HomeMethod called " + homeMethodCount);
         return homeMethodCount;
     }
 

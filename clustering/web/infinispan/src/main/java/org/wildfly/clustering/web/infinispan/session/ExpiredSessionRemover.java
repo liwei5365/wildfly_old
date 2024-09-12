@@ -21,38 +21,63 @@
  */
 package org.wildfly.clustering.web.infinispan.session;
 
-import java.util.Map;
+import java.util.Collection;
+import java.util.concurrent.CopyOnWriteArraySet;
 
-import org.wildfly.clustering.ee.infinispan.Remover;
+import org.wildfly.clustering.Registrar;
+import org.wildfly.clustering.Registration;
+import org.wildfly.clustering.ee.Remover;
+import org.wildfly.clustering.web.cache.session.SessionFactory;
 import org.wildfly.clustering.web.infinispan.logging.InfinispanWebLogger;
 import org.wildfly.clustering.web.session.ImmutableSession;
+import org.wildfly.clustering.web.session.ImmutableSessionAttributes;
+import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 import org.wildfly.clustering.web.session.SessionExpirationListener;
 
 /**
  * Session remover that removes a session if and only if it is expired.
+ * @param <SC> the ServletContext specification type
+ * @param <MV> the meta-data value type
+ * @param <AV> the attributes value type
+ * @param <LC> the local context type
  * @author Paul Ferraro
  */
-public class ExpiredSessionRemover<MV, AV, L> implements Remover<String> {
+public class ExpiredSessionRemover<SC, MV, AV, LC> implements Remover<String>, Registrar<SessionExpirationListener> {
 
-    private final SessionFactory<MV, AV, L> factory;
-    private final SessionExpirationListener listener;
+    private final SessionFactory<SC, MV, AV, LC> factory;
+    private final Collection<SessionExpirationListener> listeners = new CopyOnWriteArraySet<>();
 
-    public ExpiredSessionRemover(SessionFactory<MV, AV, L> factory, SessionExpirationListener listener) {
+    public ExpiredSessionRemover(SessionFactory<SC, MV, AV, LC> factory) {
         this.factory = factory;
-        this.listener = listener;
     }
 
     @Override
     public boolean remove(String id) {
-        Map.Entry<MV, AV> value = this.factory.tryValue(id);
-        if (value != null) {
-            ImmutableSession session = this.factory.createImmutableSession(id, value);
-            if (session.getMetaData().isExpired()) {
-                InfinispanWebLogger.ROOT_LOGGER.tracef("Session %s has expired.", id);
-                this.listener.sessionExpired(this.factory.createImmutableSession(id, value));
+        MV metaDataValue = this.factory.getMetaDataFactory().tryValue(id);
+        if (metaDataValue != null) {
+            ImmutableSessionMetaData metaData = this.factory.getMetaDataFactory().createImmutableSessionMetaData(id, metaDataValue);
+            if (metaData.isExpired()) {
+                AV attributesValue = this.factory.getAttributesFactory().findValue(id);
+                if (attributesValue != null) {
+                    ImmutableSessionAttributes attributes = this.factory.getAttributesFactory().createImmutableSessionAttributes(id, attributesValue);
+                    ImmutableSession session = this.factory.createImmutableSession(id, metaData, attributes);
+                    InfinispanWebLogger.ROOT_LOGGER.tracef("Session %s has expired.", id);
+                    for (SessionExpirationListener listener : this.listeners) {
+                        listener.sessionExpired(session);
+                    }
+                }
                 return this.factory.remove(id);
             }
+            InfinispanWebLogger.ROOT_LOGGER.tracef("Session %s is not yet expired.", id);
+        } else {
+            InfinispanWebLogger.ROOT_LOGGER.tracef("Session %s was not found or is currently in use.", id);
         }
         return false;
+    }
+
+    @Override
+    public Registration register(SessionExpirationListener listener) {
+        this.listeners.add(listener);
+        return () -> this.listeners.remove(listener);
     }
 }

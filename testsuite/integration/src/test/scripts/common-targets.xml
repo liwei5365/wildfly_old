@@ -53,7 +53,7 @@
 
 
     <!--
-        Change IP adresses, including multicast.
+        Change IP addresses, including multicast.
         It's the same as above, only adds the udpMcastAddress param.
 
         This macro makes use of saxon via  ${net.sf.saxon:saxon:jar}.
@@ -117,6 +117,7 @@
         <attribute name="name" default="jbossas"/>
         <attribute name="output.dir" default="${project.build.directory}"/>
         <attribute name="config.dir.name" default="standalone/configuration"/>
+
         <attribute name="offset" default="0"/>
         <attribute name="nativePort" default="9999"/>
         <attribute name="httpPort" default="9990"/>
@@ -135,6 +136,7 @@
                     <include name="**/standalone*-ha.xml"/>
                     <include name="**/standalone.xml"/>
                     <include name="**/standalone-full.xml"/>
+                    <include name="**/standalone-xts.xml"/>
                 </fileset>
                 <param name="portOffset" expression="@{offset}"/>
                 <param name="nativeInterfaceManagementPort" expression="@{nativePort}"/>
@@ -147,6 +149,7 @@
                    <include name="**/standalone*-ha.xml.mod"/>
                    <include name="**/standalone.xml.mod"/>
                    <include name="**/standalone-full.xml.mod"/>
+                   <include name="**/standalone-xts.xml.mod"/>
                </fileset>
                <mapper type="glob" from="*.mod" to="*"/>
              </move>
@@ -207,7 +210,7 @@
         <attribute name="remotePort" default="4447"/>
         <attribute name="securityRealm" default="NOT_DEFINED"/>
         <attribute name="userName" default="NOT_DEFINED"/>
-        <attribute name="protocol" default="http-remoting"/>
+        <attribute name="protocol" default="remote+http"/>
 
         <sequential>
             <echo message="Adding a new remote outbound connection @{connectionName} for config @{name}"/>
@@ -254,7 +257,7 @@
             <echo message="Adding a new server identity realm @{realmName} with secret @{secret}"/>
 
             <!-- Process *.xml to *.xml.mod. -->
-            <xslt destdir="@{output.dir}/@{name}-tmp/@{config.dir.name}"
+            <xslt destdir="@{output.dir}/@{name}/@{config.dir.name}"
                   style="${jbossas.ts.integ.dir}/src/test/xslt/addIdentityRealm.xsl"
                   extension=".xml.mod"
                   useImplicitFileset="false">
@@ -269,7 +272,7 @@
 
             <!-- Move processed files back. -->
             <move todir="@{output.dir}/@{name}/@{config.dir.name}">
-               <fileset dir="@{output.dir}/@{name}-tmp/@{config.dir.name}">
+               <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
                    <include name="**/standalone*-ha.xml.mod"/>
                    <include name="**/standalone.xml.mod"/>
                    <include name="**/standalone-full.xml.mod"/>
@@ -341,6 +344,195 @@
             <move todir="@{output.dir}/@{name}/@{config.dir.name}">
                 <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
                     <include name="**/standalone-ha.xml.mod"/>
+                    <include name="**/standalone.xml.mod"/>
+                    <include name="**/standalone-full.xml.mod"/>
+                </fileset>
+                <mapper type="glob" from="*.mod" to="*"/>
+            </move>
+        </sequential>
+    </macrodef>
+
+    <!-- after refactor -->
+
+    <macrodef name="ts.config-as.iiop.enable-ssl-jsse-domain" description="Enable SSL with JSSE security domain">
+
+        <attribute name="name" default="jbossas"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <attribute name="domain-name" default="iiop-ssl-domain"/>
+
+        <sequential>
+            <echo message="IIOP: enabling SSL with JSSE security domain"/>
+
+            <xslt destdir="@{output.dir}/@{name}/@{config.dir.name}"
+                  style="${jbossas.ts.integ.dir}/src/test/xslt/iiopEnableSslJsseDomain.xsl"
+                  extension=".xml.mod"
+                  useImplicitFileset="false">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml"/>
+                    <include name="**/standalone.xml"/>
+                    <include name="**/standalone-full.xml"/>
+                </fileset>
+                <param name="domain-name" expression="@{domain-name}"/>
+            </xslt>
+
+            <move todir="@{output.dir}/@{name}/@{config.dir.name}">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml.mod"/>
+                    <include name="**/standalone.xml.mod"/>
+                    <include name="**/standalone-full.xml.mod"/>
+                </fileset>
+                <mapper type="glob" from="*.mod" to="*"/>
+            </move>
+        </sequential>
+    </macrodef>
+
+    <macrodef name="ts.config-as.iiop.create-jsse-security-domain" description="Creates legacy JSSE security domain">
+
+        <attribute name="name" default="jbossas"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <attribute name="domain-name" default="iiop-ssl-domain"/>
+        <attribute name="keystore"/>
+        <attribute name="password"/>
+
+        <sequential>
+            <echo message="Setting up SSL support in IIOP configuration for @{name}"/>
+
+            <xslt destdir="@{output.dir}/@{name}/@{config.dir.name}"
+                  style="${jbossas.ts.integ.dir}/src/test/xslt/createJsseSecurityDomain.xsl"
+                  extension=".xml.mod"
+                  useImplicitFileset="false">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml"/>
+                    <include name="**/standalone.xml"/>
+                    <include name="**/standalone-full.xml"/>
+                </fileset>
+                <param name="domain-name" expression="@{domain-name}"/>
+                <param name="keystore" expression="@{keystore}"/>
+                <param name="password" expression="@{password}"/>
+            </xslt>
+
+            <move todir="@{output.dir}/@{name}/@{config.dir.name}">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml.mod"/>
+                    <include name="**/standalone.xml.mod"/>
+                    <include name="**/standalone-full.xml.mod"/>
+                </fileset>
+                <mapper type="glob" from="*.mod" to="*"/>
+            </move>
+        </sequential>
+    </macrodef>
+
+    <macrodef name="ts.config-as.iiop.enable-server-requires-ssl" description="Creates elytron security settings and enables server-reqires-ssl setting.">
+
+        <attribute name="name" default="jbossas"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <sequential>
+            <echo message="IIOP: setting server-requires-ssl to true"/>
+
+            <xslt destdir="@{output.dir}/@{name}/@{config.dir.name}"
+                  style="${jbossas.ts.integ.dir}/src/test/xslt/iiopRequireSslSupport.xsl"
+                  extension=".xml.mod"
+                  useImplicitFileset="false">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml"/>
+                    <include name="**/standalone.xml"/>
+                    <include name="**/standalone-full.xml"/>
+                </fileset>
+            </xslt>
+
+            <move todir="@{output.dir}/@{name}/@{config.dir.name}">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone-ha.xml.mod"/>
+                    <include name="**/standalone.xml.mod"/>
+                    <include name="**/standalone-full.xml.mod"/>
+                </fileset>
+                <mapper type="glob" from="*.mod" to="*"/>
+            </move>
+        </sequential>
+    </macrodef>
+
+    <!-- Change default transport stack in clustering server profiles. -->
+    <macrodef name="ts.config-as.change-transport-stack" description="Change default transport stack in clustering server profiles.">
+
+        <attribute name="name" default="wildfly"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <attribute name="channel" default="ee"/>
+        <attribute name="stack" default="tcp"/>
+
+        <sequential>
+            <echo message="Changing JGroups stack for config @{name}"/>
+
+            <execute-xslt-transform transform="changeTransportStack.xsl" name="@{name}" output.dir="@{output.dir}" config.dir.name="@{config.dir.name}">
+                <transform-params>
+                    <param name="channel" expression="@{channel}"/>
+                    <param name="stack" expression="@{stack}"/>
+                </transform-params>
+            </execute-xslt-transform>
+
+            <!-- Change stack in messaging subsystem too -->
+            <execute-xslt-transform transform="changeMessagingJGroupsStack.xsl" name="@{name}" output.dir="@{output.dir}" config.dir.name="@{config.dir.name}">
+                <transform-params>
+                    <param name="stack" expression="@{stack}"/>
+                </transform-params>
+            </execute-xslt-transform>
+
+        </sequential>
+    </macrodef>
+
+    <!-- Configure multicast TTL -->
+    <macrodef name="ts.config-as.configure-multicast-ttl" description="Configures TTL for all multicast messages in JGroups subsystem">
+
+        <attribute name="name" default="wildfly"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <attribute name="mcast.ttl" default="0"/>
+
+        <sequential>
+            <echo message="Configuring TTL for all multicast messages to @{mcast.ttl} in JGroups subsystem"/>
+            <execute-xslt-transform transform="changeMulticastTTL.xsl" name="@{name}" output.dir="@{output.dir}" config.dir.name="@{config.dir.name}">
+                <transform-params>
+                    <param name="mcast.ttl" expression="@{mcast.ttl}"/>
+                </transform-params>
+            </execute-xslt-transform>
+        </sequential>
+    </macrodef>
+
+    <!-- Execute an XSLT transform in place -->
+    <macrodef name="execute-xslt-transform" description="Execute an XSLT transform on an xml file (in place)">
+        <attribute name="name" default="wildfly"/>
+        <attribute name="output.dir" default="${project.build.directory}"/>
+        <attribute name="config.dir.name" default="standalone/configuration"/>
+
+        <attribute name="transform"/>
+        <element name="transform-params" optional="yes"/>
+
+        <sequential>
+            <!-- Process *.xml to *.xml.mod. -->
+            <xslt destdir="@{output.dir}/@{name}/@{config.dir.name}"
+                  style="${jbossas.ts.integ.dir}/src/test/xslt/@{transform}"
+                  extension=".xml.mod"
+                  useImplicitFileset="false">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone*-ha.xml"/>
+                    <include name="**/standalone.xml"/>
+                    <include name="**/standalone-full.xml"/>
+                </fileset>
+                <transform-params/>
+            </xslt>
+
+            <!-- Move processed files back. -->
+            <move todir="@{output.dir}/@{name}/@{config.dir.name}">
+                <fileset dir="@{output.dir}/@{name}/@{config.dir.name}">
+                    <include name="**/standalone*-ha.xml.mod"/>
                     <include name="**/standalone.xml.mod"/>
                     <include name="**/standalone-full.xml.mod"/>
                 </fileset>

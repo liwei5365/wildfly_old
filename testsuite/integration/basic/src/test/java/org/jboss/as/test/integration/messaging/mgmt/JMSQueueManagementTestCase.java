@@ -28,8 +28,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.HashSet;
-import java.util.Set;
+import java.io.StringReader;
 
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
@@ -38,16 +37,23 @@ import javax.jms.MessageConsumer;
 import javax.jms.MessageProducer;
 import javax.jms.Queue;
 import javax.jms.Session;
+import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonReader;
 import javax.naming.Context;
 
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.as.arquillian.api.ContainerResource;
 import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.operations.common.Util;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
+import org.jboss.logging.Logger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -55,17 +61,22 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests the management API for JMS queues.
+ * Tests the management API for Jakarta Messaging queues.
  *
  * @author Brian Stansberry (c) 2011 Red Hat Inc.
  */
 @RunAsClient()
 @RunWith(Arquillian.class)
 public class JMSQueueManagementTestCase {
+    private static final Logger LOGGER = Logger.getLogger(JMSQueueManagementTestCase.class);
 
     private static final String EXPORTED_PREFIX = "java:jboss/exported/";
 
+    private static final long SAMPLE_PERIOD = 1001;
+
     private static long count = System.currentTimeMillis();
+
+    private static final long TIMEOUT = TimeoutUtil.adjust(5000);
 
     @ContainerResource
     private Context remoteContext;
@@ -131,51 +142,107 @@ public class JMSQueueManagementTestCase {
         }
     }
 
+
+    private void enableStatistics(boolean enabled) throws IOException {
+
+        if (enabled) {
+            ModelNode enableStatistics = Util.getWriteAttributeOperation(adminSupport.getServerAddress(), "statistics-enabled", new ModelNode(enabled));
+            ModelNode accelerateSamplingPeriod = Util.getWriteAttributeOperation(adminSupport.getServerAddress(), "message-counter-sample-period", new ModelNode(SAMPLE_PERIOD));
+
+            execute(enableStatistics, true);
+            execute(accelerateSamplingPeriod, true);
+        } else {
+            ModelNode undefineStatisticsEnabled = Util.getUndefineAttributeOperation(PathAddress.pathAddress(adminSupport.getServerAddress()), "statistics-enabled");
+            ModelNode undefineMessageCounterSamplePeriod = Util.getUndefineAttributeOperation(PathAddress.pathAddress(adminSupport.getServerAddress()), "message-counter-sample-period");
+
+            execute(undefineStatisticsEnabled, true);
+            execute(undefineMessageCounterSamplePeriod, true);
+        }
+    }
+
+    private static JsonObject fromString(String string) {
+        try (JsonReader reader = Json.createReader(new StringReader(string))) {
+            return reader.readObject();
+        }
+    }
+
     @Test
     public void testListAndCountMessages() throws Exception {
-
         MessageProducer producer = session.createProducer(queue);
-        producer.send(session.createTextMessage("A"));
-        producer.send(session.createTextMessage("B"));
-
-        ModelNode result = execute(getQueueOperation("list-messages"), true);
+        Message message1 = session.createTextMessage("A");
+        producer.send(message1);
+        Message message2 = session.createTextMessage("B");
+        producer.send(message2);
+        listMessages(2);
+        ModelNode result = execute(getQueueOperation("count-messages"), true);
         Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(2, result.asList().size());
-
-        result = execute(getQueueOperation("count-messages"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(2, result.asInt());
+        Assert.assertEquals("count-messages result " + result, 2, result.asInt());
     }
 
     @Test
     public void testMessageCounters() throws Exception {
 
-        MessageProducer producer = session.createProducer(queue);
-        producer.send(session.createTextMessage("A"));
-        producer.send(session.createTextMessage("B"));
+        try {
+            enableStatistics(true);
 
-        ModelNode result = execute(getQueueOperation("list-message-counter-as-json"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(ModelType.STRING, result.getType());
+            MessageProducer producer = session.createProducer(queue);
+            producer.send(session.createTextMessage("A"));
+            producer.send(session.createTextMessage("B"));
 
-        result = execute(getQueueOperation("list-message-counter-as-html"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(ModelType.STRING, result.getType());
+            // wait for 2 sample periods to let the counters be updated.
+            checkMessageCounters(2, 2);
 
-        result = execute(getQueueOperation("list-message-counter-history-as-json"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(ModelType.STRING, result.getType());
+            ModelNode result = execute(getQueueOperation("list-message-counter-as-html"), true);
+            Assert.assertTrue(result.isDefined());
+            Assert.assertEquals(ModelType.STRING, result.getType());
 
-        result = execute(getQueueOperation("list-message-counter-history-as-html"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(ModelType.STRING, result.getType());
+            result = execute(getQueueOperation("list-message-counter-history-as-json"), true);
+            Assert.assertTrue(result.isDefined());
+            Assert.assertEquals(ModelType.STRING, result.getType());
 
-        result = execute(getQueueOperation("reset-message-counter"), true);
-        Assert.assertFalse(result.isDefined());
+            result = execute(getQueueOperation("list-message-counter-history-as-html"), true);
+            Assert.assertTrue(result.isDefined());
+            Assert.assertEquals(ModelType.STRING, result.getType());
 
-        result = execute(getQueueOperation("list-message-counter-history-as-json"), true);
-        Assert.assertTrue(result.isDefined());
-        Assert.assertEquals(ModelType.STRING, result.getType());
+            result = execute(getQueueOperation("reset-message-counter"), true);
+            Assert.assertFalse(result.isDefined());
+
+            // check that the messageCountDelta has been reset to 0 after invoking "reset-message-counter"
+            checkMessageCounters(2, 0);
+
+            result = execute(getQueueOperation("list-message-counter-history-as-json"), true);
+            Assert.assertTrue(result.isDefined());
+            Assert.assertEquals(ModelType.STRING, result.getType());
+        } finally {
+            enableStatistics(false);
+        }
+    }
+
+    /**
+     * Given that message counters are sampled, we fetched them several time (with a period shorter than the sample period)
+     * to make the test pass faster.
+     */
+    private void checkMessageCounters(int expectedMessageCount, int expectedMessageCountDelta) throws Exception {
+        long start = System.currentTimeMillis();
+        long now;
+        JsonObject messageCounters;
+        do {
+            Thread.sleep((long) (SAMPLE_PERIOD / 2.0));
+            ModelNode result = execute(getQueueOperation("list-message-counter-as-json"), true);
+            Assert.assertTrue(result.isDefined());
+            Assert.assertEquals(ModelType.STRING, result.getType());
+            messageCounters = fromString(result.asString());
+            int actualMessageCount = messageCounters.getInt("messageCount");
+            int actualMessageCountDelta = messageCounters.getInt("messageCountDelta");
+            if (actualMessageCount == expectedMessageCount && actualMessageCountDelta == expectedMessageCountDelta) {
+                // got correct counters
+                return;
+            }
+            now = System.currentTimeMillis();
+        } while (now - start < (2.0 * SAMPLE_PERIOD));
+        // after twice the sample period, the assertions must always be true
+        Assert.assertEquals(messageCounters.toString(), expectedMessageCount, messageCounters.getInt("messageCount"));
+        Assert.assertEquals(messageCounters.toString(), expectedMessageCountDelta, messageCounters.getInt("messageCountDelta"));
 
     }
 
@@ -273,57 +340,72 @@ public class JMSQueueManagementTestCase {
     @Test
     public void testChangeMessagePriority() throws Exception {
 
+        final int priority = 3;
         MessageProducer producer = session.createProducer(queue);
+        producer.setPriority(priority);
         Message msgA = session.createTextMessage("A");
         producer.send(msgA);
-        producer.send(session.createTextMessage("B"));
-        producer.send(session.createTextMessage("C"));
+        String messageId = msgA.getJMSMessageID();
+        Message msgB = session.createTextMessage("B");
+        producer.send(msgB);
+        Message msgC = session.createTextMessage("C");
+        producer.send(msgC);
 
-        Set<Integer> priorities = new HashSet<Integer>();
-        ModelNode result = execute(getQueueOperation("list-messages"), true);
+        ModelNode result = listMessages(3);
         Assert.assertEquals(3, result.asInt());
         for (ModelNode node : result.asList()) {
-            priorities.add(node.get("JMSPriority").asInt());
-        }
-        int newPriority = -1;
-        for (int i = 0; i < 10; i++) {
-            if (!priorities.contains(i)) {
-                newPriority = i;
-                break;
-            }
+            Assert.assertEquals("Priority should be " + priority, priority, node.get("JMSPriority").asInt());
         }
 
+        int newPriority = 5;
         ModelNode op = getQueueOperation("change-message-priority");
-        op.get("message-id").set(msgA.getJMSMessageID());
+        op.get("message-id").set(messageId);
         op.get("new-priority").set(newPriority);
-
         result = execute(op, true);
         Assert.assertTrue(result.isDefined());
         Assert.assertTrue(result.asBoolean());
-
-        result = execute(getQueueOperation("list-messages"), true);
+        result = listMessages(3);
+        Assert.assertEquals("The expected messages are " + msgA + " "+ msgB + " "+ msgC + " and we got " + result, 3, result.asList().size());
         boolean found = false;
         for (ModelNode node : result.asList()) {
-            if (msgA.getJMSMessageID().equals(node.get("JMSMessageID").asString())) {
-                Assert.assertEquals(newPriority, node.get("JMSPriority").asInt());
+            if (messageId.equals(node.get("JMSMessageID").asString())) {
+                Assert.assertEquals("Message should have the new priority", newPriority, node.get("JMSPriority").asInt());
                 found = true;
-                break;
+            } else {
+                Assert.assertEquals("Message should have the set priority", priority, node.get("JMSPriority").asInt());
             }
         }
         Assert.assertTrue(found);
 
         op = getQueueOperation("change-messages-priority");
         op.get("new-priority").set(newPriority);
-
         result = execute(op, true);
         Assert.assertTrue(result.isDefined());
         Assert.assertTrue(result.asInt() > 1 && result.asInt() < 4);
-
-        result = execute(getQueueOperation("list-messages"), true);
+        result = listMessages(3);
+        Assert.assertEquals(3, result.asInt());
         for (ModelNode node : result.asList()) {
-            Assert.assertEquals(newPriority, node.get("JMSPriority").asInt());
+            Assert.assertEquals("Message should have the new priority", newPriority, node.get("JMSPriority").asInt());
         }
 
+    }
+
+    private ModelNode listMessages(int expectedSize) throws IOException, InterruptedException {
+        final ModelNode listMessagesOperation = getQueueOperation("list-messages");
+        long end = System.currentTimeMillis() + TIMEOUT;
+        boolean passed = false;
+        ModelNode result = null;
+        while (end > System.currentTimeMillis()) {
+            result = execute(listMessagesOperation, true);
+            Assert.assertTrue(result.isDefined());
+            passed = result.asList().size() == expectedSize;
+            if (passed) {
+                break;
+            }
+            Thread.sleep(100);
+        }
+        Assert.assertTrue("Here is what  we got instead of the " + expectedSize + " messages " + result, passed);
+        return result;
     }
 
     @Test
@@ -411,13 +493,13 @@ public class JMSQueueManagementTestCase {
         final String outcome = response.get("outcome").asString();
         if (expectSuccess) {
             if (!"success".equals(outcome)) {
-                System.out.println(response);
+                LOGGER.trace(response);
             }
             Assert.assertEquals("success", outcome);
             return response.get("result");
         } else {
             if ("success".equals(outcome)) {
-                System.out.println(response);
+                LOGGER.trace(response);
             }
             Assert.assertEquals("failed", outcome);
             return response.get("failure-description");

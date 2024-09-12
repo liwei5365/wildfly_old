@@ -21,7 +21,6 @@
  */
 package org.wildfly.clustering.ejb.infinispan;
 
-import org.wildfly.clustering.ejb.Bean;
 import org.wildfly.clustering.ejb.RemoveListener;
 import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
 
@@ -30,27 +29,29 @@ import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
  *
  * @author Paul Ferraro
  *
- * @param <G> the group identifier type
  * @param <I> the bean identifier type
  * @param <T> the bean type
  */
-public class ExpiredBeanRemover<G, I, T> implements BeanRemover<I, T> {
+public class ExpiredBeanRemover<I, T> implements BeanRemover<I, T> {
 
-    private final BeanFactory<G, I, T> factory;
+    private final BeanFactory<I, T> factory;
+    private final ExpirationConfiguration<T> expiration;
 
-    public ExpiredBeanRemover(BeanFactory<G, I, T> factory) {
+    public ExpiredBeanRemover(BeanFactory<I, T> factory, ExpirationConfiguration<T> expiration) {
         this.factory = factory;
+        this.expiration = expiration;
     }
 
     @Override
-    public void remove(I id, RemoveListener<T> listener) {
-        BeanEntry<G> entry = this.factory.findValue(id);
+    public boolean remove(I id, RemoveListener<T> listener) {
+        BeanEntry<I> entry = this.factory.tryValue(id);
         if (entry != null) {
-            Bean<G, I, T> bean = this.factory.createBean(id, entry);
-            if (bean.isExpired()) {
+            if (entry.isExpired(this.expiration.getTimeout())) {
                 InfinispanEjbLogger.ROOT_LOGGER.tracef("Removing expired bean %s", id);
-                this.factory.remove(id, listener);
+                return this.factory.remove(id, listener);
             }
+            return false;
         }
+        return true;
     }
 }

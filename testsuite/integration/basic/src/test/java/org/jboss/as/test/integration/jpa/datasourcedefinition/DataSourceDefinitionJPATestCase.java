@@ -22,6 +22,11 @@
 
 package org.jboss.as.test.integration.jpa.datasourcedefinition;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.persistence.TransactionRequiredException;
@@ -36,11 +41,6 @@ import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Transaction tests
@@ -58,7 +58,7 @@ public class DataSourceDefinitionJPATestCase {
         JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
         jar.addPackage(DataSourceDefinitionJPATestCase.class.getPackage());
         jar.addAsManifestResource(DataSourceDefinitionJPATestCase.class.getPackage(), "persistence.xml", "persistence.xml");
-        jar.addAsManifestResource(new StringAsset("Dependencies: com.h2database.h2\n"),"MANIFEST.MF");
+        jar.addAsManifestResource(new StringAsset("Dependencies: com.h2database.h2\n"), "MANIFEST.MF");
         return jar;
     }
 
@@ -136,11 +136,11 @@ public class DataSourceDefinitionJPATestCase {
 
 
     /**
-     * Tests JTA involving an EJB 3 SLSB which makes two DAO calls in transaction.
+     * Tests Jakarta Transactions involving an EJB 3 SLSB which makes two DAO calls in transaction.
      * Scenarios:
-     * 1) The transaction fails during the first DAO call and the JTA transaction is rolled back and no database changes should occur.
-     * 2) The transaction fails during the second DAO call and the JTA transaction is rolled back and no database changes should occur.
-     * 3) The transaction fails after the DAO calls and the JTA transaction is rolled back and no database changes should occur.
+     * 1) The transaction fails during the first DAO call and the Jakarta Transactions transaction is rolled back and no database changes should occur.
+     * 2) The transaction fails during the second DAO call and the Jakarta Transactions transaction is rolled back and no database changes should occur.
+     * 3) The transaction fails after the DAO calls and the Jakarta Transactions transaction is rolled back and no database changes should occur.
      */
     @Test
     @InSequence(5)

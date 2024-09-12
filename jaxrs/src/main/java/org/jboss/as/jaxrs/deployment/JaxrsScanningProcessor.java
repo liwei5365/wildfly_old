@@ -63,7 +63,7 @@ import static org.jboss.resteasy.plugins.server.servlet.ResteasyContextParameter
 import static org.jboss.resteasy.plugins.server.servlet.ResteasyContextParameters.RESTEASY_SCAN_RESOURCES;
 
 /**
- * Processor that finds jax-rs classes in the deployment
+ * Processor that finds Jakarta RESTful Web Services classes in the deployment
  *
  * @author Stuart Douglas
  */
@@ -72,6 +72,7 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
     private static final DotName DECORATOR = DotName.createSimple("javax.decorator.Decorator");
 
     public static final DotName APPLICATION = DotName.createSimple(Application.class.getName());
+    private static final String ORG_APACHE_CXF = "org.apache.cxf";
 
     @Override
     public void deploy(DeploymentPhaseContext phaseContext) throws DeploymentUnitProcessingException {
@@ -103,10 +104,116 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
             } else {
                 scanWebDeployment(deploymentUnit, warMetaData.getMergedJBossWebMetaData(), module.getClassLoader(), resteasyDeploymentData);
                 scan(deploymentUnit, module.getClassLoader(), resteasyDeploymentData);
+
+                // When BootStrap classes are present and no Application subclass declared
+                // must check context param for Application subclass declaration
+                if (resteasyDeploymentData.getScannedResourceClasses().isEmpty() &&
+                    !resteasyDeploymentData.isDispatcherCreated() &&
+                    hasBootClasses(warMetaData.getMergedJBossWebMetaData())) {
+                    checkOtherParams(deploymentUnit, warMetaData.getMergedJBossWebMetaData(), module.getClassLoader(), resteasyDeploymentData);
+                }
             }
             deploymentUnit.putAttachment(JaxrsAttachments.RESTEASY_DEPLOYMENT_DATA, resteasyDeploymentData);
         } catch (ModuleLoadException e) {
             throw new DeploymentUnitProcessingException(e);
+        }
+    }
+
+    private void checkOtherParams(final DeploymentUnit du,
+                                  final JBossWebMetaData webdata,
+                                  final ClassLoader classLoader,
+                                  final ResteasyDeploymentData resteasyDeploymentData)
+        throws DeploymentUnitProcessingException{
+
+        HashSet<String> appClazzList = new HashSet<>();
+        List<ParamValueMetaData> contextParamList = webdata.getContextParams();
+        if (contextParamList !=null) {
+            for(ParamValueMetaData param: contextParamList) {
+                if ("javax.ws.rs.core.Application".equals(param.getParamName())) {
+                    appClazzList.add(param.getParamValue());
+                }
+            }
+        }
+
+        if (webdata.getServlets() != null) {
+            for (ServletMetaData servlet : webdata.getServlets()) {
+                List<ParamValueMetaData> initParamList = servlet.getInitParam();
+                if (initParamList != null) {
+                    for(ParamValueMetaData param: initParamList) {
+                        if ("javax.ws.rs.core.Application".equals(param.getParamName())) {
+                            appClazzList.add(param.getParamValue());
+                        }
+                    }
+                }
+            }
+        }
+
+        processDeclaredApplicationClasses(du, appClazzList, webdata, classLoader, resteasyDeploymentData);
+    }
+
+    private void processDeclaredApplicationClasses(final DeploymentUnit du,
+                                                   final Set<String> appClazzList,
+                                                 final JBossWebMetaData webdata,
+                                                 final ClassLoader classLoader,
+                                                 final ResteasyDeploymentData resteasyDeploymentData)
+        throws DeploymentUnitProcessingException {
+
+        final CompositeIndex index = du.getAttachment(Attachments.COMPOSITE_ANNOTATION_INDEX);
+        List<AnnotationInstance> resources = index.getAnnotations(JaxrsAnnotations.PATH.getDotName());
+        Map<String, ClassInfo> resourceMap = new HashMap<>(resources.size());
+        if (resources != null) {
+           for (AnnotationInstance a: resources) {
+               if (a.target() instanceof ClassInfo) {
+                   resourceMap.put(((ClassInfo)a.target()).name().toString(),
+                       (ClassInfo)a.target());
+               }
+           }
+        }
+
+        for (String clazzName: appClazzList) {
+            Class<?> clazz = null;
+            try {
+                clazz = classLoader.loadClass(clazzName);
+            } catch (ClassNotFoundException e) {
+                throw new DeploymentUnitProcessingException(e);
+            }
+
+            if (Application.class.isAssignableFrom(clazz)) {
+                try {
+                    Application appClazz = (Application) clazz.newInstance();
+                    Set<Class<?>> declClazzs = appClazz.getClasses();
+                    Set<Object> declSingletons = appClazz.getSingletons();
+                    HashSet<Class<?>> clazzSet = new HashSet<>();
+                    if (declClazzs != null) {
+                        clazzSet.addAll(declClazzs);
+                    }
+                    if (declSingletons != null) {
+                        for (Object obj : declSingletons) {
+                            clazzSet.add((Class) obj);
+                        }
+                    }
+
+                    Set<String> scannedResourceClasses = resteasyDeploymentData.getScannedResourceClasses();
+                    for (Class<?> cClazz : clazzSet) {
+                        if (cClazz.isAnnotationPresent(javax.ws.rs.Path.class)) {
+                            final ClassInfo info = resourceMap.get(cClazz.getName());
+                            if (info != null) {
+                                if (info.annotations().containsKey(DECORATOR)) {
+                                    //we do not add decorators as resources
+                                    //we can't pick up on programatically added decorators, but that is such an edge case it should not really matter
+                                    continue;
+                                }
+                                if (!Modifier.isInterface(info.flags())) {
+                                    scannedResourceClasses.add(info.name().toString());
+                                }
+                            }
+                        }
+                    }
+
+                } catch (Exception e) {
+                    JAXRS_LOGGER.cannotLoadApplicationClass(e);
+                }
+            }
         }
     }
 
@@ -154,6 +261,11 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
         // Assume that checkDeclaredApplicationClassAsServlet created the dispatcher
         if (declaredApplicationClass != null) {
             resteasyDeploymentData.setDispatcherCreated(true);
+
+            // Instigate creation of resteasy configuration switches for
+            // found provider and resource classes
+            resteasyDeploymentData.setScanProviders(true);
+            resteasyDeploymentData.setScanResources(true);
         }
 
         // set scanning on only if there are no boot classes
@@ -230,6 +342,11 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
                     JAXRS_LOGGER.classOrMethodAnnotationNotFound("@Path", e.target());
                     continue;
                 }
+                if(info.name().toString().startsWith(ORG_APACHE_CXF)) {
+                    //do not add CXF classes
+                    //see WFLY-9752
+                    continue;
+                }
                 if(info.annotations().containsKey(DECORATOR)) {
                     //we do not add decorators as resources
                     //we can't pick up on programatically added decorators, but that is such an edge case it should not really matter
@@ -247,6 +364,11 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
                 if (e.target() instanceof ClassInfo) {
                     ClassInfo info = (ClassInfo) e.target();
 
+                    if(info.name().toString().startsWith(ORG_APACHE_CXF)) {
+                        //do not add CXF classes
+                        //see WFLY-9752
+                        continue;
+                    }
                     if(info.annotations().containsKey(DECORATOR)) {
                         //we do not add decorators as providers
                         //we can't pick up on programatically added decorators, but that is such an edge case it should not really matter
@@ -265,6 +387,11 @@ public class JaxrsScanningProcessor implements DeploymentUnitProcessor {
         for (final ClassInfo iface : pathInterfaces) {
             final Set<ClassInfo> implementors = index.getAllKnownImplementors(iface.name());
             for (final ClassInfo implementor : implementors) {
+                if(implementor.name().toString().startsWith(ORG_APACHE_CXF)) {
+                    //do not add CXF classes
+                    //see WFLY-9752
+                    continue;
+                }
 
                 if(implementor.annotations().containsKey(DECORATOR)) {
                     //we do not add decorators as resources

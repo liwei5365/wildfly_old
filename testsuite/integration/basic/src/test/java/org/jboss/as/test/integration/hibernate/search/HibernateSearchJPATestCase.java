@@ -21,50 +21,67 @@
  */
 package org.jboss.as.test.integration.hibernate.search;
 
+import static org.jboss.as.test.shared.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 
 import javax.ejb.EJB;
+
+import org.hibernate.search.SearchFactory;
+import org.hibernate.search.engine.impl.MutableSearchFactory;
 
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
+
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Verify deployed applications can use the default Hibernate Search module via JPA APIs.
- * 
+ * Verify deployed applications can use the default Hibernate Search module via Jakarta Persistence APIs.
+ *
  * @author Sanne Grinovero <sanne@hibernate.org> (C) 2014 Red Hat Inc.
  */
 @RunWith(Arquillian.class)
 public class HibernateSearchJPATestCase {
 
-   private static final String ARCHIVE_NAME = "hibernate4native_search_test";
+    private static final String ARCHIVE_NAME = "hibernate4native_search_test";
 
-   @EJB(mappedName = "java:module/SearchBean")
-   private SearchBean searchBean;
+    @EJB(mappedName = "java:module/SearchBean")
+    private SearchBean searchBean;
 
-   @Test
-   public void testFullTextQuery() {
-      searchBean.storeNewBook("Hello");
-      searchBean.storeNewBook("Hello world");
-      searchBean.storeNewBook("Hello planet Mars");
-      assertEquals(3, searchBean.findByKeyword("hello").size());
-      assertEquals(1, searchBean.findByKeyword("mars").size());
-   }
+    @Test
+    public void testFullTextQuery() {
+        searchBean.storeNewBook("Hello");
+        searchBean.storeNewBook("Hello world");
+        searchBean.storeNewBook("Hello planet Mars");
+        assertEquals(3, searchBean.findByKeyword("hello").size());
+        assertEquals(1, searchBean.findByKeyword("mars").size());
+    }
 
-   @Deployment
-   public static Archive<?> deploy() throws Exception {
+    @Test
+    public void testCustomConfigurationApplied() {
+        SearchFactory searchFactory = searchBean.retrieveHibernateSearchEngine();
+        MutableSearchFactory internalSearchEngine = searchFactory.unwrap( MutableSearchFactory.class );
+        Assert.assertTrue(internalSearchEngine.isIndexUninvertingAllowed());
+    }
 
-      JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
-      // add JPA configuration
-      jar.addAsManifestResource(HibernateSearchJPATestCase.class.getPackage(), "persistence.xml", "persistence.xml");
-      // add testing Bean and entities
-      jar.addClasses(SearchBean.class, Book.class, HibernateSearchJPATestCase.class);
+    @Deployment
+    public static Archive<?> deploy() throws Exception {
 
-      return jar;
-   }
+        JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
+        // add Jakarta Persistence configuration
+        jar.addAsManifestResource(HibernateSearchJPATestCase.class.getPackage(), "persistence.xml", "persistence.xml");
+        // add testing Bean and entities
+        jar.addClasses(SearchBean.class, Book.class, HibernateSearchJPATestCase.class);
+        // WFLY-10195: temporary - should be possible to remove after upgrade to Lucene 6
+        jar.addAsManifestResource(createPermissionsXmlAsset(
+                new RuntimePermission("accessDeclaredMembers")
+        ), "permissions.xml");
+
+        return jar;
+    }
 
 }

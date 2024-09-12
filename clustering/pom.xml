@@ -29,13 +29,21 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-parent</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <artifactId>wildfly-clustering</artifactId>
     <packaging>pom</packaging>
 
-    <name>WildFly: Clustering Subsystems</name>
+    <name>WildFly: Clustering subsystems and modules</name>
+    <description>
+        Contains modules containing subsystems related to clustering, modules implementing clustering behavior,
+        and modules used to integration with other (non-clustering) subsystems.
+    </description>
 
     <modules>
         <module>api</module>
@@ -60,7 +68,7 @@
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
-            <artifactId>mockito-all</artifactId>
+            <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -77,6 +85,12 @@
             <groupId>org.jboss.byteman</groupId>
             <artifactId>byteman-install</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.sun</groupId>
+                    <artifactId>tools</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.jboss.byteman</groupId>

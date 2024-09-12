@@ -22,14 +22,12 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
-import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
-import org.jboss.as.clustering.controller.ResourceServiceHandler;
+import java.util.function.UnaryOperator;
+
+import org.infinispan.Cache;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.PathElement;
-import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.services.path.PathManager;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 
 /**
@@ -50,23 +48,7 @@ public class LocalCacheResourceDefinition extends CacheResourceDefinition {
         CacheResourceDefinition.buildTransformation(version, builder);
     }
 
-    LocalCacheResourceDefinition(PathManager pathManager, boolean allowRuntimeOnlyRegistration) {
-        super(WILDCARD_PATH, pathManager, allowRuntimeOnlyRegistration);
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override
-    public void register(ManagementResourceRegistration parentRegistration) {
-        ManagementResourceRegistration registration = parentRegistration.registerSubModel(this);
-
-        ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver())
-                .addAttributes(CacheResourceDefinition.Attribute.class)
-                .addAttributes(CacheResourceDefinition.DeprecatedAttribute.class)
-                ;
-        ResourceServiceHandler handler = new LocalCacheServiceHandler();
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
-
-        super.register(registration);
+    LocalCacheResourceDefinition(FunctionExecutorRegistry<Cache<?, ?>> executors) {
+        super(WILDCARD_PATH, UnaryOperator.identity(), new LocalCacheServiceHandler(), executors);
     }
 }

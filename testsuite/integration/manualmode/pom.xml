@@ -7,7 +7,11 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-ts-integ</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <!-- ********************************************************************************** -->
@@ -21,93 +25,393 @@
         <jbossas.ts.integ.dir>${basedir}/..</jbossas.ts.integ.dir>
         <jbossas.ts.dir>${jbossas.ts.integ.dir}/..</jbossas.ts.dir>
         <jbossas.project.dir>${jbossas.ts.dir}/..</jbossas.project.dir>
+        <!-- Byteman -->
+        <byteman.host>127.0.0.1</byteman.host>
+        <byteman.port>17091</byteman.port>
     </properties>
 
-    <profiles>
+    <dependencies>
+        <!-- These seem to be required first so that jbossws-cxf-client ends up on the class path first. Also required for Java 11 -->
+        <dependency>
+            <groupId>org.jboss.ws.cxf</groupId>
+            <artifactId>jbossws-cxf-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>wildfly-client-all</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>com.sun.activation</groupId>
+            <artifactId>jakarta.activation</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>javax.jws</groupId>
+            <artifactId>jsr181-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The following are required at for JAXB on Java 11 -->
+        <dependency>
+            <groupId>org.jboss.logmanager</groupId>
+            <artifactId>log4j-jboss-logmanager</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-databinding-jaxb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-jaxws</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-simple</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-transports-http</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.ws.xmlschema</groupId>
+            <artifactId>xmlschema-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- End JAXB Java 11 Requirements -->
+        <dependency>
+            <groupId>org.jboss</groupId>
+            <artifactId>jboss-ejb-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.arquillian.junit</groupId>
+            <artifactId>arquillian-junit-container</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.ejb3</groupId>
+            <artifactId>jboss-ejb3-ext-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.ironjacamar</groupId>
+            <artifactId>ironjacamar-core-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for the DistributedResourceAdapter1 the getDwm() has to return DistributedWorkManagerImpl otherwise
+             the tests fail for some reason. Changing the return type to DistributedWorkManager seems to cause issues -->
+        <dependency>
+            <groupId>org.jboss.ironjacamar</groupId>
+            <artifactId>ironjacamar-core-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.ironjacamar</groupId>
+            <artifactId>ironjacamar-jdbc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.spec.javax.jms</groupId>
+            <artifactId>jboss-jms-api_2.0_spec</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>org.jboss.spec.javax.xml.ws</groupId>
+            <artifactId>jboss-jaxws-api_2.3_spec</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.byteman</groupId>
+            <artifactId>byteman</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.byteman</groupId>
+            <artifactId>byteman-submit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.byteman</groupId>
+            <artifactId>byteman-install</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.byteman</groupId>
+            <artifactId>byteman-bmunit</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions combine.children="append">
+                    <!-- Copy example configs. -->
+                    <execution>
+                        <id>ts.config-as.copy-docs-configs</id>
+                        <phase>generate-test-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <inherited>true</inherited>
+                        <configuration>
+                            <outputDirectory>${basedir}/target/wildfly/docs/examples/configs</outputDirectory>
+                            <overwrite>true</overwrite>
+                            <resources>
+                                <resource>
+                                    <directory>${jboss.dist}/docs/examples/configs/</directory>
+                                    <includes><include>standalone*.xml</include></includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Update server profile with shared configuration changes -->
+            <plugin>
+                <groupId>org.wildfly.plugins</groupId>
+                <artifactId>wildfly-maven-plugin</artifactId>
+                <version>${version.org.wildfly.plugin}</version>
+                <executions>
+                    <execution>
+                        <id>ts.config-as.configure-wildfly</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>execute-commands</goal>
+                        </goals>
+                        <configuration>
+                            <offline>true</offline>
+                            <scripts>
+                                <script>manualmode-all.cli</script>
+                            </scripts>
+                            <jboss-home>${wildfly.dir}</jboss-home>
+                            <stdout>${project.build.directory}/wildfly-plugin.log</stdout>
+                            <java-opts>${modular.jdk.args}</java-opts>
+                            <system-properties>
+                                <maven.repo.local>${settings.localRepository}</maven.repo.local>
+                                <module.path>${jboss.dist}/modules</module.path>
+                            </system-properties>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Generate the keystores and truststore needed for the manualmode tests -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate-jboss-stores</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>org.jboss.as.test.manualmode.ejb.ssl.GenerateJBossStores</mainClass>
+                            <classpathScope>test</classpathScope>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Build the server configurations -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions combine.children="append">
+                    <execution>
+                        <id>build-manual-mode-servers</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <ant antfile="${jbossas.ts.integ.dir}/src/test/scripts/manualmode-build.xml">
+                                    <property name="management.address" value="${node0}"/>
+                                    <property name="node1" value="${node1}"/>
+                                    <property name="node0" value="${node0}"/>
+                                    <property name="mcast.ttl" value="${mcast.ttl}"/>
+                                    <property name="jboss.dist" value="${jboss.dist}"/>
+                                    <target name="build-manual-mode"/>
+                                </ant>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Surefire. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Workaround for nasty and hacky tests not cleaning up completely after themselves. -->
+                    <reuseForks>false</reuseForks>
+                    <environmentVariables>
+                        <JBOSS_HOME>${wildfly.dir}</JBOSS_HOME>
+                    </environmentVariables>
+
+                    <!-- Parameters to test cases. -->
+                    <systemPropertyVariables combine.children="append">
+                        <!--<management.address>${node0}</management.address>-->
+                        <byteman.server.ipaddress>${node0}</byteman.server.ipaddress>
+                        <byteman.server.port>${byteman.port}</byteman.server.port>
+                        <byteman.host>${node0}</byteman.host>
+                        <byteman.port>${byteman.port}</byteman.port>
+                        <jvm.args>${jvm.args.ip.server} ${modular.jdk.args} -Dmaven.repo.local=${settings.localRepository}</jvm.args>
+                        <server.jvm2.args>${surefire.system.args} ${jvm.args.ip} -Djboss.bind.address=${node1} -Djboss.bind.address.management=${node1} -Djboss.bind.address.unsecure=${node1} -Dnode0=${node0} -Dnode1=${node1} ${modular.jdk.args}</server.jvm2.args>
+                        <arquillian.launch>manual-mode</arquillian.launch>
+                        <jboss.config.file.name>standalone-ha.xml</jboss.config.file.name>
+                        <!-- needed for SSLEJBRemoteClientTestCase only, however setting them from within the test itself isn't possible -->
+                        <javax.net.ssl.trustStore>${basedir}/target/test-classes/ejb3/ssl/jbossClient.truststore</javax.net.ssl.trustStore>
+                        <javax.net.ssl.keyStore>${basedir}/target/test-classes/ejb3/ssl/jbossClient.keystore</javax.net.ssl.keyStore>
+                        <javax.net.ssl.trustStorePassword>clientPassword</javax.net.ssl.trustStorePassword>
+                        <javax.net.ssl.keyStorePassword>clientPassword</javax.net.ssl.keyStorePassword>
+                        <!-- EJB client library hack, see WFLY-4973-->
+                        <org.jboss.ejb.client.wildfly-testsuite-hack>true</org.jboss.ejb.client.wildfly-testsuite-hack>
+                        <node0>${node0}</node0>
+                        <node1>${node1}</node1>
+                        <node2>${node2}</node2>
+                        <node3>${node3}</node3>
+                        <mcast>${mcast}</mcast>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <stripVersion>true</stripVersion>
+                            <includeGroupIds>org.jboss.byteman</includeGroupIds>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- -Dts.nomanualmode -->
         <profile>
-            <id>manualmode.integration.tests.profile</id>
+            <id>ts.nomanualmode</id>
             <activation>
                 <property>
-                    <name>!noManualmode</name>
+                    <name>noManualmode</name>
                 </property>
             </activation>
-
-            <properties>
-            </properties>
-
-            <!--
-                Server configuration executions.
-                Naming convention for executions (which we read in the log): for server config X, call it X.server
-            -->
             <build>
                 <plugins>
-
-                    <!-- Build the server configuration(s) -->
                     <plugin>
+                        <!-- Disable the surefire tests -->
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-antrun-plugin</artifactId>
-                        <executions combine.children="append">
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <executions>
                             <execution>
-                                <id>build-manual-mode-servers</id>
-                                <phase>process-test-resources</phase>
-                                <goals>
-                                    <goal>run</goal>
-                                </goals>
-                                <configuration>
-                                    <target>
-                                        <ant antfile="${jbossas.ts.integ.dir}/src/test/scripts/manualmode-build.xml">
-                                            <property name="management.address" value="${node0}"/>
-                                            <property name="node1" value="${node1}"/>
-                                            <property name="node0" value="${node0}"/>
-                                            <property name="mcast.ttl" value="${mcast.ttl}"/>
-                                            <property name="jboss.dist" value="${jboss.dist}"/>
-                                            <target name="build-manual-mode"/>
-                                        </ant>
-                                    </target>
-                                </configuration>
+                                <id>default-test</id>
+                                <phase>none</phase>
                             </execution>
                         </executions>
                     </plugin>
-
-
+                    <plugin>
+                        <groupId>org.wildfly.plugins</groupId>
+                        <artifactId>wildfly-maven-plugin</artifactId>
+                        <version>${version.org.wildfly.plugin}</version>
+                        <executions>
+                            <execution>
+                                <phase>none</phase>
+                                <goals>
+                                    <goal>execute-commands</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+		        <groupId>org.apache.maven.plugins</groupId>
+		        <artifactId>maven-antrun-plugin</artifactId>
+		        <executions>
+		            <execution>
+		                <phase>none</phase>
+		                <goals>
+		                    <goal>run</goal>
+		                </goals>
+		            </execution>
+		        </executions>
+		    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>disable.microprofile.profile</id>
+            <activation>
+                <property>
+                    <name>disable.microprofile.tests</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
                     <!-- Surefire. -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-
-                            <!-- Workaround for nasty and hacky tests not cleaning up completely after themselves. -->
-                            <reuseForks>false</reuseForks>
-
-                            <includes>
-                                <include>org/jboss/as/test/manualmode/**/*TestCase.java</include>
-                            </includes>
-                            <runOrder>alphabetical</runOrder>
-
-							<environmentVariables>
-                                        <JBOSS_HOME>${jboss.dist}</JBOSS_HOME>
-                            </environmentVariables>
-
-                            <!-- Parameters to test cases. -->
-                            <systemPropertyVariables combine.children="append">
-                                <arquillian.launch>manual-mode</arquillian.launch>
-                                <jboss.server.config.file.name>standalone-ha.xml</jboss.server.config.file.name>
-                                <!-- needed for SSLEJBRemoteClientTestCase only, however setting them from within the test itself isn't possible -->
-                                <javax.net.ssl.trustStore>${basedir}/src/test/resources/ejb3/ssl/jbossClient.truststore</javax.net.ssl.trustStore>
-                                <javax.net.ssl.keyStore>${basedir}/src/test/resources/ejb3/ssl/jbossClient.keystore</javax.net.ssl.keyStore>
-                                <javax.net.ssl.trustStorePassword>clientPassword</javax.net.ssl.trustStorePassword>
-                                <javax.net.ssl.keyStorePassword>clientPassword</javax.net.ssl.keyStorePassword>
-                                <javax.net.debug>ssl</javax.net.debug>
-                                <!-- EJB client library hack, see WFLY-4973-->
-                                <org.jboss.ejb.client.wildfly-testsuite-hack>true</org.jboss.ejb.client.wildfly-testsuite-hack>
-                            </systemPropertyVariables>
+                            <excludes>
+		                <exclude>org/wildfly/test/manual/management/MPScriptTestCase.java</exclude>
+		            </excludes> 
                         </configuration>
-
                     </plugin>
                 </plugins>
             </build>
         </profile>
 
+        <!-- profile to configure WildFly to use Elytron instead of legacy security: -Delytron -->
+        <profile>
+            <id>elytron.profile</id>
+            <activation>
+                <property>
+                    <name>elytron</name>
+                </property>
+                <file>
+                    <exists>${ts.elytron.cli}</exists>
+                </file>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.wildfly.plugins</groupId>
+                        <artifactId>wildfly-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default</id>
+                                <!-- run in test-compile instead of process-test-resources
+                                     as we want this to run after build-manual-mode-servers
+                                     has created all the servers other than target/wildfly -->
+                                <phase>test-compile</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>

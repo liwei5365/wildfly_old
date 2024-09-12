@@ -26,10 +26,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import com.arjuna.ats.internal.jta.recovery.arjunacore.SubordinateAtomicActionRecoveryModule;
+import com.arjuna.ats.internal.jta.recovery.jts.JCAServerTransactionRecoveryModule;
+import org.jboss.as.controller.ProcessStateNotifier;
 import org.jboss.as.network.ManagedBinding;
 import org.jboss.as.network.SocketBinding;
 import org.jboss.as.network.SocketBindingManager;
+import org.jboss.as.server.suspend.SuspendController;
 import org.jboss.as.txn.logging.TransactionLogger;
+import org.jboss.as.txn.suspend.RecoverySuspendController;
 import org.jboss.msc.inject.Injector;
 import org.jboss.msc.service.Service;
 import org.jboss.msc.service.ServiceName;
@@ -61,13 +66,19 @@ import com.arjuna.orbportability.internal.utils.PostInitLoader;
  */
 public class ArjunaRecoveryManagerService implements Service<RecoveryManagerService> {
 
+    /** @deprecated Use the "org.wildfly.transactions.xa-resource-recovery-registry" capability */
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public static final ServiceName SERVICE_NAME = TxnServices.JBOSS_TXN_ARJUNA_RECOVERY_MANAGER;
 
     private final InjectedValue<ORB> orbInjector = new InjectedValue<ORB>();
     private final InjectedValue<SocketBinding> recoveryBindingInjector = new InjectedValue<SocketBinding>();
     private final InjectedValue<SocketBinding> statusBindingInjector = new InjectedValue<SocketBinding>();
+    private final InjectedValue<SuspendController> suspendControllerInjector = new InjectedValue<>();
+    private final InjectedValue<ProcessStateNotifier> processStateInjector = new InjectedValue<>();
 
     private RecoveryManagerService recoveryManagerService;
+    private RecoverySuspendController recoverySuspendController;
     private boolean recoveryListener;
     private final boolean jts;
     private InjectedValue<SocketBindingManager> bindingManager = new InjectedValue<SocketBindingManager>();
@@ -98,9 +109,11 @@ public class ArjunaRecoveryManagerService implements Service<RecoveryManagerServ
         recoveryExtensions.add(CommitMarkableResourceRecordRecoveryModule.class.getName()); // must be first
         recoveryExtensions.add(AtomicActionRecoveryModule.class.getName());
         recoveryExtensions.add(TORecoveryModule.class.getName());
+        recoveryExtensions.add(SubordinateAtomicActionRecoveryModule.class.getName());
 
         final List<String> expiryScanners;
-        if (System.getProperty("RecoveryEnvironmentBean.expiryScannerClassNames") != null) {
+        if (System.getProperty("RecoveryEnvironmentBean.expiryScannerClassNames") != null ||
+                System.getProperty("com.arjuna.ats.arjuna.common.RecoveryEnvironmentBean.expiryScannerClassNames") != null) {
             expiryScanners = recoveryEnvironmentBean.getExpiryScannerClassNames();
         } else {
             expiryScanners = new ArrayList<String>();
@@ -130,6 +143,7 @@ public class ArjunaRecoveryManagerService implements Service<RecoveryManagerServ
 
             recoveryExtensions.add(TopLevelTransactionRecoveryModule.class.getName());
             recoveryExtensions.add(ServerTransactionRecoveryModule.class.getName());
+            recoveryExtensions.add(JCAServerTransactionRecoveryModule.class.getName());
             recoveryExtensions.add(com.arjuna.ats.internal.jta.recovery.jts.XARecoveryModule.class.getName());
             expiryScanners.add(ExpiredContactScanner.class.getName());
             expiryScanners.add(ExpiredToplevelScanner.class.getName());
@@ -148,9 +162,15 @@ public class ArjunaRecoveryManagerService implements Service<RecoveryManagerServ
                 throw TransactionLogger.ROOT_LOGGER.managerStartFailure(e, "Recovery");
             }
         }
+
+        recoverySuspendController = new RecoverySuspendController(recoveryManagerService);
+        processStateInjector.getValue().addPropertyChangeListener(recoverySuspendController);
+        suspendControllerInjector.getValue().registerActivity(recoverySuspendController);
     }
 
     public synchronized void stop(StopContext context) {
+        suspendControllerInjector.getValue().unRegisterActivity(recoverySuspendController);
+        processStateInjector.getValue().removePropertyChangeListener(recoverySuspendController);
         try {
             recoveryManagerService.stop();
         } catch (Exception e) {
@@ -158,6 +178,7 @@ public class ArjunaRecoveryManagerService implements Service<RecoveryManagerServ
         }
         recoveryManagerService.destroy();
         recoveryManagerService = null;
+        recoverySuspendController = null;
     }
 
     public synchronized RecoveryManagerService getValue() throws IllegalStateException, IllegalArgumentException {
@@ -174,6 +195,14 @@ public class ArjunaRecoveryManagerService implements Service<RecoveryManagerServ
 
     public Injector<SocketBinding> getStatusBindingInjector() {
         return statusBindingInjector;
+    }
+
+    public Injector<SuspendController> getSuspendControllerInjector() {
+        return suspendControllerInjector;
+    }
+
+    public Injector<ProcessStateNotifier> getProcessStateInjector() {
+        return processStateInjector;
     }
 
     public Injector<SocketBindingManager> getBindingManager() {

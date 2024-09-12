@@ -22,6 +22,7 @@
 package org.jboss.as.ejb3.inflow;
 
 import java.lang.reflect.Method;
+import java.security.PrivilegedAction;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.resource.spi.UnavailableException;
@@ -29,14 +30,17 @@ import javax.resource.spi.endpoint.MessageEndpoint;
 import javax.resource.spi.endpoint.MessageEndpointFactory;
 import javax.transaction.xa.XAResource;
 
+import org.jboss.as.server.deployment.ModuleClassFactory;
 import org.jboss.invocation.proxy.ProxyConfiguration;
 import org.jboss.invocation.proxy.ProxyFactory;
 import org.wildfly.security.manager.WildFlySecurityManager;
 
+import static java.security.AccessController.doPrivileged;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 /**
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class JBossMessageEndpointFactory implements MessageEndpointFactory {
     private static final AtomicInteger PROXY_ID = new AtomicInteger(0);
@@ -51,6 +55,7 @@ public class JBossMessageEndpointFactory implements MessageEndpointFactory {
                 .setClassLoader(classLoader)
                 .setProxyName(ejbClass.getName() + "$$$endpoint" + PROXY_ID.incrementAndGet())
                 .setSuperClass(ejbClass)
+                .setClassFactory(ModuleClassFactory.INSTANCE)
                 .setProtectionDomain(ejbClass.getProtectionDomain())
                 .addAdditionalInterface(MessageEndpoint.class)
                 .addAdditionalInterface(messageListenerInterface);
@@ -70,17 +75,23 @@ public class JBossMessageEndpointFactory implements MessageEndpointFactory {
         // New instance creation leads to component initialization which needs to have the TCCL that corresponds to the
         // component classloader. @see https://issues.jboss.org/browse/WFLY-3989
         final ClassLoader oldTCCL = WildFlySecurityManager.getCurrentContextClassLoaderPrivileged();
+
         try {
             WildFlySecurityManager.setCurrentContextClassLoaderPrivileged(this.factory.getClassLoader());
-            return (MessageEndpoint) factory.newInstance(handler);
-        } catch (InstantiationException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+
+            if (System.getSecurityManager() == null) {
+                return createEndpoint(factory, handler);
+            } else {
+                return doPrivileged((PrivilegedAction<MessageEndpoint>) () -> {
+                    return createEndpoint(factory, handler);
+                });
+            }
+
         } finally {
             // reset TCCL
             WildFlySecurityManager.setCurrentContextClassLoaderPrivileged(oldTCCL);
         }
+
     }
 
     @Override
@@ -99,4 +110,13 @@ public class JBossMessageEndpointFactory implements MessageEndpointFactory {
         return this.endpointClass;
     }
 
+    private MessageEndpoint createEndpoint(ProxyFactory<Object> factory, MessageEndpointInvocationHandler handler) {
+        try {
+            return (MessageEndpoint) factory.newInstance(handler);
+        } catch (InstantiationException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

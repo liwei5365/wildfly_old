@@ -21,25 +21,15 @@
  */
 package org.jboss.as.appclient.deployment;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.Method;
-import java.net.URL;
 import java.util.List;
-import java.util.Properties;
-
-import javax.security.auth.callback.CallbackHandler;
 
 import org.jboss.as.appclient.component.ApplicationClientComponentDescription;
 import org.jboss.as.appclient.logging.AppClientLogger;
 import org.jboss.as.appclient.service.ApplicationClientDeploymentService;
 import org.jboss.as.appclient.service.ApplicationClientStartService;
-import org.jboss.as.appclient.service.DefaultApplicationClientCallbackHandler;
-import org.jboss.as.appclient.service.RealmCallbackWrapper;
 import org.jboss.as.ee.component.Component;
 import org.jboss.as.ee.component.EEModuleDescription;
-import org.jboss.as.ee.utils.ClassLoadingUtils;
 import org.jboss.as.server.deployment.Attachments;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
@@ -48,11 +38,8 @@ import org.jboss.as.server.deployment.DeploymentUnitProcessor;
 import org.jboss.as.server.deployment.SetupAction;
 import org.jboss.as.server.deployment.reflect.ClassReflectionIndex;
 import org.jboss.as.server.deployment.reflect.DeploymentReflectionIndex;
-import org.jboss.ejb.client.EJBClientConfiguration;
-import org.jboss.ejb.client.PropertiesBasedEJBClientConfiguration;
 import org.jboss.metadata.appclient.spec.ApplicationClientMetaData;
 import org.jboss.modules.Module;
-import org.wildfly.security.manager.WildFlySecurityManager;
 
 /**
  * Processor that starts an application client deployment
@@ -62,13 +49,9 @@ import org.wildfly.security.manager.WildFlySecurityManager;
 public class ApplicationClientStartProcessor implements DeploymentUnitProcessor {
 
     private final String[] parameters;
-    private final String hostUrl;
-    private final String connectionPropertiesUrl;
 
-    public ApplicationClientStartProcessor(final String hostUrl, final String connectionPropertiesUrl, final String[] parameters) {
-        this.hostUrl = hostUrl;
+    public ApplicationClientStartProcessor(final String[] parameters) {
         this.parameters = parameters;
-        this.connectionPropertiesUrl = connectionPropertiesUrl;
     }
 
     @Override
@@ -78,20 +61,6 @@ public class ApplicationClientStartProcessor implements DeploymentUnitProcessor 
         final ApplicationClientMetaData appClientData = deploymentUnit.getAttachment(AppClientAttachments.APPLICATION_CLIENT_META_DATA);
         final DeploymentReflectionIndex deploymentReflectionIndex = deploymentUnit.getAttachment(Attachments.REFLECTION_INDEX);
         final Module module = deploymentUnit.getAttachment(Attachments.MODULE);
-        //setup the callback handler
-        final CallbackHandler callbackHandler;
-        if (appClientData != null && appClientData.getCallbackHandler() != null && !appClientData.getCallbackHandler().isEmpty()) {
-            try {
-                final Class<?> callbackClass = ClassLoadingUtils.loadClass(appClientData.getCallbackHandler(), module);
-                callbackHandler = new RealmCallbackWrapper((CallbackHandler) callbackClass.newInstance());
-            } catch (ClassNotFoundException e) {
-                throw AppClientLogger.ROOT_LOGGER.couldNotLoadCallbackClass(appClientData.getCallbackHandler());
-            } catch (Exception e) {
-                throw AppClientLogger.ROOT_LOGGER.couldNotCreateCallbackHandler(appClientData.getCallbackHandler());
-            }
-        } else {
-            callbackHandler = new DefaultApplicationClientCallbackHandler();
-        }
 
         Boolean activate = deploymentUnit.getAttachment(AppClientAttachments.START_APP_CLIENT);
         if (activate == null || !activate) {
@@ -121,58 +90,8 @@ public class ApplicationClientStartProcessor implements DeploymentUnitProcessor 
 
         final List<SetupAction> setupActions = deploymentUnit.getAttachmentList(org.jboss.as.ee.component.Attachments.OTHER_EE_SETUP_ACTIONS);
 
-        if (connectionPropertiesUrl != null) {
-            EJBClientConfiguration configuration;
-            try {
-                final File file = new File(connectionPropertiesUrl);
-                final URL url;
-                if (file.exists()) {
-                    url = file.toURI().toURL();
-                } else {
-                    url = new URL(connectionPropertiesUrl);
-                }
-                Properties properties = new Properties();
-                InputStream stream = null;
-                try {
-                    stream = url.openStream();
-                    properties.load(stream);
-                } finally {
-                    if (stream != null) {
-                        try {
-                            stream.close();
-                        } catch (IOException e) {
-                            //ignore
-                        }
-                    }
-                }
-                final ClassLoader oldTccl = WildFlySecurityManager.getCurrentContextClassLoaderPrivileged();
-                try {
-                    WildFlySecurityManager.setCurrentContextClassLoaderPrivileged(module.getClassLoader());
-                    configuration = new PropertiesBasedEJBClientConfiguration(properties);
+        startService = new ApplicationClientStartService(mainMethod, parameters, moduleDescription.getNamespaceContextSelector(), module.getClassLoader(), setupActions);
 
-                    //if there is no username or callback handler specified in the ejb-client properties file
-                    //we override the default
-                    if (!properties.contains("username") && !properties.contains("callback.handler.class")) {
-                        //no security config so we wrap the configuration
-                        configuration = new ForwardingEjbClientConfiguration(configuration) {
-                            @Override
-                            public CallbackHandler getCallbackHandler() {
-                                return callbackHandler;
-                            }
-                        };
-                    }
-
-                    startService = new ApplicationClientStartService(mainMethod, parameters, moduleDescription.getNamespaceContextSelector(), module.getClassLoader(), setupActions, configuration);
-                } finally {
-                    WildFlySecurityManager.setCurrentContextClassLoaderPrivileged(oldTccl);
-                }
-            } catch (Exception e) {
-                throw AppClientLogger.ROOT_LOGGER.exceptionLoadingEjbClientPropertiesURL(connectionPropertiesUrl, e);
-            }
-        } else {
-
-            startService = new ApplicationClientStartService(mainMethod, parameters, moduleDescription.getNamespaceContextSelector(), module.getClassLoader(), setupActions, hostUrl, callbackHandler);
-        }
 
         phaseContext.getServiceTarget()
                 .addService(deploymentUnit.getServiceName().append(ApplicationClientStartService.SERVICE_NAME), startService)

@@ -55,17 +55,21 @@ public class HibernateJarsInDeploymentTestCase {
         final String testdir = basedir + File.separatorChar + "target" + File.separatorChar + "test-libs";
 
         File hibernatecore = new File(testdir, "hibernate-core.jar");
+        File hibernatejava8 = new File(testdir, "hibernate-java8.jar");
         File hibernateannotations = new File(testdir, "hibernate-commons-annotations.jar");
         File hibernateentitymanager = new File(testdir, "hibernate-entitymanager.jar");
         File jipi = new File(testdir,"jipijapa-hibernate5.jar");
         File dom4j = new File(testdir, "dom4j.jar");
         File antlr = new File(testdir, "antlr.jar");
+        File classmate = new File(testdir, "classmate.jar");
         ear.addAsLibraries(
                 hibernatecore,
                 hibernateannotations,
+                hibernatejava8,
                 hibernateentitymanager,
                 dom4j,
                 antlr,
+                classmate,
                 jipi
         );
     }
@@ -78,7 +82,8 @@ public class HibernateJarsInDeploymentTestCase {
         JavaArchive lib = ShrinkWrap.create(JavaArchive.class, "beans.jar");
         lib.addClasses(SFSB1.class, HibernateJarsInDeploymentTestCase.class);
         lib.addAsManifestResource(HibernateJarsInDeploymentTestCase.class.getPackage(), "persistence.xml", "persistence.xml");
-        ear.addAsManifestResource(new StringAsset("Dependencies: org.jboss.jandex\n"), "MANIFEST.MF");
+        ear.addAsManifestResource(HibernateJarsInDeploymentTestCase.class.getPackage(), "permissions.xml", "permissions.xml");
+        ear.addAsManifestResource(new StringAsset("Dependencies: org.javassist export, org.jboss.jandex\n"), "MANIFEST.MF");
         ear.addAsModule(lib);
 
         lib = ShrinkWrap.create(JavaArchive.class,"lib.jar");

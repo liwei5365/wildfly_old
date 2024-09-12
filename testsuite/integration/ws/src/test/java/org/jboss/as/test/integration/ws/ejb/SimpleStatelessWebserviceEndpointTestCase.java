@@ -23,11 +23,8 @@
 package org.jboss.as.test.integration.ws.ejb;
 
 import java.net.URL;
-import java.util.Hashtable;
-import java.util.logging.Logger;
 
 import javax.naming.Context;
-import javax.naming.InitialContext;
 import javax.xml.namespace.QName;
 import javax.xml.ws.Service;
 
@@ -35,6 +32,7 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
+import org.jboss.as.test.shared.integration.ejb.security.Util;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.Assert;
@@ -53,13 +51,10 @@ public class SimpleStatelessWebserviceEndpointTestCase {
     @ArquillianResource
     URL baseUrl;
 
-    private static final Logger log = Logger.getLogger(SimpleStatelessWebserviceEndpointTestCase.class.getName());
-
-    @Deployment (testable=false)
+    @Deployment(testable = false)
     public static JavaArchive createDeployment() {
         final JavaArchive jar = ShrinkWrap.create(JavaArchive.class, "stateless-ws-endpoint-example.jar");
         jar.addClasses(SimpleStatelessWebserviceEndpointIface.class, SimpleStatelessWebserviceEndpointImpl.class);
-        log.info(jar.toString(true));
         return jar;
     }
 
@@ -72,22 +67,20 @@ public class SimpleStatelessWebserviceEndpointTestCase {
         final String result = port.echo("hello");
         Assert.assertEquals("hello", result);
     }
-    
+
     /*
      * Test for javax.ejb.Remote annotation in WS interface
      */
     @Test
     public void testRemoteAccess() throws Exception {
-        
-        final Hashtable<String, String> props = new Hashtable<String, String>();
-        props.put(Context.URL_PKG_PREFIXES, "org.jboss.ejb.client.naming");
-        final Context context = new InitialContext(props);
-        SimpleStatelessWebserviceEndpointIface ejb3Remote = (SimpleStatelessWebserviceEndpointIface) 
+
+        final Context context = Util.createNamingContext();
+        SimpleStatelessWebserviceEndpointIface ejb3Remote = (SimpleStatelessWebserviceEndpointIface)
                 context.lookup("ejb:/stateless-ws-endpoint-example/SimpleStatelessWebserviceEndpointImpl!" + SimpleStatelessWebserviceEndpointIface.class.getName());
-                                                                   
+
         String helloWorld = "Hello world!";
         Object retObj = ejb3Remote.echo(helloWorld);
         Assert.assertEquals(helloWorld, retObj);
     }
-    
+
 }

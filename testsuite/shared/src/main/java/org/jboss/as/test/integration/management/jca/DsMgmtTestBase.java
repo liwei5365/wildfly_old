@@ -22,12 +22,9 @@
 
 package org.jboss.as.test.integration.management.jca;
 
-import java.util.List;
-
-import org.jboss.as.connector.subsystems.datasources.DataSourcesExtension.DataSourceSubsystemParser;
-import org.jboss.as.connector.subsystems.datasources.Namespace;
+import org.jboss.as.controller.client.helpers.Operations;
+import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
-import org.jboss.as.test.shared.ServerReload;
 import org.jboss.dmr.ModelNode;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
@@ -47,19 +44,11 @@ public class DsMgmtTestBase extends ContainerResourceMgmtTestBase {
         baseAddress.protect();
     }
 
-    /**
-     * Provide reload operation on server
-     *
-     * @throws Exception
-     */
-    public void reload() throws Exception {
-        ServerReload.executeReloadAndWaitForCompletion(getModelControllerClient(), 50000);
-    }
-
     //@After - called after each test
     protected void removeDs() throws Exception {
-        remove(baseAddress);
-        reload();
+        final ModelNode removeOperation = Operations.createRemoveOperation(baseAddress);
+        removeOperation.get(ModelDescriptionConstants.OPERATION_HEADERS).get("allow-resource-service-restart").set(true);
+        executeOperation(removeOperation);
     }
 
 
@@ -69,11 +58,6 @@ public class DsMgmtTestBase extends ContainerResourceMgmtTestBase {
         operation.get("name").set(attribute);
         operation.get(OP_ADDR).set(address);
         return executeOperation(operation);
-    }
-
-    protected List<ModelNode> marshalAndReparseDsResources(String childType) throws Exception {
-        DataSourceSubsystemParser parser = new DataSourceSubsystemParser();
-        return xmlToModelOperations(modelToXml("datasources", childType, parser), Namespace.CURRENT.getUriString(), parser);
     }
 
     private void testCon(final String dsName, String type) throws Exception {

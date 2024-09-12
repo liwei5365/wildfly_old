@@ -22,15 +22,20 @@
 
 package org.jboss.as.clustering.infinispan;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Function;
 
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.manager.EmbeddedCacheManagerAdmin;
 import org.infinispan.manager.impl.AbstractDelegatingEmbeddedCacheManager;
+import org.infinispan.remoting.transport.Address;
+import org.infinispan.remoting.transport.LocalModeAddress;
+import org.jboss.as.clustering.controller.ServiceValueRegistry;
+import org.jboss.msc.service.ServiceName;
 import org.wildfly.clustering.infinispan.spi.CacheContainer;
-import org.wildfly.clustering.service.SubGroupServiceNameFactory;
 
 /**
  * EmbeddedCacheManager decorator that overrides the default cache semantics of a cache manager.
@@ -38,24 +43,33 @@ import org.wildfly.clustering.service.SubGroupServiceNameFactory;
  */
 public class DefaultCacheContainer extends AbstractDelegatingEmbeddedCacheManager implements CacheContainer {
 
-    private final String name;
-    private final BatcherFactory batcherFactory;
-    private final String defaultCacheName;
+    private final ServiceValueRegistry<Cache<?, ?>> registry;
+    private final Function<String, ServiceName> serviceNameFactory;
+    private final EmbeddedCacheManagerAdmin administrator;
 
-    public DefaultCacheContainer(String name, EmbeddedCacheManager container, String defaultCacheName) {
-        this(name, container, defaultCacheName, new InfinispanBatcherFactory());
-    }
-
-    public DefaultCacheContainer(String name, EmbeddedCacheManager container, String defaultCacheName, BatcherFactory batcherFactory) {
+    public DefaultCacheContainer(EmbeddedCacheManager container, ServiceValueRegistry<Cache<?, ?>> registry, Function<String, ServiceName> serviceNameFactory) {
         super(container);
-        this.name = name;
-        this.defaultCacheName = defaultCacheName;
-        this.batcherFactory = batcherFactory;
+        this.administrator = new DefaultCacheContainerAdmin(this);
+        this.registry = registry;
+        this.serviceNameFactory = serviceNameFactory;
     }
 
     @Override
-    public String getName() {
-        return this.name;
+    public Address getAddress() {
+        Address address = super.getAddress();
+        return (address != null) ? address : LocalModeAddress.INSTANCE;
+    }
+
+    @Override
+    public Address getCoordinator() {
+        Address coordinator = super.getCoordinator();
+        return (coordinator != null) ? coordinator : LocalModeAddress.INSTANCE;
+    }
+
+    @Override
+    public List<Address> getMembers() {
+        List<Address> members = super.getMembers();
+        return (members != null) ? members : Collections.singletonList(LocalModeAddress.INSTANCE);
     }
 
     @Override
@@ -69,136 +83,61 @@ public class DefaultCacheContainer extends AbstractDelegatingEmbeddedCacheManage
     }
 
     @Override
-    public String getDefaultCacheName() {
-        return this.defaultCacheName;
-    }
-
-    @Override
-    public Configuration defineConfiguration(String cacheName, Configuration configuration) {
-        return this.cm.defineConfiguration(this.getCacheName(cacheName), configuration);
-    }
-
-    @Override
-    public Configuration defineConfiguration(String cacheName, String templateCacheName, Configuration configurationOverride) {
-        return this.cm.defineConfiguration(this.getCacheName(cacheName), this.getCacheName(templateCacheName), configurationOverride);
-    }
-
-    @Override
-    public void undefineConfiguration(String cacheName) {
-        this.cm.undefineConfiguration(this.getCacheName(cacheName));
-    }
-
-    @Override
-    public Configuration getDefaultCacheConfiguration() {
-        return this.cm.getCacheConfiguration(this.defaultCacheName);
-    }
-
-    @Override
-    public Configuration getCacheConfiguration(String name) {
-        return this.cm.getCacheConfiguration(this.getCacheName(name));
-    }
-
-    /**
-     * {@inheritDoc}
-     * @see org.infinispan.manager.CacheContainer#getCache()
-     */
-    @Override
     public <K, V> Cache<K, V> getCache() {
-        return this.getCache(this.defaultCacheName);
+        return this.wrap(this.cm.<K, V>getCache());
     }
 
     @Override
     public <K, V> Cache<K, V> getCache(String cacheName) {
-        return this.getCache(cacheName, cacheName);
-    }
-
-    @Override
-    public <K, V> Cache<K, V> getCache(String cacheName, String configurationName) {
-        Cache<K, V> cache = this.cm.<K, V>getCache(this.getCacheName(cacheName), this.getCacheName(configurationName));
-        return (cache != null) ? new DefaultCache<>(this, this.batcherFactory, cache.getAdvancedCache()) : null;
+        return this.wrap(this.cm.<K, V>getCache(cacheName));
     }
 
     @Override
     public <K, V> Cache<K, V> getCache(String cacheName, boolean createIfAbsent) {
-        return this.getCache(cacheName, cacheName, createIfAbsent);
+        Cache<K, V> cache = this.cm.<K, V>getCache(cacheName, createIfAbsent);
+        return (cache != null) ? this.wrap(cache) : null;
+    }
+
+    private <K, V> Cache<K, V> wrap(Cache<K, V> cache) {
+        return new DefaultCache<>(this, cache.getAdvancedCache(), this.registry.add(this.serviceNameFactory.apply(cache.getName())));
     }
 
     @Override
-    public <K, V> Cache<K, V> getCache(String cacheName, String configurationTemplate, boolean createIfAbsent) {
-        boolean cacheExists = this.cacheExists(cacheName);
-        return (cacheExists || createIfAbsent) ? this.getCache(cacheName, configurationTemplate) : null;
-    }
-
-    /**
-     * {@inheritDoc}
-     * @see org.infinispan.manager.EmbeddedCacheManager#isDefaultRunning()
-     */
-    @Override
-    public boolean isDefaultRunning() {
-        return this.cm.isRunning(this.defaultCacheName);
-    }
-
-    /**
-     * {@inheritDoc}
-     * @see org.infinispan.manager.EmbeddedCacheManager#isRunning(String)
-     */
-    @Override
-    public boolean isRunning(String cacheName) {
-        return this.cm.isRunning(this.getCacheName(cacheName));
-    }
-
-    /**
-     * {@inheritDoc}
-     * @see org.infinispan.manager.EmbeddedCacheManager#cacheExists(java.lang.String)
-     */
-    @Override
-    public boolean cacheExists(String cacheName) {
-        return this.cm.cacheExists(this.getCacheName(cacheName));
-    }
-
-    /**
-     * {@inheritDoc}
-     * @see org.infinispan.manager.EmbeddedCacheManager#removeCache(java.lang.String)
-     */
-    @Override
-    public void removeCache(String cacheName) {
-        this.cm.removeCache(this.getCacheName(cacheName));
-    }
-
-    @Override
-    public EmbeddedCacheManager startCaches(String... names) {
-        Set<String> cacheNames = new LinkedHashSet<>();
-        for (String name: names) {
-            cacheNames.add(this.getCacheName(name));
-        }
-        this.cm.startCaches(cacheNames.toArray(new String[cacheNames.size()]));
+    public EmbeddedCacheManager startCaches(String... cacheNames) {
+        super.startCaches(cacheNames);
         return this;
     }
 
     @Override
-    public void addCacheDependency(String from, String to) {
-        this.cm.addCacheDependency(this.getCacheName(from), this.getCacheName(to));
+    public EmbeddedCacheManagerAdmin administration() {
+        return this.administrator;
     }
 
-    private String getCacheName(String name) {
-        return ((name == null) || name.equals(SubGroupServiceNameFactory.DEFAULT_SUB_GROUP)) ? this.defaultCacheName : name;
+    @Override
+    public synchronized <K, V> Cache<K, V> createCache(String name, Configuration configuration) {
+        return this.administrator.createCache(name, configuration);
     }
 
-    /**
-     * {@inheritDoc}
-     * @see java.lang.Object#hashCode()
-     */
+    @Override
+    public void undefineConfiguration(String configurationName) {
+        this.registry.remove(this.serviceNameFactory.apply(configurationName));
+        super.undefineConfiguration(configurationName);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!(object instanceof CacheContainer)) return false;
+        CacheContainer container = (CacheContainer) object;
+        return this.getName().equals(container.getName());
+    }
+
     @Override
     public int hashCode() {
-        return this.toString().hashCode();
+        return this.getName().hashCode();
     }
 
-    /**
-     * {@inheritDoc}
-     * @see java.lang.Object#toString()
-     */
     @Override
     public String toString() {
-        return this.cm.getCacheManagerConfiguration().globalJmxStatistics().cacheManagerName();
+        return this.getName();
     }
 }

@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -22,15 +22,20 @@
 
 package org.wildfly.extension.undertow;
 
+import static org.wildfly.extension.undertow.Capabilities.REF_SOCKET_BINDING;
+
+import org.jboss.as.controller.CapabilityServiceBuilder;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.network.SocketBinding;
 import org.jboss.dmr.ModelNode;
-import org.jboss.msc.service.ServiceBuilder;
 import org.xnio.OptionMap;
+
+import java.util.function.Consumer;
 
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2012 Red Hat Inc.
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 class AjpListenerAdd extends ListenerAdd {
 
@@ -39,21 +44,22 @@ class AjpListenerAdd extends ListenerAdd {
     }
 
     @Override
-    ListenerService<? extends ListenerService> createService(String name, final String serverName, final OperationContext context, ModelNode model, OptionMap listenerOptions, OptionMap socketOptions) throws OperationFailedException {
+    ListenerService createService(final Consumer<ListenerService> serviceConsumer, final String name, final String serverName, final OperationContext context, ModelNode model, OptionMap listenerOptions, OptionMap socketOptions) throws OperationFailedException {
         ModelNode schemeNode = AjpListenerResourceDefinition.SCHEME.resolveModelAttribute(context, model);
         String scheme = null;
         if (schemeNode.isDefined()) {
             scheme = schemeNode.asString();
         }
-        return new AjpListenerService(name, scheme, listenerOptions, socketOptions);
+        OptionMap.Builder listenerBuilder = OptionMap.builder().addAll(listenerOptions);
+        AjpListenerResourceDefinition.MAX_AJP_PACKET_SIZE.resolveOption(context, model,listenerBuilder);
+        return new AjpListenerService(serviceConsumer, context.getCurrentAddress(), scheme, listenerBuilder.getMap(), socketOptions);
     }
 
     @Override
-    void configureAdditionalDependencies(OperationContext context, ServiceBuilder<? extends ListenerService> serviceBuilder, ModelNode model, ListenerService service) throws OperationFailedException {
+    void configureAdditionalDependencies(OperationContext context, CapabilityServiceBuilder<?> serviceBuilder, ModelNode model, ListenerService service) throws OperationFailedException {
         ModelNode redirectBindingRef = ListenerResourceDefinition.REDIRECT_SOCKET.resolveModelAttribute(context, model);
         if (redirectBindingRef.isDefined()) {
-            serviceBuilder.addDependency(SocketBinding.JBOSS_BINDING_NAME.append(redirectBindingRef.asString()), SocketBinding.class, service.getRedirectSocket());
+            service.getRedirectSocket().set(serviceBuilder.requiresCapability(REF_SOCKET_BINDING, SocketBinding.class, redirectBindingRef.asString()));
         }
-
     }
 }

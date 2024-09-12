@@ -29,7 +29,9 @@ import static org.jboss.as.connector.logging.ConnectorLogger.DS_DEPLOYER_LOGGER;
 import javax.naming.Reference;
 import javax.resource.spi.ManagedConnectionFactory;
 import javax.sql.DataSource;
+import javax.sql.XADataSource;
 import java.net.MalformedURLException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.sql.Driver;
 import java.util.ArrayList;
@@ -41,9 +43,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 
 import org.jboss.as.connector.logging.ConnectorLogger;
+import org.jboss.as.connector.metadata.api.common.Credential;
+import org.jboss.as.connector.security.ElytronSubjectFactory;
 import org.jboss.as.connector.services.driver.InstalledDriver;
 import org.jboss.as.connector.services.driver.registry.DriverRegistry;
 import org.jboss.as.connector.util.Injection;
+import org.jboss.as.controller.OperationFailedException;
+import org.jboss.as.core.security.ServerSecurityManager;
 import org.jboss.as.naming.deployment.ContextNames;
 import org.jboss.jca.adapters.jdbc.BaseWrapperManagedConnectionFactory;
 import org.jboss.jca.adapters.jdbc.JDBCResourceAdapter;
@@ -79,6 +85,7 @@ import org.jboss.jca.deployers.common.DeployException;
 import org.jboss.logging.Logger;
 import org.jboss.msc.inject.Injector;
 import org.jboss.msc.service.Service;
+import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceContainer;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
@@ -87,6 +94,9 @@ import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
 import org.jboss.msc.value.InjectedValue;
 import org.jboss.security.SubjectFactory;
+import org.wildfly.common.function.ExceptionSupplier;
+import org.wildfly.security.auth.client.AuthenticationContext;
+import org.wildfly.security.credential.source.CredentialSource;
 import org.wildfly.security.manager.WildFlySecurityManager;
 import org.wildfly.security.manager.action.ClearContextClassLoaderAction;
 import org.wildfly.security.manager.action.GetClassLoaderAction;
@@ -118,7 +128,12 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
     private final InjectedValue<CachedConnectionManager> ccmValue = new InjectedValue<CachedConnectionManager>();
     private final InjectedValue<ExecutorService> executor = new InjectedValue<ExecutorService>();
     private final InjectedValue<MetadataRepository> mdr = new InjectedValue<MetadataRepository>();
+    private final InjectedValue<ServerSecurityManager> secManager = new InjectedValue<ServerSecurityManager>();
     private final InjectedValue<ResourceAdapterRepository> raRepository = new InjectedValue<ResourceAdapterRepository>();
+    private final InjectedValue<AuthenticationContext> authenticationContext = new InjectedValue<>();
+    private final InjectedValue<AuthenticationContext> recoveryAuthenticationContext = new InjectedValue<>();
+    private final InjectedValue<ExceptionSupplier<CredentialSource, Exception>> credentialSourceSupplier = new InjectedValue<>();
+    private final InjectedValue<ExceptionSupplier<CredentialSource, Exception>> recoveryCredentialSourceSupplier = new InjectedValue<>();
 
 
     private final String dsName;
@@ -143,18 +158,22 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
             final ServiceContainer container = startContext.getController().getServiceContainer();
 
             deploymentMD = getDeployer().deploy(container);
-            if (deploymentMD.getCfs().length != 1) {
-                throw ConnectorLogger.ROOT_LOGGER.cannotStartDs();
+            final Object[] cfs = deploymentMD.getCfs();
+            if (cfs.length == 0) {
+                throw ConnectorLogger.ROOT_LOGGER.cannotStartDSNoConnectionFactory(jndiName.getAbsoluteJndiName());
+            } else if (cfs.length >= 2) {
+                throw ConnectorLogger.ROOT_LOGGER.cannotStartDSTooManyConnectionFactories(jndiName.getAbsoluteJndiName(),
+                        cfs.length);
             }
             sqlDataSource = new WildFlyDataSource((javax.sql.DataSource) deploymentMD.getCfs()[0], jndiName.getAbsoluteJndiName());
             DS_DEPLOYER_LOGGER.debugf("Adding datasource: %s", deploymentMD.getCfJndiNames()[0]);
             CommonDeploymentService cdService = new CommonDeploymentService(deploymentMD);
             final ServiceName cdServiceName = CommonDeploymentService.getServiceName(jndiName);
-            startContext.getController().getServiceContainer().addService(cdServiceName, cdService)
+            final ServiceBuilder cdServiceSB = startContext.getChildTarget().addService(cdServiceName, cdService);
                     // The dependency added must be the JNDI name which for subsystem resources is an alias. This service
                     // is also used in deployments where the capability service name is not registered for the service.
-                    .addDependency(getServiceName(jndiName))
-                    .setInitialMode(ServiceController.Mode.ACTIVE).install();
+            cdServiceSB.requires(getServiceName(jndiName));
+            cdServiceSB.setInitialMode(ServiceController.Mode.ACTIVE).install();
         } catch (Throwable t) {
             throw ConnectorLogger.ROOT_LOGGER.deploymentError(t, dsName);
         }
@@ -163,10 +182,6 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
     protected abstract AS7DataSourceDeployer getDeployer() throws ValidateException ;
 
     public void stop(final StopContext stopContext) {
-        final ServiceController<?> serviceController = stopContext.getController().getServiceContainer().getService(CommonDeploymentService.getServiceName(jndiName));
-        if (serviceController != null) {
-            serviceController.setMode(ServiceController.Mode.REMOVE);
-        }
         ExecutorService executorService = executor.getValue();
         Runnable r = new Runnable() {
             @Override
@@ -271,6 +286,26 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
             return raRepository;
         }
 
+    public Injector<ServerSecurityManager> getServerSecurityManager() {
+        return secManager;
+    }
+
+    Injector<AuthenticationContext> getAuthenticationContext() {
+        return authenticationContext;
+    }
+
+    Injector<AuthenticationContext> getRecoveryAuthenticationContext() {
+        return recoveryAuthenticationContext;
+    }
+
+    public InjectedValue<ExceptionSupplier<CredentialSource, Exception>> getCredentialSourceSupplierInjector() {
+        return credentialSourceSupplier;
+    }
+
+    public InjectedValue<ExceptionSupplier<CredentialSource, Exception>> getRecoveryCredentialSourceSupplierInjector() {
+        return recoveryCredentialSourceSupplier;
+    }
+
 
     protected String buildConfigPropsString(Map<String, String> configProps) {
         final StringBuffer valueBuf = new StringBuffer();
@@ -334,6 +369,20 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
 
                 DataSources dataSources = null;
                 if (dataSourceConfig != null) {
+                    String dsClsName = dataSourceConfig.getDataSourceClass();
+                    if (dsClsName != null) {
+                        try {
+                            Class<? extends DataSource> dsCls = driverClassLoader().loadClass(dsClsName).asSubclass(DataSource.class);
+                            JdbcDriverAdd.checkDSCls(dsCls, DataSource.class);
+                        } catch (OperationFailedException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(e);
+                        } catch (ClassCastException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(ConnectorLogger.ROOT_LOGGER.notAValidDataSourceClass(dsClsName, DataSource.class.getName()));
+                        } catch (ClassNotFoundException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(ConnectorLogger.ROOT_LOGGER.failedToLoadDataSourceClass(dsClsName, e));
+                        }
+                    }
+
                     String driverName = dataSourceConfig.getDriver();
                     InstalledDriver installedDriver = driverRegistry.getValue().getInstalledDriver(driverName);
                     if (installedDriver != null) {
@@ -347,6 +396,20 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
                     }
                     dataSources = new DatasourcesImpl(Arrays.asList(dataSourceConfig), null, drivers);
                 } else if (xaDataSourceConfig != null) {
+                    String xaDSClsName = xaDataSourceConfig.getXaDataSourceClass();
+                    if (xaDSClsName != null) {
+                        try {
+                            Class<? extends XADataSource> xaDsCls = driverClassLoader().loadClass(xaDSClsName).asSubclass(XADataSource.class);
+                            JdbcDriverAdd.checkDSCls(xaDsCls, XADataSource.class);
+                        } catch (OperationFailedException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(e);
+                        } catch (ClassCastException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(ConnectorLogger.ROOT_LOGGER.notAValidDataSourceClass(xaDSClsName, XADataSource.class.getName()));
+                        } catch (ClassNotFoundException e) {
+                            throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(ConnectorLogger.ROOT_LOGGER.failedToLoadDataSourceClass(xaDSClsName, e));
+                        }
+                    }
+
                     String driverName = xaDataSourceConfig.getDriver();
                     InstalledDriver installedDriver = driverRegistry.getValue().getInstalledDriver(driverName);
                     if (installedDriver != null) {
@@ -422,8 +485,20 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
         }
 
         @Override
-        protected org.jboss.jca.core.spi.security.SubjectFactory getSubjectFactory(String securityDomain) throws DeployException {
-            if (securityDomain == null || securityDomain.trim().equals("") || subjectFactory.getOptionalValue() == null) {
+        protected org.jboss.jca.core.spi.security.SubjectFactory getSubjectFactory(
+                org.jboss.jca.common.api.metadata.common.Credential credential, final String jndiName) throws DeployException {
+            if (credential == null)
+                return null;
+            // safe assertion because all parsers create Credential
+            assert credential instanceof Credential;
+            final String securityDomain = credential.getSecurityDomain();
+            if (((Credential) credential).isElytronEnabled()) {
+                try {
+                    return new ElytronSubjectFactory(authenticationContext.getOptionalValue(), new java.net.URI(jndiName));
+                } catch (URISyntaxException e) {
+                    throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(e);
+                }
+            } else if (securityDomain == null || securityDomain.trim().equals("") || subjectFactory.getOptionalValue() == null) {
                 return null;
             } else {
                 return new PicketBoxSubjectFactory(subjectFactory.getValue());
@@ -473,16 +548,13 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
         @Override
         protected ManagedConnectionFactory createMcf(XaDataSource arg0, String arg1, ClassLoader arg2)
                 throws NotFoundException, DeployException {
-            final WildFlyXaMCF xaManagedConnectionFactory = new WildFlyXaMCF();
+            final XAManagedConnectionFactory xaManagedConnectionFactory = new XAManagedConnectionFactory(xaDataSourceConfig.getXaDataSourceProperty());
 
             if (xaDataSourceConfig.getUrlDelimiter() != null) {
                 xaManagedConnectionFactory.setURLDelimiter(xaDataSourceConfig.getUrlDelimiter());
             }
             if (xaDataSourceConfig.getXaDataSourceClass() != null) {
                 xaManagedConnectionFactory.setXADataSourceClass(xaDataSourceConfig.getXaDataSourceClass());
-            }
-            if (xaDataSourceConfig.getXaDataSourceProperty() != null) {
-                xaManagedConnectionFactory.setXaProps(xaDataSourceConfig.getXaDataSourceProperty());
             }
             if (xaDataSourceConfig.getUrlSelectorStrategyClassName() != null) {
                 xaManagedConnectionFactory
@@ -668,14 +740,5 @@ public abstract class AbstractDataSourceService implements Service<DataSource> {
 
     }
 
-    private class WildFlyXaMCF extends XAManagedConnectionFactory {
-
-        private static final long serialVersionUID = 4876371551002746953L;
-
-        public void setXaProps(Map<String, String> inputProperties) {
-            xaProps.putAll(inputProperties);
-        }
-
-    }
 
 }

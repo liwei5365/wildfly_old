@@ -26,6 +26,9 @@ import java.util.Set;
 
 import org.jboss.as.ee.component.deployers.EEResourceReferenceProcessorRegistry;
 import org.jboss.as.ee.component.deployers.MessageDestinationInjectionSource;
+import org.jboss.as.ee.component.deployers.StartupCountdown;
+import org.jboss.as.ee.concurrent.ConcurrentContextSetupAction;
+import org.jboss.as.ee.concurrent.handle.ContextHandleFactory;
 import org.jboss.as.server.deployment.AttachmentKey;
 import org.jboss.as.server.deployment.AttachmentList;
 import org.jboss.as.server.deployment.SetupAction;
@@ -68,10 +71,10 @@ public class Attachments {
 
     /**
      * Unlike the EE spec which says application name is the name of the top level deployment (even if it is just
-     * a jar and not an ear), the EJB spec semantics (for JNDI) expect that the application name is the
+     * a jar and not an ear), the Jakarta Enterprise Beans spec semantics (for JNDI) expect that the application name is the
      * .ear name (or any configured value in application.xml). Absence of the .ear is expected to mean
      * there's no application name. This attachement key, provides the application name which is follows the
-     * EJB spec semantics.
+     * Jakarta Enterprise Beans spec semantics.
      */
     public static final AttachmentKey<String> EAR_APPLICATION_NAME = AttachmentKey.create(String.class);
 
@@ -84,5 +87,10 @@ public class Attachments {
 
     public static final AttachmentKey<EEResourceReferenceProcessorRegistry> RESOURCE_REFERENCE_PROCESSOR_REGISTRY = AttachmentKey.create(EEResourceReferenceProcessorRegistry.class);
 
+    public static final AttachmentKey<StartupCountdown> STARTUP_COUNTDOWN = AttachmentKey.create(StartupCountdown.class);
     public static final AttachmentKey<ComponentRegistry> COMPONENT_REGISTRY = AttachmentKey.create(ComponentRegistry.class);
+
+    public static final AttachmentKey<AttachmentList<ContextHandleFactory>> ADDITIONAL_FACTORIES = AttachmentKey.createList(ContextHandleFactory.class);
+
+    public static final AttachmentKey<ConcurrentContextSetupAction> CONCURRENT_CONTEXT_SETUP_ACTION = AttachmentKey.create(ConcurrentContextSetupAction.class);
 }

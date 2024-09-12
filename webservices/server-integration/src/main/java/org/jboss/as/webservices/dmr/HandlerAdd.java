@@ -21,13 +21,12 @@
  */
 package org.jboss.as.webservices.dmr;
 
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.jboss.as.webservices.dmr.Constants.CLASS;
 import static org.jboss.as.webservices.dmr.PackageUtils.getConfigServiceName;
 import static org.jboss.as.webservices.dmr.PackageUtils.getHandlerChainServiceName;
 import static org.jboss.as.webservices.dmr.PackageUtils.getHandlerServiceName;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.OperationContext;
@@ -39,10 +38,10 @@ import org.jboss.as.webservices.logging.WSLogger;
 import org.jboss.as.webservices.service.HandlerService;
 import org.jboss.dmr.ModelNode;
 import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceRegistry;
 import org.jboss.msc.service.ServiceTarget;
+import org.jboss.wsf.spi.metadata.j2ee.serviceref.UnifiedHandlerMetaData;
 
 /**
  * @author <a href="mailto:alessio.soldano@jboss.com">Alessio Soldano</a>
@@ -69,16 +68,15 @@ final class HandlerAdd extends AbstractAddStepHandler {
     protected void performRuntime(final OperationContext context, final ModelNode operation, final ModelNode model) throws OperationFailedException {
         // modify the runtime if we're booting, otherwise set reload required and leave the runtime unchanged
         if (context.isBooting()) {
-            final PathAddress address = PathAddress.pathAddress(operation.require(OP_ADDR));
+            final PathAddress address = context.getCurrentAddress();
             final PathElement confElem = address.getElement(address.size() - 3);
             final String configType = confElem.getKey();
             final String configName = confElem.getValue();
             final String handlerChainType = address.getElement(address.size() - 2).getKey();
             final String handlerChainId = address.getElement(address.size() - 2).getValue();
             final String handlerName = address.getElement(address.size() - 1).getValue();
-            final String handlerClass = operation.require(CLASS).asString();
+            final String handlerClass = Attributes.CLASS.resolveModelAttribute(context, model).asString();
 
-            final HandlerService service = new HandlerService(handlerName, handlerClass, counter.incrementAndGet());
             final ServiceTarget target = context.getServiceTarget();
             final ServiceName configServiceName = getConfigServiceName(configType, configName);
             final ServiceRegistry registry = context.getServiceRegistry(false);
@@ -90,9 +88,10 @@ final class HandlerAdd extends AbstractAddStepHandler {
                 throw WSLogger.ROOT_LOGGER.missingHandlerChain(configName, handlerChainType, handlerChainId);
             }
             final ServiceName handlerServiceName = getHandlerServiceName(handlerChainServiceName, handlerName);
-
-            final ServiceBuilder<?> handlerServiceBuilder = target.addService(handlerServiceName, service);
-            ServiceController<?> controller = handlerServiceBuilder.setInitialMode(ServiceController.Mode.ACTIVE).install();
+            final ServiceBuilder<?> handlerServiceBuilder = target.addService(handlerServiceName);
+            final Consumer<UnifiedHandlerMetaData> handlerConsumer = handlerServiceBuilder.provides(handlerServiceName);
+            handlerServiceBuilder.setInstance(new HandlerService(handlerName, handlerClass, counter.incrementAndGet(), handlerConsumer));
+            handlerServiceBuilder.install();
         } else {
             context.reloadRequired();
         }

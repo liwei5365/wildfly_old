@@ -22,7 +22,6 @@
 package org.jboss.as.ejb3.timerservice.persistence.filestore;
 
 import org.jboss.as.controller.services.path.PathManager;
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.component.stateful.CurrentSynchronizationCallback;
 import org.jboss.as.ejb3.timerservice.TimerImpl;
 import org.jboss.as.ejb3.timerservice.TimerServiceImpl;
@@ -40,6 +39,7 @@ import org.jboss.msc.value.InjectedValue;
 import org.jboss.staxmapper.XMLExtendedStreamWriter;
 import org.jboss.staxmapper.XMLMapper;
 import org.wildfly.security.manager.WildFlySecurityManager;
+import org.wildfly.transaction.client.ContextTransactionManager;
 
 import javax.transaction.Status;
 import javax.transaction.Synchronization;
@@ -70,7 +70,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static java.security.AccessController.doPrivileged;
-import static org.jboss.as.ejb3.logging.EjbLogger.ROOT_LOGGER;
+import static org.jboss.as.ejb3.logging.EjbLogger.EJB3_TIMER_LOGGER;
 
 /**
  * File based persistent timer store.
@@ -87,7 +87,6 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
     private final boolean createIfNotExists;
     private MarshallerFactory factory;
     private MarshallingConfiguration configuration;
-    private final InjectedValue<TransactionManager> transactionManager = new InjectedValue<TransactionManager>();
     private final InjectedValue<TransactionSynchronizationRegistry> transactionSynchronizationRegistry = new InjectedValue<TransactionSynchronizationRegistry>();
     private final InjectedValue<ModuleLoader> moduleLoader = new InjectedValue<ModuleLoader>();
     private final InjectedValue<PathManager> pathManager = new InjectedValue<PathManager>();
@@ -127,6 +126,7 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
         final RiverMarshallerFactory factory = new RiverMarshallerFactory();
         final MarshallingConfiguration configuration = new MarshallingConfiguration();
         configuration.setClassResolver(ModularClassResolver.getInstance(moduleLoader.getValue()));
+        configuration.setVersion(3);
 
         this.configuration = configuration;
         this.factory = factory;
@@ -137,14 +137,14 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
         if (!baseDir.exists()) {
             if (createIfNotExists) {
                 if (!baseDir.mkdirs()) {
-                    throw EjbLogger.ROOT_LOGGER.failToCreateTimerFileStoreDir(baseDir);
+                    throw EJB3_TIMER_LOGGER.failToCreateTimerFileStoreDir(baseDir);
                 }
             } else {
-                throw EjbLogger.ROOT_LOGGER.timerFileStoreDirNotExist(baseDir);
+                throw EJB3_TIMER_LOGGER.timerFileStoreDirNotExist(baseDir);
             }
         }
         if (!baseDir.isDirectory()) {
-            throw EjbLogger.ROOT_LOGGER.invalidTimerFileStoreDir(baseDir);
+            throw EJB3_TIMER_LOGGER.invalidTimerFileStoreDir(baseDir);
         }
     }
 
@@ -202,7 +202,7 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
     private void persistTimer(final TimerImpl timer, boolean newTimer) {
         final Lock lock = getLock(timer.getTimedObjectId());
         try {
-            final int status = transactionManager.getValue().getStatus();
+            final int status = ContextTransactionManager.getInstance().getStatus();
             if (status == Status.STATUS_MARKED_ROLLBACK || status == Status.STATUS_ROLLEDBACK ||
                     status == Status.STATUS_ROLLING_BACK) {
                 //no need to persist anyway
@@ -299,7 +299,7 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
      */
     private TimerImpl mostRecentEntityVersion(final TimerImpl timerImpl) {
         try {
-            final int status = transactionManager.getValue().getStatus();
+            final int status = ContextTransactionManager.getInstance().getStatus();
             if (status == Status.STATUS_UNKNOWN ||
                     status == Status.STATUS_NO_TRANSACTION) {
                 return timerImpl;
@@ -348,7 +348,7 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
             //no timers exist yet
             return timers;
         } else if (!file.isDirectory()) {
-            ROOT_LOGGER.failToRestoreTimers(file);
+            EJB3_TIMER_LOGGER.failToRestoreTimers(file);
             return timers;
         }
 
@@ -370,6 +370,10 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
                     List<TimerImpl> timerList = new ArrayList<>();
                     mapper.parseDocument(timerList, streamReader);
                     for (TimerImpl timer : timerList) {
+                        if (timer.getId().equals("deleted-timer")) {
+                            timerFile.delete();
+                            break;
+                        }
                         timers.put(timer.getId(), timer);
                     }
                 } finally {
@@ -377,13 +381,13 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
                 }
 
             } catch (Exception e) {
-                ROOT_LOGGER.failToRestoreTimersFromFile(timerFile, e);
+                EJB3_TIMER_LOGGER.failToRestoreTimersFromFile(timerFile, e);
             } finally {
                 if (in != null) {
                     try {
                         in.close();
                     } catch (IOException e) {
-                        ROOT_LOGGER.failToCloseFile(e);
+                        EJB3_TIMER_LOGGER.failToCloseFile(e);
                     }
                 }
             }
@@ -413,10 +417,8 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
         if (dirName == null) {
             dirName = baseDir.getAbsolutePath() + File.separator + timedObjectId.replace(File.separator, "-");
             File file = new File(dirName);
-            if (!file.exists()) {
-                if (!file.mkdirs()) {
-                    ROOT_LOGGER.failToCreateDirectoryForPersistTimers(file);
-                }
+            if (!file.exists() && !file.mkdirs()) {
+                EJB3_TIMER_LOGGER.failToCreateDirectoryForPersistTimers(file);
             }
             directories.put(timedObjectId, dirName);
         }
@@ -505,10 +507,6 @@ public class FileTimerPersistence implements TimerPersistence, Service<FileTimer
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public InjectedValue<TransactionManager> getTransactionManager() {
-        return transactionManager;
     }
 
     public InjectedValue<TransactionSynchronizationRegistry> getTransactionSynchronizationRegistry() {

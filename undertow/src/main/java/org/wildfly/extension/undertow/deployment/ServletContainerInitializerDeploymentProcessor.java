@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -26,9 +26,11 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -93,8 +95,9 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
             deploymentUnit.putAttachment(ScisMetaData.ATTACHMENT_KEY, scisMetaData);
         }
         Set<ServletContainerInitializer> scis = scisMetaData.getScis();
+        Set<Class<? extends ServletContainerInitializer>> sciClasses = new HashSet<>();
         if (scis == null) {
-            scis = new HashSet<ServletContainerInitializer>();
+            scis = new LinkedHashSet<>();
             scisMetaData.setScis(scis);
         }
         Map<ServletContainerInitializer, Set<Class<?>>> handlesTypes = scisMetaData.getHandlesTypes();
@@ -103,16 +106,22 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
             scisMetaData.setHandlesTypes(handlesTypes);
         }
         // Find the SCIs from shared modules
-        for (ModuleDependency dependency : moduleSpecification.getSystemDependencies()) {
+        for (ModuleDependency dependency : moduleSpecification.getAllDependencies()) {
+            // Should not include SCI if services is not included
+            if (!dependency.isImportServices()) {
+                continue;
+            }
             try {
                 Module depModule = loader.loadModule(dependency.getIdentifier());
                 ServiceLoader<ServletContainerInitializer> serviceLoader = depModule.loadService(ServletContainerInitializer.class);
                 for (ServletContainerInitializer service : serviceLoader) {
-                    scis.add(service);
+                    if(sciClasses.add(service.getClass())) {
+                        scis.add(service);
+                    }
                 }
             } catch (ModuleLoadException e) {
-                if (dependency.isOptional() == false) {
-                    throw UndertowLogger.ROOT_LOGGER.errorLoadingSCIFromModule(dependency.getIdentifier(), e);
+                if (!dependency.isOptional()) {
+                    throw UndertowLogger.ROOT_LOGGER.errorLoadingSCIFromModule(dependency.getIdentifier().toString(), e);
                 }
             }
         }
@@ -123,27 +132,42 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
             for (String jar : order) {
                 VirtualFile sci = localScis.get(jar);
                 if (sci != null) {
-                    scis.addAll(loadSci(classLoader, sci, jar, true));
+                    scis.addAll(loadSci(classLoader, sci, jar, true, sciClasses));
                 }
             }
         }
+
+        //SCI's deployed in the war itself
+        if(localScis != null) {
+            VirtualFile warDeployedScis = localScis.get("classes");
+            if(warDeployedScis != null) {
+                scis.addAll(loadSci(classLoader, warDeployedScis, deploymentUnit.getName(), true, sciClasses));
+            }
+        }
+
         // Process HandlesTypes for ServletContainerInitializer
         Map<Class<?>, Set<ServletContainerInitializer>> typesMap = new HashMap<Class<?>, Set<ServletContainerInitializer>>();
         for (ServletContainerInitializer service : scis) {
-            if (service.getClass().isAnnotationPresent(HandlesTypes.class)) {
-                HandlesTypes handlesTypesAnnotation = service.getClass().getAnnotation(HandlesTypes.class);
-                Class<?>[] typesArray = handlesTypesAnnotation.value();
-                if (typesArray != null) {
-                    for (Class<?> type : typesArray) {
-                        Set<ServletContainerInitializer> servicesSet = typesMap.get(type);
-                        if (servicesSet == null) {
-                            servicesSet = new HashSet<ServletContainerInitializer>();
-                            typesMap.put(type, servicesSet);
+            try {
+                if (service.getClass().isAnnotationPresent(HandlesTypes.class)) {
+                    HandlesTypes handlesTypesAnnotation = service.getClass().getAnnotation(HandlesTypes.class);
+                    Class<?>[] typesArray = handlesTypesAnnotation.value();
+                    if (typesArray != null) {
+                        for (Class<?> type : typesArray) {
+                            Set<ServletContainerInitializer> servicesSet = typesMap.get(type);
+                            if (servicesSet == null) {
+                                servicesSet = new HashSet<ServletContainerInitializer>();
+                                typesMap.put(type, servicesSet);
+                            }
+                            servicesSet.add(service);
+                            handlesTypes.put(service, new HashSet<Class<?>>());
                         }
-                        servicesSet.add(service);
-                        handlesTypes.put(service, new HashSet<Class<?>>());
                     }
                 }
+            } catch (ArrayStoreException e) {
+                // https://bugs.openjdk.java.net/browse/JDK-7183985
+                // Class.findAnnotation() has a bug under JDK < 11 which throws ArrayStoreException
+                throw UndertowLogger.ROOT_LOGGER.missingClassInAnnotation(HandlesTypes.class.getSimpleName(), service.getClass().getName());
             }
         }
         Class<?>[] typesArray = typesMap.keySet().toArray(new Class<?>[0]);
@@ -152,6 +176,12 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
         if (index == null) {
             throw UndertowLogger.ROOT_LOGGER.unableToResolveAnnotationIndex(deploymentUnit);
         }
+        final CompositeIndex parent;
+        if(deploymentUnit.getParent() != null) {
+            parent = deploymentUnit.getParent().getAttachment(Attachments.COMPOSITE_ANNOTATION_INDEX);
+        } else {
+            parent = null;
+        }
         //WFLY-4205, look in the parent as well as the war
         CompositeIndex parentIndex = deploymentUnit.getParent() == null ? null : deploymentUnit.getParent().getAttachment(Attachments.COMPOSITE_ANNOTATION_INDEX);
 
@@ -159,9 +189,9 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
         for (Class<?> type : typesArray) {
             DotName className = DotName.createSimple(type.getName());
             Set<ClassInfo> classInfos = new HashSet<>();
-            classInfos.addAll(processHandlesType(className, type, index));
+            classInfos.addAll(processHandlesType(className, type, index, parent));
             if(parentIndex != null) {
-                classInfos.addAll(processHandlesType(className, type, parentIndex));
+                classInfos.addAll(processHandlesType(className, type, parentIndex, parent));
             }
             Set<Class<?>> classes = loadClassInfoSet(classInfos, classLoader);
             Set<ServletContainerInitializer> sciSet = typesMap.get(type);
@@ -175,13 +205,13 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
         context.removeAttachment(ScisMetaData.ATTACHMENT_KEY);
     }
 
-    private List<ServletContainerInitializer> loadSci(ClassLoader classLoader, VirtualFile sci, String jar, boolean error) throws DeploymentUnitProcessingException {
+    private List<ServletContainerInitializer> loadSci(ClassLoader classLoader, VirtualFile sci, String jar, boolean error, Set<Class<? extends ServletContainerInitializer>> sciClasses) throws DeploymentUnitProcessingException {
         final List<ServletContainerInitializer> scis = new ArrayList<ServletContainerInitializer>();
         InputStream is = null;
         try {
             // Get the ServletContainerInitializer class name
             is = sci.openStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
             String servletContainerInitializerClassName = reader.readLine();
             while (servletContainerInitializerClassName != null) {
                 try {
@@ -194,7 +224,9 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
                         // Instantiate the ServletContainerInitializer
                         ServletContainerInitializer service = (ServletContainerInitializer) classLoader.loadClass(servletContainerInitializerClassName).newInstance();
                         if (service != null) {
-                            scis.add(service);
+                            if(sciClasses.add(service.getClass())) {
+                                scis.add(service);
+                            }
                         }
                     }
                     servletContainerInitializerClassName = reader.readLine();
@@ -223,7 +255,7 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
         return scis;
     }
 
-    private Set<ClassInfo> processHandlesType(DotName typeName, Class<?> type, CompositeIndex index) throws DeploymentUnitProcessingException {
+    private Set<ClassInfo> processHandlesType(DotName typeName, Class<?> type, CompositeIndex index, CompositeIndex parent) throws DeploymentUnitProcessingException {
         Set<ClassInfo> classes = new HashSet<ClassInfo>();
         if (type.isAnnotation()) {
             List<AnnotationInstance> instances = index.getAnnotations(typeName);
@@ -242,6 +274,16 @@ public class ServletContainerInitializerDeploymentProcessor implements Deploymen
         } else {
             classes.addAll(index.getAllKnownSubclasses(typeName));
             classes.addAll(index.getAllKnownImplementors(typeName));
+            if(parent != null) {
+                Set<ClassInfo> parentImplementors = new HashSet<>();
+                parentImplementors.addAll(parent.getAllKnownImplementors(typeName));
+                parentImplementors.addAll(parent.getAllKnownSubclasses(typeName));
+                for(ClassInfo pc: parentImplementors) {
+                    classes.addAll(index.getAllKnownSubclasses(pc.name()));
+                    classes.addAll(index.getAllKnownImplementors(pc.name()));
+                }
+            }
+
         }
         return classes;
     }

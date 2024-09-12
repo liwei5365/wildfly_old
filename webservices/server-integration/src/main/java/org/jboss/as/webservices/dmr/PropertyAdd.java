@@ -21,8 +21,6 @@
  */
 package org.jboss.as.webservices.dmr;
 
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VALUE;
 import static org.jboss.as.webservices.dmr.PackageUtils.getConfigServiceName;
 import static org.jboss.as.webservices.dmr.PackageUtils.getPropertyServiceName;
 
@@ -36,9 +34,10 @@ import org.jboss.as.webservices.logging.WSLogger;
 import org.jboss.as.webservices.service.PropertyService;
 import org.jboss.dmr.ModelNode;
 import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
+
+import java.util.function.Consumer;
 
 /**
  * @author <a href="mailto:alessio.soldano@jboss.com">Alessio Soldano</a>
@@ -64,23 +63,22 @@ final class PropertyAdd extends AbstractAddStepHandler {
     protected void performRuntime(final OperationContext context, final ModelNode operation, final ModelNode model) throws OperationFailedException {
         //modify the runtime if we're booting, otherwise set reload required and leave the runtime unchanged
         if (context.isBooting()) {
-            final PathAddress address = PathAddress.pathAddress(operation.require(OP_ADDR));
-            final String propertyName = address.getElement(address.size() - 1).getValue();
+            final PathAddress address = context.getCurrentAddress();
+            final String propertyName = context.getCurrentAddressValue();
             final PathElement confElem = address.getElement(address.size() - 2);
             final String configType = confElem.getKey();
             final String configName = confElem.getValue();
-            final String propertyValue = operation.has(VALUE) ? Attributes.VALUE.resolveModelAttribute(context,operation).asString() : null;
-
-            final PropertyService service = new PropertyService(propertyName, propertyValue);
+            final String propertyValue = Attributes.VALUE.resolveModelAttribute(context, model).asStringOrNull();
             final ServiceTarget target = context.getServiceTarget();
             final ServiceName configServiceName = getConfigServiceName(configType, configName);
             if (context.getServiceRegistry(false).getService(configServiceName) == null) {
                 throw WSLogger.ROOT_LOGGER.missingConfig(configName);
             }
-
             final ServiceName propertyServiceName = getPropertyServiceName(configServiceName, propertyName);
-            final ServiceBuilder<?> propertyServiceBuilder = target.addService(propertyServiceName, service);
-            ServiceController<?> controller = propertyServiceBuilder.setInitialMode(ServiceController.Mode.ACTIVE).install();
+            final ServiceBuilder<?> propertyServiceBuilder = target.addService(propertyServiceName);
+            final Consumer<PropertyService> propertyServiceConsumer = propertyServiceBuilder.provides(propertyServiceName);
+            propertyServiceBuilder.setInstance(new PropertyService(propertyName, propertyValue, propertyServiceConsumer));
+            propertyServiceBuilder.install();
         } else {
             context.reloadRequired();
         }

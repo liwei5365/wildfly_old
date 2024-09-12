@@ -22,28 +22,17 @@
 
 package org.wildfly.clustering.server.registry;
 
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-
+import org.kohsuke.MetaInfServices;
 import org.wildfly.clustering.marshalling.Externalizer;
+import org.wildfly.clustering.marshalling.spi.EnumExternalizer;
 
 /**
  * @author Paul Ferraro
  */
-public class CacheRegistryFilterExternalizer implements Externalizer<CacheRegistryFilter> {
+@MetaInfServices(Externalizer.class)
+public class CacheRegistryFilterExternalizer extends EnumExternalizer<CacheRegistryFilter> {
 
-    @Override
-    public void writeObject(ObjectOutput output, CacheRegistryFilter object) throws IOException {
-    }
-
-    @Override
-    public CacheRegistryFilter readObject(ObjectInput input) throws IOException, ClassNotFoundException {
-        return new CacheRegistryFilter();
-    }
-
-    @Override
-    public Class<? extends CacheRegistryFilter> getTargetClass() {
-        return CacheRegistryFilter.class;
+    public CacheRegistryFilterExternalizer() {
+        super(CacheRegistryFilter.class);
     }
 }

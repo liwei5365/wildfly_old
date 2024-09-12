@@ -27,7 +27,7 @@ import java.io.IOException;
 import org.jboss.as.subsystem.test.AbstractSubsystemBaseTest;
 
 /**
- * Bean Validation subsystem tests.
+ * Jakarta Bean Validation subsystem tests.
  *
  * @author Eduardo Martins
  */
@@ -45,12 +45,5 @@ public class BeanValidationSubsystemTestCase extends AbstractSubsystemBaseTest {
     @Override
     protected String getSubsystemXsdPath() throws Exception {
         return "schema/wildfly-bean-validation_1_0.xsd";
-    }
-
-    @Override
-    protected String[] getSubsystemTemplatePaths() throws IOException {
-        return new String[] {
-                "/subsystem-templates/bean-validation.xml"
-        };
     }
 }

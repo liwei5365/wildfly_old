@@ -16,7 +16,9 @@ import org.junit.runner.RunWith;
 import javax.ejb.EJB;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 
 
@@ -53,6 +55,11 @@ public class WarJBossDeploymentStructureTestCase {
         war.add(ignoredJar, "i", ZipExporter.class);
 
         war.addAsWebResource(new StringAsset("Root file"), "root-file.txt");
+
+        war.addAsManifestResource(createPermissionsXmlAsset(
+                new RuntimePermission("getClassLoader"),
+                new RuntimePermission("getProtectionDomain")),
+                "permissions.xml");
 
         return war;
     }
@@ -110,7 +117,7 @@ public class WarJBossDeploymentStructureTestCase {
             int res;
             StringBuilder sb = new StringBuilder();
             while ((res = clazz.read(data)) > 0) {
-                sb.append(new String(data, 0, res));
+                sb.append(new String(data, 0, res, StandardCharsets.UTF_8));
             }
             Assert.assertEquals("Root file", sb.toString());
         } finally {

@@ -21,43 +21,42 @@
  */
 package org.jboss.as.test.clustering;
 
-import javax.naming.NamingException;
-
+import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.test.clustering.ejb.EJBDirectory;
+import org.jboss.as.test.integration.management.util.CLITestUtil;
+import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.container.ClassContainer;
 import org.jboss.shrinkwrap.api.container.ManifestContainer;
+import org.junit.Assert;
 
 /**
- * Utility class for cluster test.
+ * Utility class for clustering tests.
  *
  * @author Radoslav Husar
- * @version September 2012
  */
 public class ClusterTestUtil {
 
-    public static void waitForReplication(int millis) {
-        if ("SYNC".equals(ClusteringTestConstants.TEST_CACHE_MODE)) {
-            // In case the replication is sync, we do not need to wait for the replication to happen.
-            return;
-        }
-        // TODO: Instead of dummy waiting, we could attach a listener and notify the test framework the replication has happened. millis value can be used as timeout in that case.
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException iex) {
-        }
-    }
-
     public static <A extends Archive<A> & ClassContainer<A> & ManifestContainer<A>> A addTopologyListenerDependencies(A archive) {
         archive.addClasses(TopologyChangeListener.class, TopologyChangeListenerBean.class, TopologyChangeListenerServlet.class);
-        archive.setManifest(new StringAsset("Manifest-Version: 1.0\nDependencies: org.jboss.msc, org.jboss.as.clustering.common, org.jboss.as.server, org.infinispan\n"));
+        archive.setManifest(new StringAsset("Manifest-Version: 1.0\nDependencies: org.infinispan\n"));
         return archive;
     }
 
-    public static void establishTopology(EJBDirectory directory, String container, String cache, String... nodes) throws NamingException, InterruptedException {
+    public static void establishTopology(EJBDirectory directory, String container, String cache, String... nodes) throws Exception {
         TopologyChangeListener listener = directory.lookupStateless(TopologyChangeListenerBean.class, TopologyChangeListener.class);
         listener.establishTopology(container, cache, TopologyChangeListener.DEFAULT_TIMEOUT, nodes);
+    }
+
+    // Model management convenience methods
+
+    public static ModelNode execute(ManagementClient client, String request) throws Exception {
+        ModelNode operation = CLITestUtil.getCommandContext().buildRequest(request);
+        ModelNode result = client.getControllerClient().execute(operation);
+        Assert.assertEquals(result.toString(), ModelDescriptionConstants.SUCCESS, result.get(ModelDescriptionConstants.OUTCOME).asStringOrNull());
+        return result.get(ModelDescriptionConstants.RESULT);
     }
 
     private ClusterTestUtil() {

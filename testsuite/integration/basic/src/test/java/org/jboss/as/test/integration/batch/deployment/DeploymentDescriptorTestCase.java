@@ -34,9 +34,9 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.OperateOnDeployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.arquillian.junit.InSequence;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.api.ServerSetup;
-import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.controller.client.Operation;
@@ -47,7 +47,7 @@ import org.jboss.as.test.integration.batch.common.CountingItemReader;
 import org.jboss.as.test.integration.batch.common.CountingItemWriter;
 import org.jboss.as.test.integration.batch.common.JobExecutionMarshaller;
 import org.jboss.as.test.integration.batch.common.StartBatchServlet;
-import org.jboss.as.test.shared.ServerReload;
+import org.jboss.as.test.shared.SnapshotRestoreSetupTask;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Assert;
@@ -118,16 +118,16 @@ public class DeploymentDescriptorTestCase extends AbstractBatchTestCase {
 
     @OperateOnDeployment(NAMED_JDBC_DEPLOYMENT)
     @Test
+    @InSequence(1)
     public void namedJdbcTest(@ArquillianResource final URL url) throws Exception {
-        // Test the default batch defined, ExampleDS, repository is isolated
-        testCompletion(1L, url);
-        testCompletion(2L, url);
+        // This test runs after definedJdbcTest, and the two tests share the same data source.
+        testCompletion(3L, url);
+        testCompletion(4L, url);
     }
 
     @OperateOnDeployment(DEFINED_JDBC_DEPLOYMENT)
     @Test
     public void definedJdbcTest(@ArquillianResource final URL url) throws Exception {
-        // Test that a newly named
         testCompletion(1L, url);
         testCompletion(2L, url);
     }
@@ -144,10 +144,10 @@ public class DeploymentDescriptorTestCase extends AbstractBatchTestCase {
     }
 
 
-    static class JdbcJobRepositorySetUp implements ServerSetupTask {
+    static class JdbcJobRepositorySetUp extends SnapshotRestoreSetupTask {
 
         @Override
-        public void setup(final ManagementClient managementClient, final String containerId) throws Exception {
+        public void doSetup(final ManagementClient managementClient, final String containerId) throws Exception {
             final CompositeOperationBuilder operationBuilder = CompositeOperationBuilder.create();
 
             // Add a new data-source
@@ -155,7 +155,7 @@ public class DeploymentDescriptorTestCase extends AbstractBatchTestCase {
             ModelNode op = Operations.createAddOperation(address);
             op.get("driver-name").set("h2");
             op.get("jndi-name").set("java:jboss/datasources/batch");
-            op.get("connection-url").set("jdbc:h2:batch-test");
+            op.get("connection-url").set("jdbc:h2:mem:batch-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE");
             operationBuilder.addStep(op);
 
             // Add a new JDBC job repository with the new data-source
@@ -178,22 +178,6 @@ public class DeploymentDescriptorTestCase extends AbstractBatchTestCase {
             operationBuilder.addStep(op);
 
             execute(managementClient.getControllerClient(), operationBuilder.build());
-        }
-
-        @Override
-        public void tearDown(final ManagementClient managementClient, final String containerId) throws Exception {
-            // Remove the JDBC job repository and in-memory job repository
-            final CompositeOperationBuilder operationBuilder = CompositeOperationBuilder.create();
-            operationBuilder.addStep(Operations.createRemoveOperation(Operations.createAddress("subsystem", "batch-jberet", "jdbc-job-repository", "batch-ds")));
-            operationBuilder.addStep(Operations.createRemoveOperation(Operations.createAddress("subsystem", "batch-jberet", "in-memory-job-repository", "batch-in-mem")));
-            operationBuilder.addStep(Operations.createRemoveOperation(Operations.createAddress("subsystem", "batch-jberet", "thread-pool", "deployment-thread-pool")));
-            execute(managementClient.getControllerClient(), operationBuilder.build());
-
-            // Requires a reload to free the data-source capability
-            ServerReload.executeReloadAndWaitForCompletion(managementClient.getControllerClient());
-
-            // Remove the data-source
-            execute(managementClient.getControllerClient(), Operations.createRemoveOperation(Operations.createAddress("subsystem", "datasources", "data-source", "batch-ds")));
         }
 
         static ModelNode execute(final ModelControllerClient client, final Operation op) throws IOException {

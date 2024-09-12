@@ -22,20 +22,16 @@
 
 package org.jboss.as.test.integration.ejb.mdb.vaultedproperties;
 
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.CORE_SERVICE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.NAME;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.REMOVE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VALUE;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VAULT;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VAULT_OPTIONS;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.WRITE_ATTRIBUTE_OPERATION;
 import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
+import java.util.PropertyPermission;
 import java.util.UUID;
 
 import javax.annotation.Resource;
@@ -53,7 +49,7 @@ import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.client.OperationBuilder;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
-import org.jboss.as.test.integration.security.common.VaultHandler;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
@@ -77,25 +73,10 @@ public class MDBWithVaultedPropertiesTestCase {
     private static final String QUEUE_NAME = "vaultedproperties_queue";
     static final String CLEAR_TEXT_DESTINATION_LOOKUP = "java:jboss/messaging/vaultedproperties/queue";
 
-    static final String VAULT_LOCATION = MDBWithVaultedPropertiesTestCase.class.getProtectionDomain().getCodeSource().getLocation().getFile() + "security/jms-vault/";
-
     static class StoreVaultedPropertyTask implements ServerSetupTask {
-
-        private VaultHandler vaultHandler;
 
         @Override
         public void setup(ManagementClient managementClient, String containerId) throws Exception {
-
-            VaultHandler.cleanFilesystem(VAULT_LOCATION, true);
-
-            // create new vault
-            vaultHandler = new VaultHandler(VAULT_LOCATION);
-            // store the destination lookup into the vault
-            String vaultedProperty = vaultHandler.addSecuredAttribute("messaging", "destination", CLEAR_TEXT_DESTINATION_LOOKUP.toCharArray());
-            //System.out.println("vaultedProperty = " + vaultedProperty);
-
-            addVaultConfiguration(managementClient);
-
             createJMSQueue(managementClient, QUEUE_NAME, CLEAR_TEXT_DESTINATION_LOOKUP);
 
             updateAnnotationPropertyReplacement(managementClient, true);
@@ -104,37 +85,9 @@ public class MDBWithVaultedPropertiesTestCase {
 
         @Override
         public void tearDown(ManagementClient managementClient, String containerId) throws Exception {
-
-            removeVaultConfiguration(managementClient);
-            // remove temporary files
-            vaultHandler.cleanUp();
-
             removeJMSQueue(managementClient, QUEUE_NAME);
 
             updateAnnotationPropertyReplacement(managementClient, false);
-        }
-
-
-        private void addVaultConfiguration(ManagementClient managementClient) throws IOException {
-            ModelNode op;
-            op = new ModelNode();
-            op.get(OP_ADDR).add(CORE_SERVICE, VAULT);
-            op.get(OP).set(ADD);
-            ModelNode vaultOption = op.get(VAULT_OPTIONS);
-            vaultOption.get("KEYSTORE_URL").set(vaultHandler.getKeyStore());
-            vaultOption.get("KEYSTORE_PASSWORD").set(vaultHandler.getMaskedKeyStorePassword());
-            vaultOption.get("KEYSTORE_ALIAS").set(vaultHandler.getAlias());
-            vaultOption.get("SALT").set(vaultHandler.getSalt());
-            vaultOption.get("ITERATION_COUNT").set(vaultHandler.getIterationCountAsString());
-            vaultOption.get("ENC_FILE_DIR").set(vaultHandler.getEncodedVaultFileDirectory());
-            managementClient.getControllerClient().execute(new OperationBuilder(op).build());
-        }
-
-        private void removeVaultConfiguration(ManagementClient managementClient) throws IOException {
-            ModelNode op = new ModelNode();
-            op.get(OP_ADDR).add(CORE_SERVICE, VAULT);
-            op.get(OP).set(REMOVE);
-            managementClient.getControllerClient().execute(new OperationBuilder(op).build());
         }
 
         void createJMSQueue(ManagementClient managementClient, String name, String lookup) {
@@ -166,8 +119,10 @@ public class MDBWithVaultedPropertiesTestCase {
         return ShrinkWrap.create(JavaArchive.class, "MDBWithVaultedPropertiesTestCase.jar")
                 .addClass(StoreVaultedPropertyTask.class)
                 .addClass(MDB.class)
+                .addClass(TimeoutUtil.class)
                 .addAsManifestResource(EmptyAsset.INSTANCE, "beans.xml")
-                .addAsResource(createPermissionsXmlAsset(new RuntimePermission("getProtectionDomain")), "META-INF/jboss-permissions.xml");
+                .addAsManifestResource(createPermissionsXmlAsset(
+                        new PropertyPermission(TimeoutUtil.FACTOR_SYS_PROP, "read")), "permissions.xml");
     }
 
     @Resource(mappedName = CLEAR_TEXT_DESTINATION_LOOKUP)
@@ -187,7 +142,7 @@ public class MDBWithVaultedPropertiesTestCase {
                     .send(queue, text);
 
             JMSConsumer consumer = context.createConsumer(replyTo);
-            String reply = consumer.receiveBody(String.class, 5000);
+            String reply = consumer.receiveBody(String.class, TimeoutUtil.adjust(5000));
             assertEquals(text, reply);
         }
     }

@@ -30,15 +30,17 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.test.integration.common.HttpRequest;
+import org.jboss.as.test.shared.util.AssumeTestGroupUtil;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
  * Tests JBossPDP access from a web-application (servlet).
- * 
+ *
  * @author Josef Cacek
  */
 @RunWith(Arquillian.class)
@@ -50,7 +52,7 @@ public class JBossPDPServletInitializationTestCase {
 
     /**
      * Creates {@link WebArchive} for the deployment.
-     * 
+     *
      * @return
      */
     @Deployment(testable = false)
@@ -63,13 +65,18 @@ public class JBossPDPServletInitializationTestCase {
         return war;
     }
 
+    @BeforeClass
+    public static void skipSecurityManager() {
+        AssumeTestGroupUtil.assumeSecurityManagerDisabled();
+    }
+
     /**
      * Validates that the servlet returns "OK" response.
-     * 
+     *
      * @throws Exception
      */
     @Test
-    public void testPdpServlet(final @ArquillianResource URL webAppURL) throws Exception {
+    public void testPdpServlet(@ArquillianResource final URL webAppURL) throws Exception {
         assertEquals(JBossPDPInitServlet.RESPONSE_OK,
                 HttpRequest.get(webAppURL.toExternalForm() + JBossPDPInitServlet.SERVLET_PATH.substring(1), 10, SECONDS));
     }

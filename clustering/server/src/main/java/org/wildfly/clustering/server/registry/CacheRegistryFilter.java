@@ -24,21 +24,24 @@ package org.wildfly.clustering.server.registry;
 
 import java.util.function.Predicate;
 
-import org.infinispan.filter.KeyFilter;
-import org.wildfly.clustering.group.Node;
+import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilter;
+import org.infinispan.notifications.cachelistener.filter.EventType;
+import org.infinispan.remoting.transport.Address;
 
 /**
  * @author Paul Ferraro
  */
-public class CacheRegistryFilter implements KeyFilter<Object>, Predicate<Object> {
+public enum CacheRegistryFilter implements CacheEventFilter<Object, Object>, Predicate<Object> {
+    INSTANCE;
 
     @Override
-    public boolean accept(Object key) {
-        return key instanceof Node;
+    public boolean accept(Object key, Object oldValue, Metadata oldMetadata, Object newValue, Metadata newMetadata, EventType eventType) {
+        return this.test(key);
     }
 
     @Override
     public boolean test(Object key) {
-        return this.accept(key);
+        return key instanceof Address;
     }
 }

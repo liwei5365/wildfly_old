@@ -34,6 +34,7 @@ import static org.jboss.as.connector.subsystems.common.pool.Constants.IDLETIMEOU
 import static org.jboss.as.connector.subsystems.common.pool.Constants.INITIAL_POOL_SIZE;
 import static org.jboss.as.connector.subsystems.common.pool.Constants.MAX_POOL_SIZE;
 import static org.jboss.as.connector.subsystems.common.pool.Constants.MIN_POOL_SIZE;
+import static org.jboss.as.connector.subsystems.common.pool.Constants.POOL_FAIR;
 import static org.jboss.as.connector.subsystems.common.pool.Constants.POOL_FLUSH_STRATEGY;
 import static org.jboss.as.connector.subsystems.common.pool.Constants.POOL_PREFILL;
 import static org.jboss.as.connector.subsystems.common.pool.Constants.POOL_USE_STRICT_MIN;
@@ -44,12 +45,15 @@ import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ALLOC
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ALLOCATION_RETRY_WAIT_MILLIS;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.APPLICATION;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ARCHIVE;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.AUTHENTICATION_CONTEXT;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.AUTHENTICATION_CONTEXT_AND_APPLICATION;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.BEANVALIDATION_GROUPS;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.BOOTSTRAP_CONTEXT;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.CLASS_NAME;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.CONFIG_PROPERTIES;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.CONNECTABLE;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.CONNECTIONDEFINITIONS_NAME;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ELYTRON_ENABLED;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ENABLED;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ENLISTMENT;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.ENLISTMENT_TRACE;
@@ -62,6 +66,9 @@ import static org.jboss.as.connector.subsystems.resourceadapters.Constants.NO_RE
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.PAD_XID;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERLUGIN_CLASSNAME;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERLUGIN_PROPERTIES;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_AUTHENTICATION_CONTEXT;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_CREDENTIAL_REFERENCE;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_ELYTRON_ENABLED;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_PASSWORD;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_SECURITY_DOMAIN;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.RECOVERY_USERNAME;
@@ -76,6 +83,7 @@ import static org.jboss.as.connector.subsystems.resourceadapters.Constants.TRACK
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.TRANSACTION_SUPPORT;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.USE_CCM;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.USE_JAVA_CONTEXT;
+import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_ELYTRON_SECURITY_DOMAIN;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DEFAULT_GROUP;
 import static org.jboss.as.connector.subsystems.resourceadapters.Constants.WM_SECURITY_DEFAULT_GROUPS;
@@ -97,10 +105,12 @@ import java.util.List;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 
+import org.jboss.as.connector.metadata.api.resourceadapter.WorkManagerSecurity;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.parsing.ParseUtils;
 import org.jboss.as.controller.persistence.SubsystemMarshallingContext;
 import org.jboss.dmr.ModelNode;
+import org.jboss.dmr.ModelType;
 import org.jboss.dmr.Property;
 import org.jboss.jca.common.api.metadata.common.Capacity;
 import org.jboss.jca.common.api.metadata.common.Pool;
@@ -110,7 +120,6 @@ import org.jboss.jca.common.api.metadata.resourceadapter.Activation;
 import org.jboss.jca.common.api.metadata.resourceadapter.Activations;
 import org.jboss.jca.common.api.metadata.resourceadapter.ConnectionDefinition;
 import org.jboss.jca.common.api.metadata.resourceadapter.WorkManager;
-import org.jboss.jca.common.api.metadata.resourceadapter.WorkManagerSecurity;
 import org.jboss.staxmapper.XMLElementReader;
 import org.jboss.staxmapper.XMLElementWriter;
 import org.jboss.staxmapper.XMLExtendedStreamReader;
@@ -128,7 +137,7 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
     @Override
     public void writeContent(XMLExtendedStreamWriter writer, SubsystemMarshallingContext context) throws XMLStreamException {
         ModelNode node = context.getModelNode();
-        boolean hasChildren = node.hasDefined(RESOURCEADAPTER_NAME) && node.get(RESOURCEADAPTER_NAME).asPropertyList().size() > 0;
+        boolean hasChildren = node.hasDefined(RESOURCEADAPTER_NAME) && !node.get(RESOURCEADAPTER_NAME).asPropertyList().isEmpty();
 
         context.startSubsystemElement(Namespace.CURRENT.getUriString(), !hasChildren);
 
@@ -167,7 +176,7 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
         TRANSACTION_SUPPORT.marshallAsElement(ra, streamWriter);
         writeNewConfigProperties(streamWriter, ra);
         TransactionSupportEnum transactionSupport = ra.hasDefined(TRANSACTION_SUPPORT.getName()) ? TransactionSupportEnum
-            .valueOf(ra.get(TRANSACTION_SUPPORT.getName()).asString()) : null;
+            .valueOf(ra.get(TRANSACTION_SUPPORT.getName()).resolve().asString()) : null;
         boolean isXa = false;
         if (transactionSupport == TransactionSupportEnum.XATransaction) {
             isXa = true;
@@ -177,6 +186,7 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
             streamWriter.writeStartElement(WorkManager.Tag.SECURITY.getLocalName());
             WM_SECURITY_MAPPING_REQUIRED.marshallAsElement(ra, streamWriter);
             WM_SECURITY_DOMAIN.marshallAsElement(ra, streamWriter);
+            WM_ELYTRON_SECURITY_DOMAIN.marshallAsElement(ra, streamWriter);
             WM_SECURITY_DEFAULT_PRINCIPAL.marshallAsElement(ra, streamWriter);
             if (ra.hasDefined(WM_SECURITY_DEFAULT_GROUPS.getName())) {
                 streamWriter.writeStartElement(WM_SECURITY_DEFAULT_GROUPS.getXmlName());
@@ -250,7 +260,15 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
 
         writer.writeStartElement(localName);
         writer.writeAttribute("name", name);
-        writer.writeCharacters(value);
+        // TODO if WFCORE-4625 goes in, use the util method.
+        if (value.indexOf('\n') > -1) {
+            // Multiline content. Use the overloaded variant that staxmapper will format
+            writer.writeCharacters(value);
+        } else {
+            // Staxmapper will just output the chars without adding newlines if this is used
+            char[] chars = value.toCharArray();
+            writer.writeCharacters(chars, 0, chars.length);
+        }
         writer.writeEndElement();
 
     }
@@ -287,7 +305,7 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
         writeNewConfigProperties(streamWriter, conDef);
 
         boolean poolRequired = INITIAL_POOL_SIZE.isMarshallable(conDef) || MAX_POOL_SIZE.isMarshallable(conDef) || MIN_POOL_SIZE.isMarshallable(conDef) ||
-                POOL_USE_STRICT_MIN.isMarshallable(conDef) || POOL_PREFILL.isMarshallable(conDef) || POOL_FLUSH_STRATEGY.isMarshallable(conDef);
+                POOL_USE_STRICT_MIN.isMarshallable(conDef) || POOL_PREFILL.isMarshallable(conDef) || POOL_FAIR.isMarshallable(conDef) || POOL_FLUSH_STRATEGY.isMarshallable(conDef);
         final boolean capacityRequired = CAPACITY_INCREMENTER_CLASS.isMarshallable(conDef) ||
                 CAPACITY_INCREMENTER_PROPERTIES.isMarshallable(conDef) ||
                 CAPACITY_DECREMENTER_CLASS.isMarshallable(conDef) ||
@@ -302,6 +320,7 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
                 INITIAL_POOL_SIZE.marshallAsElement(conDef, streamWriter);
                 MAX_POOL_SIZE.marshallAsElement(conDef, streamWriter);
                 POOL_PREFILL.marshallAsElement(conDef, streamWriter);
+                POOL_FAIR.marshallAsElement(conDef, streamWriter);
                 POOL_USE_STRICT_MIN.marshallAsElement(conDef, streamWriter);
                 POOL_FLUSH_STRATEGY.marshallAsElement(conDef, streamWriter);
 
@@ -352,15 +371,19 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
         }
 
         if (conDef.hasDefined(APPLICATION.getName()) || conDef.hasDefined(SECURITY_DOMAIN.getName())
-                || conDef.hasDefined(SECURITY_DOMAIN_AND_APPLICATION.getName())) {
+                || conDef.hasDefined(SECURITY_DOMAIN_AND_APPLICATION.getName())
+                || conDef.hasDefined(ELYTRON_ENABLED.getName())) {
             streamWriter.writeStartElement(ConnectionDefinition.Tag.SECURITY.getLocalName());
-            if (conDef.hasDefined(APPLICATION.getName()) && conDef.get(APPLICATION.getName()).asBoolean()) {
+            if (conDef.hasDefined(APPLICATION.getName()) && conDef.get(APPLICATION.getName()).getType().equals(ModelType.BOOLEAN) && conDef.get(APPLICATION.getName()).asBoolean()) {
                 streamWriter.writeEmptyElement(APPLICATION.getXmlName());
             } else {
                 APPLICATION.marshallAsElement(conDef, streamWriter);
             }
             SECURITY_DOMAIN.marshallAsElement(conDef, streamWriter);
             SECURITY_DOMAIN_AND_APPLICATION.marshallAsElement(conDef, streamWriter);
+            ELYTRON_ENABLED.marshallAsElement(conDef, streamWriter);
+            AUTHENTICATION_CONTEXT.marshallAsElement(conDef, streamWriter);
+            AUTHENTICATION_CONTEXT_AND_APPLICATION.marshallAsElement(conDef, streamWriter);
 
             streamWriter.writeEndElement();
         }
@@ -388,17 +411,23 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
 
         if (conDef.hasDefined(RECOVERY_USERNAME.getName()) || conDef.hasDefined(RECOVERY_PASSWORD.getName())
                 || conDef.hasDefined(RECOVERY_SECURITY_DOMAIN.getName()) || conDef.hasDefined(RECOVERLUGIN_CLASSNAME.getName())
-                || conDef.hasDefined(RECOVERLUGIN_PROPERTIES.getName()) || conDef.hasDefined(NO_RECOVERY.getName())) {
+                || conDef.hasDefined(RECOVERLUGIN_PROPERTIES.getName()) || conDef.hasDefined(NO_RECOVERY.getName())
+                || conDef.hasDefined(ELYTRON_ENABLED.getName())) {
 
             streamWriter.writeStartElement(ConnectionDefinition.Tag.RECOVERY.getLocalName());
             NO_RECOVERY.marshallAsAttribute(conDef, streamWriter);
 
             if (conDef.hasDefined(RECOVERY_USERNAME.getName()) || conDef.hasDefined(RECOVERY_PASSWORD.getName())
-                    || conDef.hasDefined(RECOVERY_SECURITY_DOMAIN.getName())) {
+                    || conDef.hasDefined(RECOVERY_CREDENTIAL_REFERENCE.getName())
+                    || conDef.hasDefined(RECOVERY_SECURITY_DOMAIN.getName())
+                    || conDef.hasDefined(RECOVERY_ELYTRON_ENABLED.getName())) {
                 streamWriter.writeStartElement(Recovery.Tag.RECOVER_CREDENTIAL.getLocalName());
                 RECOVERY_USERNAME.marshallAsElement(conDef, streamWriter);
                 RECOVERY_PASSWORD.marshallAsElement(conDef, streamWriter);
+                RECOVERY_CREDENTIAL_REFERENCE.marshallAsElement(conDef, streamWriter);
                 RECOVERY_SECURITY_DOMAIN.marshallAsElement(conDef, streamWriter);
+                RECOVERY_ELYTRON_ENABLED.marshallAsElement(conDef, streamWriter);
+                RECOVERY_AUTHENTICATION_CONTEXT.marshallAsElement(conDef, streamWriter);
                 streamWriter.writeEndElement();
             }
             if (conDef.hasDefined(RECOVERLUGIN_CLASSNAME.getName()) || conDef.hasDefined(RECOVERLUGIN_PROPERTIES.getName())) {
@@ -440,7 +469,9 @@ public final class ResourceAdapterSubsystemParser implements XMLStreamConstants,
                 case RESOURCEADAPTERS_1_1:
                 case RESOURCEADAPTERS_2_0:
                 case RESOURCEADAPTERS_3_0:
-                case RESOURCEADAPTERS_4_0:{
+                case RESOURCEADAPTERS_4_0:
+                case RESOURCEADAPTERS_5_0:
+                case RESOURCEADAPTERS_6_0:{
                     localName = reader.getLocalName();
                     final Element element = Element.forName(reader.getLocalName());
                     SUBSYSTEM_RA_LOGGER.tracef("%s -> %s", localName, element);

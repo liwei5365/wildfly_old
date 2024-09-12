@@ -22,24 +22,21 @@
 
 package org.jboss.as.ejb3.component.stateful;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.jboss.as.ee.component.BasicComponentCreateService;
 import org.jboss.as.ee.component.ComponentConfiguration;
 import org.jboss.as.ee.component.ComponentStartService;
 import org.jboss.as.ee.component.DependencyConfigurator;
-import org.jboss.as.ejb3.logging.EjbLogger;
-import org.jboss.as.ejb3.cache.CacheInfo;
-import org.jboss.as.ejb3.cache.CacheFactoryBuilder;
-import org.jboss.as.ejb3.cache.CacheFactoryBuilderService;
+import org.jboss.as.ejb3.cache.CacheFactory;
 import org.jboss.as.ejb3.component.DefaultAccessTimeoutService;
 import org.jboss.as.ejb3.component.EJBComponentCreateServiceFactory;
+import org.jboss.as.ejb3.logging.EjbLogger;
+import org.jboss.as.ejb3.subsystem.DefaultStatefulBeanSessionTimeoutWriteHandler;
+import org.jboss.ejb.client.SessionID;
 import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceName;
-import org.jboss.msc.service.ServiceBuilder.DependencyType;
-
-import org.jboss.as.ejb3.cache.CacheFactory;
-import org.jboss.as.ejb3.remote.EJBRemoteConnectorService;
-import org.jboss.as.ejb3.remote.RegistryInstallerService;
-import org.jboss.msc.value.InjectedValue;
+import org.wildfly.clustering.service.InjectedValueDependency;
+import org.wildfly.clustering.service.SupplierDependency;
 
 /**
  * User: jpai
@@ -50,43 +47,23 @@ public class StatefulComponentCreateServiceFactory extends EJBComponentCreateSer
         if (this.ejbJarConfiguration == null) {
             throw EjbLogger.ROOT_LOGGER.ejbJarConfigNotBeenSet(this, configuration.getComponentName());
         }
-        // setup an injection dependency to inject the DefaultAccessTimeoutService in the stateful bean
-        // component create service
+        // setup an injection dependency to inject the DefaultAccessTimeoutService and DefaultStatefulSessionTimeoutService
+        // in the stateful bean component create service
         configuration.getCreateDependencies().add(new DependencyConfigurator<StatefulSessionComponentCreateService>() {
             @Override
             public void configureDependency(ServiceBuilder<?> serviceBuilder, StatefulSessionComponentCreateService componentCreateService) {
                 serviceBuilder.addDependency(DefaultAccessTimeoutService.STATEFUL_SERVICE_NAME, DefaultAccessTimeoutService.class, componentCreateService.getDefaultAccessTimeoutInjector());
+                serviceBuilder.addDependency(DefaultStatefulBeanSessionTimeoutWriteHandler.SERVICE_NAME, AtomicLong.class, componentCreateService.getDefaultStatefulSessionTimeoutInjector());
             }
         });
-        configuration.getCreateDependencies().add(new DependencyConfigurator<StatefulSessionComponentCreateService>() {
-            @Override
-            public void configureDependency(ServiceBuilder<?> builder, StatefulSessionComponentCreateService service) {
-                builder.addDependency(DependencyType.OPTIONAL, RegistryInstallerService.SERVICE_NAME);
-                builder.addDependency(DependencyType.OPTIONAL, EJBRemoteConnectorService.SERVICE_NAME);
-            }
-        });
-        configuration.getCreateDependencies().add(new DependencyConfigurator<StatefulSessionComponentCreateService>() {
-            @Override
-            public void configureDependency(final ServiceBuilder<?> builder, final StatefulSessionComponentCreateService service) {
-                builder.addDependency(this.getServiceName(service), CacheFactoryBuilder.class, service.getCacheFactoryBuilderInjector());
-            }
-
-            private ServiceName getServiceName(StatefulSessionComponentCreateService service) {
-                if (!service.isPassivationCapable()) {
-                    return CacheFactoryBuilderService.DEFAULT_PASSIVATION_DISABLED_CACHE_SERVICE_NAME;
-                }
-                CacheInfo cache = service.getCache();
-                return (cache != null) ? CacheFactoryBuilderService.getServiceName(cache.getName()) : CacheFactoryBuilderService.DEFAULT_CACHE_SERVICE_NAME;
-            }
-        });
-        @SuppressWarnings("rawtypes")
-        final InjectedValue<CacheFactory> factory = new InjectedValue<>();
+        StatefulComponentDescription description = (StatefulComponentDescription) configuration.getComponentDescription();
+        SupplierDependency<CacheFactory<SessionID, StatefulSessionComponentInstance>> cacheFactory = new InjectedValueDependency<>(description.getCacheFactoryServiceName(), (Class<CacheFactory<SessionID, StatefulSessionComponentInstance>>) (Class<?>) CacheFactory.class);
         configuration.getStartDependencies().add(new DependencyConfigurator<ComponentStartService>() {
             @Override
             public void configureDependency(ServiceBuilder<?> builder, ComponentStartService service) {
-                builder.addDependency(configuration.getComponentDescription().getServiceName().append("cache"), CacheFactory.class, factory);
+                cacheFactory.register(builder);
             }
         });
-        return new StatefulSessionComponentCreateService(configuration, this.ejbJarConfiguration, factory);
+        return new StatefulSessionComponentCreateService(configuration, this.ejbJarConfiguration, cacheFactory);
     }
 }

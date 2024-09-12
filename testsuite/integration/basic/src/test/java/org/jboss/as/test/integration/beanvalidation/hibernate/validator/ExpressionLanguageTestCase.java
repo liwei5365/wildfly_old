@@ -21,13 +21,16 @@
  */
 package org.jboss.as.test.integration.beanvalidation.hibernate.validator;
 
-import java.util.Set;
+import static org.jboss.as.test.shared.PermissionUtils.createPermissionsXmlAsset;
+import static org.junit.Assert.assertEquals;
 
+import java.util.Set;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validation;
 import javax.validation.Validator;
 import javax.validation.constraints.Size;
 
+import org.hibernate.validator.HibernateValidatorPermission;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.shrinkwrap.api.Archive;
@@ -35,8 +38,6 @@ import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertEquals;
 
 /**
  * Tests that Unified EL expressions can be used in Bean Violation messages as supported since BV 1.1.
@@ -48,8 +49,13 @@ public class ExpressionLanguageTestCase {
 
     @Deployment
     public static Archive<?> deploy() {
-        return ShrinkWrap.create(WebArchive.class, "expression-language-validation.war").addClass(
-                ExpressionLanguageTestCase.class);
+        WebArchive war = ShrinkWrap.create(WebArchive.class, "expression-language-validation.war");
+        war.addClass(ExpressionLanguageTestCase.class);
+        war.addAsManifestResource(createPermissionsXmlAsset(
+                HibernateValidatorPermission.ACCESS_PRIVATE_MEMBERS
+        ), "permissions.xml");
+
+        return war;
     }
 
     @Test

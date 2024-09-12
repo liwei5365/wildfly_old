@@ -60,6 +60,8 @@ import javax.jms.TopicConnectionFactory;
                         destinationName="myTopic1"
                 ),
                 @JMSDestinationDefinition(
+                        // explicitly mention a resourceAdapter corresponding to a pooled-connection-factory resource
+                        resourceAdapter = "activemq-ra",
                         name="java:global/env/myQueue2",
                         interfaceName="javax.jms.Queue",
                         destinationName="myQueue2",
@@ -90,12 +92,14 @@ import javax.jms.TopicConnectionFactory;
                 @JMSConnectionFactoryDefinition(
                         name="java:comp/env/myFactory5",
                         interfaceName = "javax.jms.QueueConnectionFactory",
-                        user = "${VAULT::messaging::userName::1}",
-                        password = "${VAULT::messaging::password::1}"
+                        user = "guest",
+                        password = "guest"
                 )
         }
 )
 @JMSConnectionFactoryDefinition(
+        // explicitly mention a resourceAdapter corresponding to a pooled-connection-factory resource
+        resourceAdapter = "activemq-ra",
         name="java:global/myFactory3",
         interfaceName = "javax.jms.QueueConnectionFactory",
         properties = {

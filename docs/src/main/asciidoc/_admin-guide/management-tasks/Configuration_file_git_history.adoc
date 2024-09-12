@@ -1,0 +1,265 @@
+[[Configuration_file_git_history]]
+= Git Configuration file history
+
+To enhance the initial <<Configuration_file_history,configuration file history>> we have now a native Git support to manage the configuration history. This feature goes a little farther than the initial configuration file history in that it also manages content repository content and all the configuration files (such as properties). This feature only work for **standalone servers** using the default directory layout.
+
+As mentioned in <<Command_line_parameters,Command line parameters>> we support the usage of a remote Git repository to pull the configuration from or create or use a local Git repository.
+In fact if a `.git` directory exists under `jboss.server.base.dir` then using Git for managing configuration files will be automatically activated.
+Each modification of the content or the configuration will result in a new commit when the operation is successful and there are changes to commit. If there is an authenticated user then it will be stored as the author of the commit.
+Please note that this is a real Git repository so using a native Git client you can manipulate it.
+
+Now if we execute a management operation that modifies
+the model, for example adding a new system property using the CLI:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] /system-property=test:add(value="test123")
+{"outcome" => "success"}
+----
+
+What happens is:
+
+* The change is applied to the configuration file.
+* The configuration file is added to a new commit.
+
+
+[[local_git_repository]]
+== Local Git Repository
+
+Starting the server with the option `--git-repo=local` will initiate a Git repository if none exists or use the current Git repository. When initiating the local Git repository a `.gitignore` file will be created and added to the initial commit.
+
+If a `--git-branch` parameter is added then the repository will be checked out on the supplied branch. Please note that the branch will not be automatically created and must exist in the repository already. By default, if no parameter is specified, the branch `master` will be used.
+
+[[remote_git_repository]]
+== Remote Git Repository
+
+If a remote Git repository is provided then the server will try to pull from it at boot. If this is the first time we are pulling then local files will be deleted to avoid the pull to fail because of the need to overwrite those existing files.
+The parameter for `--git-repo` can be a URL or a remote alias provided you have manually added it to the local git configuration.
+
+If a `--git-branch` parameter is added then the branch will be pulled, otherwise it will default to `master`.
+
+For example this is an elytron configuration file that you could use to connect to Github via the `--git-auth` parameter:
+
+[source,xml,options="nowrap"]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <authentication-client xmlns="urn:elytron:1.0">
+        <authentication-rules>
+            <rule use-configuration="test-login">
+            </rule>
+        </authentication-rules>
+        <authentication-configurations>
+            <configuration name="test-login">
+                <sasl-mechanism-selector selector="BASIC" />
+                <set-user-name name="ehsavoie" />
+                <credentials>
+                    <clear-password password="my_api_key" />
+                </credentials>
+                <set-mechanism-realm name="testRealm" />
+            </configuration>
+        </authentication-configurations>
+    </authentication-client>
+</configuration>
+----
+
+Sample command line to start the server using the `standalone-full.xml` file pulled from Github and being authenticated via the Elytron configuration file `github-wildfly-config.xml`:
+
+[source,options="nowrap"]
+----
+./standalone.sh --git-repo=https://github.com/wildfly/wildfly-config.git --git-auth=file:///home/ehsavoie/tmp/github-wildfly-config.xml -c standalone-full.xml
+----
+
+[[snapshots-git-history]]
+== Snapshots
+
+In addition to the commits taken by the server as described above you
+can manually take snapshots which will be stored as `tags` in the Git repository.
+You can choose the tag name and the commit message attached to this tag.
+
+You may also take your own snapshots using the CLI:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] :take-snapshot(name="snapshot", comment="1st snapshot")
+{
+    "outcome" => "success",
+    "result" => "1st snapshot"
+}
+----
+
+You can also use the CLI to list all the snapshots
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] :list-snapshots
+{
+    "outcome" => "success",
+    "result" => {
+        "directory" => "",
+        "names" => [
+            "snapshot : 1st snapshot",
+            "refs/tags/snapshot",
+            "snapshot2 : 2nd snapshot",
+            "refs/tags/snapshot2"
+        ]
+    }
+}
+----
+
+To delete a particular snapshot:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] :delete-snapshot(name="snapshot2")
+{"outcome" => "success"}
+----
+
+[[remote_push]]
+== Remote push
+
+You may need to push your repository changes to a remote repository so you can share them.
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] :publish-configuration(location="origin")
+{"outcome" => "success"}
+----
+
+[[ssh_auth]]
+== SSH Authentication
+
+Users may also connect to an SSH git server. In order to connect to any SSH git server to manage your configuration file history, you must use an Elytron configuration
+file to specify your SSH credentials. The following example shows how to specify an SSH url and a `wildfly-config.xml` file
+containing SSH credentials:
+
+[source,options="nowrap"]
+----
+./standalone.sh --git-repo=git@github.com:wildfly/wildfly-config.git --git-auth=file:///home/user/github-wildfly-config.xml
+----
+
+
+There are a number of ways to specify your SSH credentials in the `wildfly-config.xml` file:
+
+=== SSH Key Location Credential
+
+It is possible to reference a file containing your SSH keys as follows:
+
+[source,xml,options="nowrap"]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <authentication-client xmlns="urn:elytron:client:1.6">
+        <authentication-rules>
+            <rule use-configuration="test-login">
+            </rule>
+        </authentication-rules>
+        <authentication-configurations>
+            <configuration name="test-login">
+                <credentials>
+                    <ssh-credential ssh-directory="/home/user/git-persistence/" private-key-file="id_ec_test" known-hosts-file="known_hosts">
+                        <clear-password password="secret"/>
+                    </ssh-private-key>
+                </credentials>
+            </configuration>
+        </authentication-configurations>
+    </authentication-client>
+</configuration>
+----
+This configuration indicates that the private key to be used for SSH authentication is in the file `id_ec_test` in the
+directory `/home/user/git-persistence` and the passphrase "secret" is needed to decrypt the key.
+
+The `ssh-credential` accepts the following attributes:
+
+* `ssh-directory` - the path to the directory containing the private key file and the known hosts file. The default value
+is `[user.home]/.ssh`.
+* `private-key-file` - the name of the file containing the private key. The default private key file names used are: `id_rsa`,
+`id_dsa`, and `id_ecdsa`.
+* `known-hosts-file` - the name of the file containing the known SSH hosts you trust. The default value is `known_hosts`
+
+One of the following child elements may also be used to specify the passphrase to be used to decrypt the private key (if applicable):
+[source,xml,options="nowrap"]
+----
+<ssh-credential ...>
+    <credential-store-reference store="..." alias="..." clear-text="..." />
+    <clear-password password="..." />
+    <masked-password algorithm="..." key-material="..." iteration-count="..." salt="..." masked-password="..." initialization-vector="..." />
+</ssh-credential>
+----
+
+=== Key Pair Credential
+
+It is also possible to specify your SSH credentials as a KeyPairCredential as follows:
+[source,xml,options="nowrap"]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <authentication-client xmlns="urn:elytron:client:1.6">
+        <authentication-rules>
+            <rule use-configuration="test-login">
+            </rule>
+        </authentication-rules>
+        <authentication-configurations>
+            <configuration name="test-login">
+                <credentials>
+                    <key-pair>
+                        <openssh-private-key pem="-----BEGIN OPENSSH PRIVATE KEY-----
+                        b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABCdRswttV
+                        UNQ6nKb6ojozTGAAAAEAAAAAEAAABoAAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlz
+                        dHAyNTYAAABBBAKxnsRT7n6qJLKoD3mFfAvcH5ZFUyTzJVW8t60pNgNaXO4q5S4qL9yCCZ
+                        cKyg6QtVgRuVxkUSseuR3fiubyTnkAAADQq3vrkvuSfm4n345STr/i/29FZEFUd0qD++B2
+                        ZoWGPKU/xzvxH7S2GxREb5oXcIYO889jY6mdZT8LZm6ZZig3rqoEAqdPyllHmEadb7hY+y
+                        jwcQ4Wr1ekGgVwNHCNu2in3cYXxbrYGMHc33WmdNrbGRDUzK+EEUM2cwUiM7Pkrw5s88Ff
+                        IWI0V+567Ob9LxxIUO/QvSbKMJGbMM4jZ1V9V2Ti/GziGJ107CBudZr/7wNwxIK86BBAEg
+                        hfnrhYBIaOLrtP8R+96i8iu4iZAvcIbQ==
+                        -----END OPENSSH PRIVATE KEY-----">
+                            <clear-password password="secret"/>
+                        </openssh-private-key>
+                    </key-pair>
+                </credentials>
+            </configuration>
+        </authentication-configurations>
+    </authentication-client>
+</configuration>
+----
+
+Along with the `key-pair` credential, if your known SSH hosts are not in `~/.ssh/known_hosts`, you should specify an `ssh-credential`
+with the `ssh-directory` and `known-hosts-file` attributes defined to specify the location and name of your known hosts file.
+
+When specifying keys in OpenSSH format, it is only necessary to specify the private key and the public key will be parsed
+from the private key string. When specifying key pairs in PKCS format, it is necessary to specify both the private and
+public keys using the following elements:
+
+[source,xml,options="nowrap"]
+----
+<key-pair>
+    <private-key-pem>-----BEGIN PRIVATE KEY-----
+                     MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgj+ToYNaHz/pISg/Z
+                     I9BjdhcTre/SJpIxASY19XtOV1ehRANCAASngcxUTBf2atGC5lQWCupsQGRNwwnK
+                     6Ww9Xt37SmaHv0bX5n1KnsAal0ykJVKZsD0Z09jVF95jL6udwaKpWQwb
+                     -----END PRIVATE KEY-----</private-key>
+    <public-key-pem>-----BEGIN PUBLIC KEY-----
+                     MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEp4HMVEwX9mrRguZUFgrqbEBkTcMJ
+                     yulsPV7d+0pmh79G1+Z9Sp7AGpdMpCVSmbA9GdPY1RfeYy+rncGiqVkMGw==
+                     -----END PUBLIC KEY-----</public-key>
+</key-pair>
+----
+
+When using a key pair credential in OpenSSH format, it is also possible to specify a passphrase to be used to decrypt
+the private key:
+[source,xml,options="nowrap"]
+----
+<openssh-private-key pem="...">
+    <credential-store-reference store="..." alias="..." clear-text="..." />
+    <clear-password password="..." />
+    <masked-password algorithm="..." key-material="..." iteration-count="..." salt="..." masked-password="..." initialization-vector="..." />
+</ssh-private-key-file>
+----
+
+When using PKCS formatted keys, the keys should not be encrypted with a passphrase
+
+=== Credential Store Reference
+
+It is possible to specify your SSH credentials as a reference to a credential store entry.
+See: https://github.com/wildfly/wildfly/blob/master/docs/src/main/asciidoc/_elytron/Credential_Store.adoc#adding-a-credential[Adding a Credential]
+to a credential store and https://github.com/wildfly/wildfly/blob/master/docs/src/main/asciidoc/_elytron/Credential_Store.adoc#referencing-credentials[Referencing Credentials]
+stored in a credential store.

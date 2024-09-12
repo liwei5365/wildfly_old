@@ -46,8 +46,8 @@ import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.naming.JndiPermission;
-import org.jboss.as.test.shared.integration.ejb.security.CallbackHandler;
+import org.jboss.as.test.integration.common.DefaultConfiguration;
+import org.wildfly.naming.java.permission.JndiPermission;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -55,6 +55,10 @@ import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.jboss.as.test.integration.management.ManagementOperations;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.operations.common.Util;
+
 
 /**
  * @author John Bailey, Ondrej Chaloupka
@@ -84,9 +88,9 @@ public class RemoteNamingEjbTestCase {
         env.put(Context.PROVIDER_URL, managementClient.getRemoteEjbURL().toString());
         env.put("jboss.naming.client.ejb.context", true);
         env.put("jboss.naming.client.connect.options.org.xnio.Options.SASL_POLICY_NOPLAINTEXT", "false");
-        env.put("jboss.naming.client.security.callback.handler.class", CallbackHandler.class.getName());
-        return new InitialContext(env);
+        return new InitialContext(DefaultConfiguration.addSecurityProperties(env));
     }
+
 
     @Test
     public void testIt() throws Exception {
@@ -241,4 +245,40 @@ public class RemoteNamingEjbTestCase {
             Thread.currentThread().setContextClassLoader(current);
         }
     }
+
+    @Test
+    public void testSystemPropertyConfig() throws Exception {
+        System.setProperty("java.naming.factory.initial","org.wildfly.naming.client.WildFlyInitialContextFactory");
+
+        final Properties env = new Properties();
+        env.put(Context.PROVIDER_URL, managementClient.getRemoteEjbURL().toString());
+        env.put("jboss.naming.client.ejb.context", true);
+        env.put("jboss.naming.client.connect.options.org.xnio.Options.SASL_POLICY_NOPLAINTEXT", "false");
+
+        final InitialContext ctx = new InitialContext(env);
+        final ClassLoader current = Thread.currentThread().getContextClassLoader();
+
+        try {
+            Thread.currentThread().setContextClassLoader(Remote.class.getClassLoader());
+
+            Remote remote = (Remote) ctx.lookup(ARCHIVE_NAME + "/" + Bean.class.getSimpleName() + "!" + Remote.class.getName());
+            assertNotNull(remote);
+            assertEquals("Echo: test", remote.echo("test"));
+        } finally {
+            ctx.close();
+            Thread.currentThread().setContextClassLoader(current);
+        }
+    }
+
+    @Test
+    public void testValue() throws Exception {
+        ModelNode operation = Util.createEmptyOperation("jndi-view", PathAddress.pathAddress("subsystem", "naming"));
+        ModelNode res = ManagementOperations.executeOperation(managementClient.getControllerClient(), operation);
+        ModelNode node = res.get("java: contexts", "java:jboss/exported", "test", "children",
+                "Bean!org.jboss.as.test.integration.naming.remote.ejb.Remote", "class-name");
+
+        Assert.assertEquals("org.jboss.as.test.integration.naming.remote.ejb.Remote", node.asString());
+
+    }
+
 }

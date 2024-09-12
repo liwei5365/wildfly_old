@@ -31,6 +31,7 @@ import java.util.Map;
 public enum EJB3SubsystemXMLAttribute {
     UNKNOWN(null),
 
+    ALIAS("alias"),
     ALIASES("aliases"),
     ALLOW_EXECUTION("allow-execution"),
 
@@ -42,10 +43,12 @@ public enum EJB3SubsystemXMLAttribute {
     @Deprecated CLIENT_MAPPINGS_CACHE("client-mappings-cache"),
     @Deprecated CLUSTERED_CACHE_REF("clustered-cache-ref"),
     CONNECT_TIMEOUT("connect-timeout"),
-    CONNECTOR_REF("connector-ref"),
+    @Deprecated CONNECTOR_REF("connector-ref"),
+    CONNECTORS("connectors"),
     CORE_THREADS("core-threads"),
 
     DEFAULT_ACCESS_TIMEOUT("default-access-timeout"),
+    DEFAULT_SESSION_TIMEOUT("default-session-timeout"),
     DEFAULT_DATA_STORE("default-data-store"),
     DATABASE("database"),
     DATASOURCE_JNDI_NAME("datasource-jndi-name"),
@@ -87,6 +90,7 @@ public enum EJB3SubsystemXMLAttribute {
     RESOURCE_ADAPTER_NAME("resource-adapter-name"),
 
     @Deprecated SESSIONS_PATH("sessions-path"),
+    STATIC_URLS("static-urls"),
     @Deprecated SUBDIRECTORY_COUNT("subdirectory-count"),
 
     THREAD_POOL_NAME("thread-pool-name"),
@@ -97,6 +101,24 @@ public enum EJB3SubsystemXMLAttribute {
     VALUE("value"),
 
     ACTIVE("active"),
+
+    EXECUTE_IN_WORKER("execute-in-worker"),
+
+    // Elytron integration
+    OUTFLOW_SECURITY_DOMAINS("outflow-security-domains"),
+    SECURITY_DOMAIN("security-domain"),
+    ENABLE_JACC("enable-jacc"),
+    URI("uri"),
+    APP_NAME("app-name"),
+    MODULE_NAME("module-name"),
+    DISTINCT_NAME("distinct-name"),
+    LEGACY_COMPLIANT_PRINCIPAL_PROPAGATION("legacy-compliant-principal-propagation"),
+
+
+    // server interceptors
+    MODULE("module"),
+    CLASS("class"),
+    BINDING("binding")
     ;
 
     private final String name;

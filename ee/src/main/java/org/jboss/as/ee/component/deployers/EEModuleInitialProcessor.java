@@ -22,6 +22,8 @@
 
 package org.jboss.as.ee.component.deployers;
 
+import java.util.HashMap;
+
 import org.jboss.as.ee.component.Attachments;
 import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
@@ -31,6 +33,7 @@ import org.jboss.as.server.deployment.DeploymentUnitProcessor;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public final class EEModuleInitialProcessor implements DeploymentUnitProcessor {
 
@@ -44,7 +47,7 @@ public final class EEModuleInitialProcessor implements DeploymentUnitProcessor {
         final DeploymentUnit deploymentUnit = phaseContext.getDeploymentUnit();
         final String deploymentUnitName = deploymentUnit.getName();
         final String moduleName;
-        if (deploymentUnitName.endsWith(".war") || deploymentUnitName.endsWith(".wab") || deploymentUnitName.endsWith(".jar") || deploymentUnitName.endsWith(".ear") || deploymentUnitName.endsWith(".rar")) {
+        if (deploymentUnitName.endsWith(".war") || deploymentUnitName.endsWith(".jar") || deploymentUnitName.endsWith(".ear") || deploymentUnitName.endsWith(".rar")) {
             moduleName = deploymentUnitName.substring(0, deploymentUnitName.length() - 4);
         } else {
             moduleName = deploymentUnitName;
@@ -60,6 +63,7 @@ public final class EEModuleInitialProcessor implements DeploymentUnitProcessor {
             appName = null;
         }
         deploymentUnit.putAttachment(Attachments.EE_MODULE_DESCRIPTION, new EEModuleDescription(appName, moduleName, earApplicationName, appClient));
+        deploymentUnit.putAttachment(org.jboss.as.server.deployment.Attachments.COMPONENT_JNDI_DEPENDENCIES, new HashMap<>());
     }
 
     public void undeploy(final DeploymentUnit context) {

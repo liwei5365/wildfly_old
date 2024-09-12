@@ -24,23 +24,35 @@ package org.jboss.as.connector.services.resourceadapters.deployment;
 
 import static org.jboss.as.connector.logging.ConnectorLogger.DEPLOYMENT_CONNECTOR_LOGGER;
 
+import javax.security.auth.Subject;
 import java.io.File;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.Collection;
+import java.util.Collections;
 
+import org.jboss.as.connector.logging.ConnectorLogger;
 import org.jboss.as.connector.metadata.deployment.ResourceAdapterDeployment;
 import org.jboss.as.connector.metadata.xmldescriptors.ConnectorXmlDescriptor;
+import org.jboss.as.connector.security.ElytronSubjectFactory;
 import org.jboss.as.connector.services.resourceadapters.ResourceAdapterService;
 import org.jboss.as.connector.subsystems.resourceadapters.ModifiableResourceAdapter;
 import org.jboss.as.connector.util.ConnectorServices;
+import org.jboss.as.core.security.ServerSecurityManager;
 import org.jboss.as.naming.WritableServiceBasedNamingStore;
+import org.jboss.jca.common.api.metadata.common.SecurityMetadata;
 import org.jboss.jca.common.api.metadata.resourceadapter.Activation;
 import org.jboss.jca.common.api.metadata.spec.Connector;
 import org.jboss.jca.common.metadata.merge.Merger;
+import org.jboss.jca.core.security.picketbox.PicketBoxSubjectFactory;
 import org.jboss.jca.deployers.DeployersLogger;
 import org.jboss.jca.deployers.common.CommonDeployment;
+import org.jboss.jca.deployers.common.DeployException;
 import org.jboss.logging.Logger;
 import org.jboss.modules.Module;
 import org.jboss.msc.service.Service;
+import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
@@ -121,11 +133,11 @@ public final class ResourceAdapterXmlDeploymentService extends AbstractResourceA
             value = new ResourceAdapterDeployment(raxmlDeployment, raName, raServiceName);
             managementRepository.getValue().getConnectors().add(value.getDeployment().getConnector());
             registry.getValue().registerResourceAdapterDeployment(value);
-            context.getChildTarget()
+            final ServiceBuilder raServiceSB = context.getChildTarget()
                 .addService(raServiceName,
-                        new ResourceAdapterService(raServiceName, value.getDeployment().getResourceAdapter()))
-                .addDependency(deploymentServiceName)
-                .setInitialMode(ServiceController.Mode.ACTIVE).install();
+                        new ResourceAdapterService(raServiceName, value.getDeployment().getResourceAdapter()));
+            raServiceSB.requires(deploymentServiceName);
+            raServiceSB.setInitialMode(ServiceController.Mode.ACTIVE).install();
         } catch (Throwable t) {
             cleanupStartAsync(context, raName, deploymentServiceName, t);
         }
@@ -137,6 +149,11 @@ public final class ResourceAdapterXmlDeploymentService extends AbstractResourceA
     @Override
     public void stop(StopContext context) {
         stopAsync(context, raName, deploymentServiceName);
+    }
+
+    @Override
+    public Collection<String> getJndiAliases() {
+        return Collections.emptyList();
     }
 
     public CommonDeployment getRaxmlDeployment() {
@@ -194,5 +211,41 @@ public final class ResourceAdapterXmlDeploymentService extends AbstractResourceA
             }
         }
 
+        @Override
+        protected org.jboss.jca.core.spi.security.SubjectFactory getSubjectFactory(
+                SecurityMetadata securityMetadata, final String jndiName) throws DeployException {
+            if (securityMetadata == null)
+                return null;
+            final String securityDomain = securityMetadata.resolveSecurityDomain();
+            if (securityMetadata instanceof org.jboss.as.connector.metadata.api.common.SecurityMetadata &&
+                    ((org.jboss.as.connector.metadata.api.common.SecurityMetadata)securityMetadata).isElytronEnabled()) {
+                try {
+                    return new ElytronSubjectFactory(null, new URI(jndiName));
+                } catch (URISyntaxException e) {
+                    throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(e);
+                }
+            } else if (securityDomain == null || securityDomain.trim().equals("")) {
+                return null;
+            } else if (((ModifiableResourceAdapter) raxml).getSubjectFactory() != null) {
+                return new PicketBoxSubjectFactory(((ModifiableResourceAdapter) raxml).getSubjectFactory()){
+
+                    @Override
+                    public Subject createSubject(final String sd) {
+                        ServerSecurityManager sm = ((ModifiableResourceAdapter) raxml).getSecManager();
+                        if (sm != null) {
+                            sm.push(sd);
+                        }
+                        try {
+                            return super.createSubject(sd);
+                        } finally {
+                            if (sm != null) {
+                                sm.pop();
+                            }
+                        }
+                    }
+                };
+            }
+            return null;
+        }
     }
 }

@@ -47,6 +47,7 @@ import org.jboss.as.jpa.util.JPAServiceNames;
 import org.jboss.as.server.deployment.DeploymentModelUtils;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.msc.service.Service;
+import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
@@ -57,7 +58,7 @@ import org.jipijapa.management.spi.Statistics;
 import org.jipijapa.plugin.spi.ManagementAdaptor;
 
 /**
- * represents the global JPA Service
+ * represents the global Jakarta Persistence Service
  *
  * @author Scott Marlow
  */
@@ -97,10 +98,10 @@ public class JPAService implements Service<Void> {
         JPAService jpaService = new JPAService();
         setDefaultDataSourceName(defaultDataSourceName);
         setDefaultExtendedPersistenceInheritance(defaultExtendedPersistenceInheritance);
-        target.addService(SERVICE_NAME, jpaService)
-            .setInitialMode(ServiceController.Mode.ACTIVE)
-            .addDependency(JPAUserTransactionListenerService.SERVICE_NAME)
-            .install();
+        final ServiceBuilder sb = target.addService(SERVICE_NAME, jpaService);
+        sb.setInitialMode(ServiceController.Mode.ACTIVE);
+        sb.requires(JPAUserTransactionListenerService.SERVICE_NAME);
+        sb.install();
     }
 
     /**
@@ -140,7 +141,7 @@ public class JPAService implements Service<Void> {
 
             if (false == existingResourceDescriptionResolver.contains(managementAdaptor.getVersion())) {
 
-                // setup statistics (this used to be part of JPA subsystem startup)
+                // setup statistics (this used to be part of Jakarta Persistence subsystem startup)
                 ResourceDescriptionResolver resourceDescriptionResolver = new StandardResourceDescriptionResolver(
                         statistics.getResourceBundleKeyPrefix(), statistics.getResourceBundleName(), statistics.getClass().getClassLoader()){
                     private ResourceDescriptionResolver fallback = JPAExtension.getResourceDescriptionResolver();
@@ -172,7 +173,7 @@ public class JPAService implements Service<Void> {
 
                 existingResourceDescriptionResolver.add(managementAdaptor.getVersion());
             }
-            // create (per deployment) dynamic Resource implementation that can reflect the deployment specific names (e.g. jpa entity classname/Hibernate region name)
+            // create (per deployment) dynamic Resource implementation that can reflect the deployment specific names (e.g. Jakarta Persistence entity classname/Hibernate region name)
             return new DynamicManagementStatisticsResource(statistics, scopedPersistenceUnitName, managementAdaptor.getIdentificationLabel(), entityManagerFactoryLookup);
         }
     }

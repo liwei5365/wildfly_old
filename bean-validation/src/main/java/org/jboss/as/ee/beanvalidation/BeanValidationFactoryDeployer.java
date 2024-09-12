@@ -21,14 +21,16 @@
  */
 package org.jboss.as.ee.beanvalidation;
 
+import static org.jboss.as.weld.Capabilities.WELD_CAPABILITY_NAME;
+
 import javax.validation.ValidatorFactory;
 
+import org.jboss.as.controller.capability.CapabilityServiceSupport;
 import org.jboss.as.ee.component.ComponentDescription;
 import org.jboss.as.ee.component.ComponentNamingMode;
 import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.ee.structure.DeploymentType;
 import org.jboss.as.ee.structure.DeploymentTypeMarker;
-import org.jboss.as.ee.weld.WeldDeploymentMarker;
 import org.jboss.as.naming.ServiceBasedNamingStore;
 import org.jboss.as.naming.ValueManagedReferenceFactory;
 import org.jboss.as.naming.deployment.ContextNames;
@@ -38,13 +40,14 @@ import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.DeploymentUnitProcessor;
+import org.jboss.as.weld.WeldCapability;
 import org.jboss.modules.Module;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
 import org.jboss.msc.value.ImmediateValue;
 
 /**
- * Creates a bean validation factory and adds it to the deployment and binds it to JNDI.
+ * Creates a Jakarta Bean Validation factory and adds it to the deployment and binds it to JNDI.
  * <p/>
  * We use a lazy wrapper around the ValidatorFactory to stop it being initialized until it is used.
  * TODO: it would be neat if hibernate validator could make use of our annotation scanning etc
@@ -114,8 +117,15 @@ public class BeanValidationFactoryDeployer implements DeploymentUnitProcessor {
     @Override
     public void undeploy(DeploymentUnit context) {
         ValidatorFactory validatorFactory = context.getAttachment(BeanValidationAttachments.VALIDATOR_FACTORY);
-        if ((validatorFactory != null) && (!WeldDeploymentMarker.isPartOfWeldDeployment(context))) {
-            // If the ValidatorFactory is not CDI-enabled, close it here. Otherwise, it's
+        final CapabilityServiceSupport support = context.getAttachment(Attachments.CAPABILITY_SERVICE_SUPPORT);
+
+        boolean partOfWeldDeployment = false;
+        if (support.hasCapability(WELD_CAPABILITY_NAME)) {
+            partOfWeldDeployment = support.getOptionalCapabilityRuntimeAPI(WELD_CAPABILITY_NAME, WeldCapability.class)
+                    .get().isPartOfWeldDeployment(context);
+        }
+        if (validatorFactory != null && !partOfWeldDeployment) {
+            // If the ValidatorFactory is not Jakarta Contexts and Dependency Injection enabled, close it here. Otherwise, it's
             // closed via CdiValidatorFactoryService before the Weld service is stopped.
             validatorFactory.close();
         }

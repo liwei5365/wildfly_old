@@ -80,7 +80,7 @@ import org.jboss.staxmapper.XMLElementReader;
 import org.jboss.staxmapper.XMLExtendedStreamReader;
 
 /**
- * Parser for persistent EJB timers that are stored in XML.
+ * Parser for persistent Jakarta Enterprise Beans timers that are stored in XML.
  *
  * @author Stuart Douglas
  */
@@ -160,7 +160,7 @@ public class EjbTimerXmlParser_1_0 implements XMLElementReader<List<TimerImpl>> 
                         }
                         timers.add(builder.build(timerService));
                     } catch (Exception e) {
-                        EjbLogger.ROOT_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), e);
+                        EjbLogger.EJB3_TIMER_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), e);
                     }
                     return;
                 }
@@ -178,12 +178,9 @@ public class EjbTimerXmlParser_1_0 implements XMLElementReader<List<TimerImpl>> 
     private Object deserialize(final String info) throws IOException, ClassNotFoundException {
 
         byte[] data = Base64.getDecoder().decode(info.trim());
-        Unmarshaller unmarshaller = factory.createUnmarshaller(configuration);
-        unmarshaller.start(new ByteBufferInput(ByteBuffer.wrap(data)));
-        try {
+        try (final Unmarshaller unmarshaller = factory.createUnmarshaller(configuration)) {
+            unmarshaller.start(new ByteBufferInput(ByteBuffer.wrap(data)));
             return unmarshaller.readObject();
-        } finally {
-            unmarshaller.close();
         }
     }
 
@@ -282,13 +279,15 @@ public class EjbTimerXmlParser_1_0 implements XMLElementReader<List<TimerImpl>> 
                                 builder.setTimeoutMethod(timeoutMethod);
                                 timers.add(builder.build(timerService));
                             } else {
-                                EjbLogger.ROOT_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), null);
+                                builder.setId("deleted-timer");
+                                timers.add(builder.build(timerService));
+                                EjbLogger.EJB3_TIMER_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), null);
                             }
                         } else {
                             timers.add(builder.build(timerService));
                         }
                     } catch (Exception e) {
-                        EjbLogger.ROOT_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), e);
+                        EjbLogger.EJB3_TIMER_LOGGER.timerReinstatementFailed(builder.getTimedObjectId(), builder.getId(), e);
                     }
                     return;
                 }

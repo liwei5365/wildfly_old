@@ -29,17 +29,23 @@ import java.time.Instant;
  * @author Paul Ferraro
  */
 public interface ImmutableSessionMetaData {
+
     /**
      * Indicates whether or not this session was created by the current thread.
-     * @return true if this session is new, false otherwise
+     * @return true, if this session is new, false otherwise
      */
-    boolean isNew();
+    default boolean isNew() {
+        return this.getCreationTime().equals(this.getLastAccessStartTime());
+    }
 
     /**
      * Indicates whether or not this session was previously idle for longer than the maximum inactive interval.
-     * @return true if this session is expired, false otherwise
+     * @return true, if this session is expired, false otherwise
      */
-    boolean isExpired();
+    default boolean isExpired() {
+        Duration maxInactiveInterval = this.getMaxInactiveInterval();
+        return !maxInactiveInterval.isZero() ? this.getLastAccessEndTime().plus(maxInactiveInterval).isBefore(Instant.now()) : false;
+    }
 
     /**
      * Returns the time this session was created.
@@ -48,10 +54,16 @@ public interface ImmutableSessionMetaData {
     Instant getCreationTime();
 
     /**
-     * Returns the time this session was last accessed.
-     * @return the time this session was last accessed
+     * Returns the start time of the last request to access this session.
+     * @return the start time of the last request to access this session.
      */
-    Instant getLastAccessedTime();
+    Instant getLastAccessStartTime();
+
+    /**
+     * Returns the end time of the last request to access this session.
+     * @return the end time of the last request to access this session.
+     */
+    Instant getLastAccessEndTime();
 
     /**
      * Returns the time interval, using the specified unit, after which this session will expire.

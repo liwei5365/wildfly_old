@@ -38,12 +38,12 @@ import org.jboss.as.ee.component.interceptors.ComponentDispatcherInterceptor;
 import org.jboss.as.ee.component.interceptors.InterceptorOrder;
 import org.jboss.as.ee.component.serialization.WriteReplaceInterface;
 import org.jboss.as.ejb3.logging.EjbLogger;
+import org.jboss.as.ejb3.util.EjbValidationsUtil;
 import org.jboss.as.ejb3.component.EjbHomeViewDescription;
 import org.jboss.as.ejb3.component.interceptors.GetHomeInterceptorFactory;
 import org.jboss.as.server.deployment.Attachments;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
-import org.jboss.as.server.deployment.reflect.ClassReflectionIndex;
 import org.jboss.as.server.deployment.reflect.ClassReflectionIndexUtil;
 import org.jboss.as.server.deployment.reflect.DeploymentReflectionIndex;
 import org.jboss.invocation.ImmediateInterceptorFactory;
@@ -55,7 +55,7 @@ import org.jboss.invocation.proxy.MethodIdentifier;
 import org.jboss.msc.service.ServiceBuilder;
 
 /**
- * configurator that sets up interceptors for an EJB's object view
+ * configurator that sets up interceptors for an Jakarta Enterprise Beans's object view
  *
  * @author Stuart Douglas
  */
@@ -117,12 +117,14 @@ public abstract class SessionBeanObjectViewConfigurator implements ViewConfigura
                     if(!Modifier.isPublic(componentMethod.getModifiers())) {
                         throw EjbLogger.ROOT_LOGGER.ejbBusinessMethodMustBePublic(componentMethod);
                     }
+
                     configuration.addViewInterceptor(method, new ImmediateInterceptorFactory(new ComponentDispatcherInterceptor(componentMethod)), InterceptorOrder.View.COMPONENT_DISPATCHER);
                     configuration.addClientInterceptor(method, ViewDescription.CLIENT_DISPATCHER_INTERCEPTOR_FACTORY, InterceptorOrder.Client.CLIENT_DISPATCHER);
                 } else if(method.getDeclaringClass() != Object.class && method.getDeclaringClass() != WriteReplaceInterface.class) {
                     throw EjbLogger.ROOT_LOGGER.couldNotFindViewMethodOnEjb(method, description.getViewClassName(), componentConfiguration.getComponentName());
                 }
             }
+            EjbValidationsUtil.verifyMethodIsNotFinalNorStatic(method, index.getClass().getName());
         }
 
         configuration.addClientPostConstructInterceptor(Interceptors.getTerminalInterceptorFactory(), InterceptorOrder.ClientPostConstruct.TERMINAL_INTERCEPTOR);
@@ -142,18 +144,4 @@ public abstract class SessionBeanObjectViewConfigurator implements ViewConfigura
         }
     });
 
-
-    protected Method resolveRemoveMethod(final Class<?> componentClass, final DeploymentReflectionIndex index, final String ejbName) throws DeploymentUnitProcessingException {
-
-        Class<?> clazz = componentClass;
-        while (clazz != Object.class) {
-            final ClassReflectionIndex classIndex = index.getClassIndex(clazz);
-            Method ret = classIndex.getMethod(Void.TYPE, "ejbRemove");
-            if (ret != null) {
-                return ret;
-            }
-            clazz = clazz.getSuperclass();
-        }
-        return null;
-    }
 }

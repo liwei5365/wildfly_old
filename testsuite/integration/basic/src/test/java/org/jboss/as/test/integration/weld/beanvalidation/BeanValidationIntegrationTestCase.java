@@ -21,6 +21,7 @@
  */
 package org.jboss.as.test.integration.weld.beanvalidation;
 
+import static org.jboss.as.test.shared.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
@@ -35,6 +36,7 @@ import javax.naming.NamingException;
 import javax.validation.ConstraintViolation;
 import javax.validation.ValidatorFactory;
 
+import org.hibernate.validator.HibernateValidatorPermission;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.shrinkwrap.api.Archive;
@@ -45,7 +47,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests for the integration of CDI and Bean Validation.
+ * Tests for the integration of CDI and Jakarta Bean Validation.
  *
  * @author Farah Juma
  */
@@ -57,6 +59,9 @@ public class BeanValidationIntegrationTestCase {
         WebArchive war = ShrinkWrap.create(WebArchive.class, "BeanValidationIntegrationTestCase.war");
         war.addPackage(BeanValidationIntegrationTestCase.class.getPackage());
         war.addAsWebInfResource(EmptyAsset.INSTANCE, "beans.xml");
+        war.addAsManifestResource(createPermissionsXmlAsset(
+                HibernateValidatorPermission.ACCESS_PRIVATE_MEMBERS
+        ), "permissions.xml");
         return war;
     }
 
@@ -75,7 +80,7 @@ public class BeanValidationIntegrationTestCase {
     public void testJndiBoundValidatorFactoryIsCdiEnabled() throws NamingException {
         ValidatorFactory validatorFactory = (ValidatorFactory) new InitialContext().lookup("java:comp/ValidatorFactory");
         assertNotNull(validatorFactory);
-        
+
         Set<ConstraintViolation<Reservation>> violations = validatorFactory.getValidator().validate(new Reservation(4, null));
         List<String> actualViolations = new ArrayList<String>();
         for (ConstraintViolation<?> violation : violations) {

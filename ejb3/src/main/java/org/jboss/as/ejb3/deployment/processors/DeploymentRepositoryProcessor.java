@@ -33,12 +33,16 @@ import org.jboss.as.ee.component.ComponentDescription;
 import org.jboss.as.ee.component.ComponentView;
 import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.ee.component.ViewDescription;
+import org.jboss.as.ee.component.deployers.StartupCountdown;
+import org.jboss.as.ee.structure.DeploymentType;
+import org.jboss.as.ee.structure.DeploymentTypeMarker;
 import org.jboss.as.ejb3.component.EJBComponent;
 import org.jboss.as.ejb3.component.EJBComponentDescription;
 import org.jboss.as.ejb3.component.EJBViewDescription;
 import org.jboss.as.ejb3.component.MethodIntf;
 import org.jboss.as.ejb3.deployment.DeploymentModuleIdentifier;
 import org.jboss.as.ejb3.deployment.DeploymentRepository;
+import org.jboss.as.ejb3.deployment.DeploymentRepositoryService;
 import org.jboss.as.ejb3.deployment.EjbDeploymentInformation;
 import org.jboss.as.ejb3.deployment.ModuleDeployment;
 import org.jboss.as.ejb3.iiop.EjbIIOPService;
@@ -68,9 +72,13 @@ public class DeploymentRepositoryProcessor implements DeploymentUnitProcessor {
         if (eeModuleDescription == null) {
             return;
         }
+        if(DeploymentTypeMarker.isType(DeploymentType.EAR, deploymentUnit)) {
+            //don't create this for EAR's, as they cannot hold Jakarta Enterprise Beans's
+            return;
+        }
         // Note, we do not use the EEModuleDescription.getApplicationName() because that API returns the
         // module name if the top level unit isn't a .ear, which is not what we want. We really want a
-        // .ear name as application name (that's the semantic in EJB spec). So use EEModuleDescription.getEarApplicationName
+        // .ear name as application name (that's the semantic in Jakarta Enterprise Beans spec). So use EEModuleDescription.getEarApplicationName
         String applicationName = eeModuleDescription.getEarApplicationName();
         // if it's not a .ear deployment then set app name to empty string
         applicationName = applicationName == null ? "" : applicationName;
@@ -117,20 +125,23 @@ public class DeploymentRepositoryProcessor implements DeploymentUnitProcessor {
             }
         }
 
+        final StartupCountdown countdown = deploymentUnit.getAttachment(Attachments.STARTUP_COUNTDOWN);
         final ModuleDeployment deployment = new ModuleDeployment(identifier, deploymentInformationMap);
         ServiceName moduleDeploymentService = deploymentUnit.getServiceName().append(ModuleDeployment.SERVICE_NAME);
         final ServiceBuilder<ModuleDeployment> builder = phaseContext.getServiceTarget().addService(moduleDeploymentService, deployment);
         for (Map.Entry<ServiceName, InjectedValue<?>> entry : injectedValues.entrySet()) {
-            builder.addDependency(entry.getKey(), (InjectedValue<Object>) entry.getValue());
+            builder.addDependency(entry.getKey(), Object.class, (InjectedValue<Object>) entry.getValue());
         }
-        builder.addDependency(DeploymentRepository.SERVICE_NAME, DeploymentRepository.class, deployment.getDeploymentRepository());
+        builder.addDependency(DeploymentRepositoryService.SERVICE_NAME, DeploymentRepository.class, deployment.getDeploymentRepository());
         builder.install();
 
-        final ModuleDeployment.ModuleDeploymentStartService deploymentStart = new ModuleDeployment.ModuleDeploymentStartService(identifier);
+        final ModuleDeployment.ModuleDeploymentStartService deploymentStart = new ModuleDeployment.ModuleDeploymentStartService(identifier, countdown);
         final ServiceBuilder<Void> startBuilder = phaseContext.getServiceTarget().addService(deploymentUnit.getServiceName().append(ModuleDeployment.START_SERVICE_NAME), deploymentStart);
-        startBuilder.addDependencies(componentStartServices);
-        startBuilder.addDependency(moduleDeploymentService);
-        startBuilder.addDependency(DeploymentRepository.SERVICE_NAME, DeploymentRepository.class, deploymentStart.getDeploymentRepository());
+        for (final ServiceName componentStartService : componentStartServices) {
+            startBuilder.requires(componentStartService);
+        }
+        startBuilder.requires(moduleDeploymentService);
+        startBuilder.addDependency(DeploymentRepositoryService.SERVICE_NAME, DeploymentRepository.class, deploymentStart.getDeploymentRepository());
         startBuilder.install();
     }
 

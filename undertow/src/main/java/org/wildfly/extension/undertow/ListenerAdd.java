@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -22,37 +22,50 @@
 
 package org.wildfly.extension.undertow;
 
-import io.undertow.server.HandlerWrapper;
-import io.undertow.server.HttpHandler;
-import io.undertow.server.handlers.DisallowedMethodsHandler;
-import io.undertow.server.handlers.PeerNameResolvingHandler;
-import io.undertow.util.HttpString;
-import org.jboss.as.controller.AbstractAddStepHandler;
-import org.jboss.as.controller.OperationContext;
-import org.jboss.as.controller.OperationFailedException;
-import org.jboss.as.controller.PathAddress;
-import org.jboss.as.network.SocketBinding;
-import org.jboss.dmr.ModelNode;
-import org.jboss.msc.inject.Injector;
-import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceController;
-import org.jboss.msc.service.ServiceName;
-import org.wildfly.extension.io.OptionList;
-import org.xnio.OptionMap;
-import org.xnio.Pool;
-import org.xnio.XnioWorker;
+import static org.wildfly.extension.undertow.Capabilities.REF_IO_WORKER;
+import static org.wildfly.extension.undertow.Capabilities.REF_SOCKET_BINDING;
+import static org.wildfly.extension.undertow.ListenerResourceDefinition.LISTENER_CAPABILITY;
+import static org.wildfly.extension.undertow.ServerDefinition.SERVER_CAPABILITY;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
+
+import io.undertow.connector.ByteBufferPool;
+import io.undertow.server.handlers.DisallowedMethodsHandler;
+import io.undertow.server.handlers.PeerNameResolvingHandler;
+import io.undertow.servlet.handlers.MarkSecureHandler;
+import io.undertow.util.HttpString;
+import org.jboss.as.controller.AbstractAddStepHandler;
+import org.jboss.as.controller.CapabilityServiceBuilder;
+import org.jboss.as.controller.OperationContext;
+import org.jboss.as.controller.OperationFailedException;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.registry.Resource;
+import org.jboss.as.network.SocketBinding;
+import org.jboss.dmr.ModelNode;
+import org.wildfly.extension.io.OptionList;
+import org.xnio.OptionMap;
+import org.xnio.XnioWorker;
 
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2012 Red Hat Inc.
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 abstract class ListenerAdd extends AbstractAddStepHandler {
 
     ListenerAdd(ListenerResourceDefinition definition) {
-        super(ListenerResourceDefinition.LISTENER_CAPABILITY, definition.getAttributes());
+        super(definition.getAttributes());
+    }
+
+    @Override
+    protected void recordCapabilitiesAndRequirements(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
+        super.recordCapabilitiesAndRequirements(context, operation, resource);
+
+        String ourCap = LISTENER_CAPABILITY.getDynamicName(context.getCurrentAddress());
+        String serverCap = SERVER_CAPABILITY.getDynamicName(context.getCurrentAddress().getParent());
+        context.registerAdditionalCapabilityRequirement(serverCap, ourCap, null);
     }
 
     @Override
@@ -65,51 +78,43 @@ abstract class ListenerAdd extends AbstractAddStepHandler {
         final String bufferPoolName = ListenerResourceDefinition.BUFFER_POOL.resolveModelAttribute(context, model).asString();
         final boolean enabled = ListenerResourceDefinition.ENABLED.resolveModelAttribute(context, model).asBoolean();
         final boolean peerHostLookup = ListenerResourceDefinition.RESOLVE_PEER_ADDRESS.resolveModelAttribute(context, model).asBoolean();
+        final boolean secure = ListenerResourceDefinition.SECURE.resolveModelAttribute(context, model).asBoolean();
 
         OptionMap listenerOptions = OptionList.resolveOptions(context, model, ListenerResourceDefinition.LISTENER_OPTIONS);
         OptionMap socketOptions = OptionList.resolveOptions(context, model, ListenerResourceDefinition.SOCKET_OPTIONS);
         String serverName = parent.getLastElement().getValue();
-        final ServiceName listenerServiceName = UndertowService.listenerName(name);
-        final ListenerService<? extends ListenerService> service = createService(name, serverName, context, model, listenerOptions,socketOptions);
+        final CapabilityServiceBuilder<?> sb = context.getCapabilityServiceTarget().addCapability(ListenerResourceDefinition.LISTENER_CAPABILITY);
+        final Consumer<ListenerService> serviceConsumer = sb.provides(ListenerResourceDefinition.LISTENER_CAPABILITY, UndertowService.listenerName(name));
+        final ListenerService service = createService(serviceConsumer, name, serverName, context, model, listenerOptions,socketOptions);
         if (peerHostLookup) {
-            service.addWrapperHandler(new HandlerWrapper() {
-                @Override
-                public HttpHandler wrap(HttpHandler handler) {
-                    return new PeerNameResolvingHandler(handler);
-                }
-            });
+            service.addWrapperHandler(PeerNameResolvingHandler::new);
+        }
+        service.setEnabled(enabled);
+        if(secure) {
+            service.addWrapperHandler(MarkSecureHandler.WRAPPER);
         }
         List<String> disallowedMethods = ListenerResourceDefinition.DISALLOWED_METHODS.unwrap(context, model);
         if(!disallowedMethods.isEmpty()) {
             final Set<HttpString> methodSet = new HashSet<>();
-            for(String i : disallowedMethods) {
-                methodSet.add(new HttpString(i.trim()));
+            for (String i : disallowedMethods) {
+                HttpString httpString = new HttpString(i.trim());
+                methodSet.add(httpString);
             }
-            service.addWrapperHandler(new HandlerWrapper() {
-                @Override
-                public HttpHandler wrap(HttpHandler handler) {
-                    return new DisallowedMethodsHandler(handler, methodSet);
-                }
-            });
+            service.addWrapperHandler(handler -> new DisallowedMethodsHandler(handler, methodSet));
         }
 
-        final ServiceName socketBindingServiceName = context.getCapabilityServiceName(ListenerResourceDefinition.SOCKET_CAPABILITY, bindingRef, SocketBinding.class);
-        final ServiceName workerServiceName = context.getCapabilityServiceName(ListenerResourceDefinition.IO_WORKER_CAPABILITY, workerName, XnioWorker.class);
-        final ServiceName bufferPoolServiceName = context.getCapabilityServiceName(ListenerResourceDefinition.IO_BUFFER_POOL_CAPABILITY, bufferPoolName, Pool.class);
-        final ServiceBuilder<? extends ListenerService> serviceBuilder = context.getServiceTarget().addService(listenerServiceName, service);
-        serviceBuilder.addDependency(workerServiceName, XnioWorker.class, service.getWorker())
-                .addDependency(socketBindingServiceName, SocketBinding.class, service.getBinding())
-                .addDependency(bufferPoolServiceName, (Injector) service.getBufferPool())
-                .addDependency(UndertowService.SERVER.append(serverName), Server.class, service.getServerService());
+        sb.setInstance(service);
+        service.getWorker().set(sb.requiresCapability(REF_IO_WORKER, XnioWorker.class, workerName));
+        service.getBinding().set(sb.requiresCapability(REF_SOCKET_BINDING, SocketBinding.class, bindingRef));
+        service.getBufferPool().set(sb.requiresCapability(Capabilities.CAPABILITY_BYTE_BUFFER_POOL, ByteBufferPool.class, bufferPoolName));
+        service.getServerService().set(sb.requiresCapability(Capabilities.CAPABILITY_SERVER, Server.class, serverName));
 
-        configureAdditionalDependencies(context, serviceBuilder, model, service);
-        serviceBuilder.setInitialMode(enabled ? ServiceController.Mode.ACTIVE : ServiceController.Mode.NEVER)
-                .install();
-
+        configureAdditionalDependencies(context, sb, model, service);
+        sb.install();
     }
 
-    abstract ListenerService<? extends ListenerService> createService(String name, final String serverName, final OperationContext context, ModelNode model, OptionMap listenerOptions, OptionMap socketOptions) throws OperationFailedException;
+    abstract ListenerService createService(final Consumer<ListenerService> serviceConsumer, final String name, final String serverName, final OperationContext context, ModelNode model, OptionMap listenerOptions, OptionMap socketOptions) throws OperationFailedException;
 
-    abstract void configureAdditionalDependencies(OperationContext context, ServiceBuilder<? extends ListenerService> serviceBuilder, ModelNode model, ListenerService service) throws OperationFailedException;
+    abstract void configureAdditionalDependencies(OperationContext context, CapabilityServiceBuilder<?> serviceBuilder, ModelNode model, ListenerService service) throws OperationFailedException;
 
 }

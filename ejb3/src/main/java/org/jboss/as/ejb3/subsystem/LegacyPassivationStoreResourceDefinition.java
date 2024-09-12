@@ -29,16 +29,16 @@ import org.jboss.as.controller.DeprecationData;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.OperationStepHandler;
 import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
+import org.jboss.as.controller.capability.RuntimeCapability;
 import org.jboss.as.controller.operations.validation.LongRangeValidator;
 import org.jboss.as.controller.operations.validation.TimeUnitValidator;
 import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
@@ -78,25 +78,30 @@ public abstract class LegacyPassivationStoreResourceDefinition extends SimpleRes
             .setFlags(AttributeAccess.Flag.RESTART_NONE)
     ;
 
-    private final PassivationStoreWriteHandler writeHandler;
     private final AttributeDefinition[] attributes;
 
-    LegacyPassivationStoreResourceDefinition(String element, OperationStepHandler addHandler, OperationStepHandler removeHandler, OperationEntry.Flag addRestartLevel, OperationEntry.Flag removeRestartLevel, PassivationStoreWriteHandler writeHandler, AttributeDefinition... attributes) {
+    LegacyPassivationStoreResourceDefinition(String element, OperationStepHandler addHandler, OperationStepHandler removeHandler, OperationEntry.Flag addRestartLevel, OperationEntry.Flag removeRestartLevel, AttributeDefinition... attributes) {
         super(PathElement.pathElement(element), EJB3Extension.getResourceDescriptionResolver(element), addHandler, removeHandler, addRestartLevel, removeRestartLevel, new DeprecationData(DEPRECATED_VERSION));
-        this.writeHandler = new PassivationStoreWriteHandler(attributes);
+        this.attributes = attributes;
+    }
+
+    LegacyPassivationStoreResourceDefinition(String element, OperationStepHandler addHandler, OperationStepHandler removeHandler, OperationEntry.Flag addRestartLevel, OperationEntry.Flag removeRestartLevel, RuntimeCapability capability, AttributeDefinition... attributes) {
+        super(new SimpleResourceDefinition.Parameters(PathElement.pathElement(element), EJB3Extension.getResourceDescriptionResolver(element))
+                .setAddHandler(addHandler)
+                .setRemoveHandler(removeHandler)
+                .setAddRestartLevel(addRestartLevel)
+                .setRemoveRestartLevel(removeRestartLevel)
+                .setDeprecationData(new DeprecationData(DEPRECATED_VERSION))
+                .setCapabilities(capability));
         this.attributes = attributes;
     }
 
     @Override
     public void registerAttributes(ManagementResourceRegistration resourceRegistration) {
+        OperationStepHandler writeHandler = new ReloadRequiredWriteAttributeHandler(this.attributes);
         for (AttributeDefinition definition: this.attributes) {
-            resourceRegistration.registerReadWriteAttribute(definition, null, this.writeHandler);
+            resourceRegistration.registerReadWriteAttribute(definition, null, writeHandler);
         }
     }
 
-    static void registerTransformers_1_1_0(PathElement path, ResourceTransformationDescriptionBuilder parent) {
-        parent.addChildResource(path).getAttributeBuilder()
-            .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, IDLE_TIMEOUT_UNIT)
-        ;
-    }
 }

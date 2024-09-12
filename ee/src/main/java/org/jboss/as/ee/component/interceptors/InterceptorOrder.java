@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2010, Red Hat Inc., and individual contributors as indicated
+ * Copyright 2021, Red Hat Inc., and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for a
  * full listing of individual contributors.
  *
@@ -37,7 +37,6 @@ public class InterceptorOrder {
 
         public static final int INITIAL_INTERCEPTOR = 0x100;
         public static final int CONCURRENT_CONTEXT = 0x180;
-        public static final int CDI_REQUEST_SCOPE = 0x320;
         public static final int SYNCHRONIZATION_INTERCEPTOR = 0x500;
         public static final int REENTRANCY_INTERCEPTOR = 0x501;
         public static final int BMT_TRANSACTION_INTERCEPTOR = 0x520;
@@ -45,10 +44,10 @@ public class InterceptorOrder {
         public static final int JPA_SFSB_INTERCEPTOR = 0x560;
         public static final int JPA_SESSION_BEAN_INTERCEPTOR = 0x600;
         public static final int CMP_RELATIONSHIP_INTERCEPTOR = 0x800;
-        // WS handlers, user and CDI interceptors plus the bean method are considered user execution time
+        // WS handlers, user and Jakarta Contexts and Dependency Injection Interceptors plus the bean method are considered user execution time
         public static final int EJB_EXECUTION_TIME_INTERCEPTOR = 0x850;
         // JSR 109 - Version 1.3 - 6.2.2.4 Security
-        // For EJB based service implementations, Handlers run after method level authorization has occurred.
+        // For Jakarta Enterprise Beans based service implementations, Handlers run after method level authorization has occurred.
         // JSR 109 - Version 1.3 - 6.2.2.5 Transaction
         // Handlers run under the transaction context of the component they are associated with.
         public static final int WS_HANDLERS_INTERCEPTOR = 0x900;
@@ -63,7 +62,7 @@ public class InterceptorOrder {
          * @Around* methods defined on the component class or its superclasses
          */
         public static final int CDI_INTERCEPTORS = 0xB00;
-        public static final int COMPONENT_USER_INTERCEPTORS = 0xC00; //interceptors defined on the component class, these have to run after CDI interceptors
+        public static final int COMPONENT_USER_INTERCEPTORS = 0xC00; //interceptors defined on the component class, these have to run after Jakarta Contexts and Dependency Injection interceptors
 
         public static final int TERMINAL_INTERCEPTOR = 0xD00;
 
@@ -89,7 +88,7 @@ public class InterceptorOrder {
 
     public static final class ComponentPostConstruct {
 
-        public static final int PRIVILEGED_INTERCEPTOR = 0;
+        public static final int STARTUP_COUNTDOWN_INTERCEPTOR = 0x050;
         public static final int TCCL_INTERCEPTOR = 0x100;
         public static final int CONCURRENT_CONTEXT = 0x180;
         public static final int EJB_SESSION_CONTEXT_INTERCEPTOR = 0x200;
@@ -121,7 +120,6 @@ public class InterceptorOrder {
 
     public static final class ComponentPreDestroy {
 
-        public static final int PRIVILEGED_INTERCEPTOR = 0;
         public static final int TCCL_INTERCEPTOR = 0x100;
         public static final int CONCURRENT_CONTEXT = 0x180;
         public static final int EJB_SESSION_CONTEXT_INTERCEPTOR = 0x200;
@@ -144,7 +142,6 @@ public class InterceptorOrder {
 
     public static final class ComponentPassivation {
 
-        public static final int PRIVILEGED_INTERCEPTOR = 0;
         public static final int TCCL_INTERCEPTOR = 0x100;
         public static final int CONCURRENT_CONTEXT = 0x180;
         public static final int EJB_SESSION_CONTEXT_INTERCEPTOR = 0x200;
@@ -161,11 +158,9 @@ public class InterceptorOrder {
     }
 
     public static final class View {
-        public static final int PRIVILEGED_INTERCEPTOR = 0;
         public static final int CHECKING_INTERCEPTOR = 1;
         public static final int TCCL_INTERCEPTOR = 0x003;
         public static final int INVOCATION_TYPE = 0x005;
-        public static final int EE_SETUP = 0x010;
         public static final int EJB_IIOP_TRANSACTION = 0x020;
         public static final int JNDI_NAMESPACE_INTERCEPTOR = 0x050;
         public static final int REMOTE_EXCEPTION_TRANSFORMER = 0x200;
@@ -173,18 +168,31 @@ public class InterceptorOrder {
         public static final int GRACEFUL_SHUTDOWN = 0x218;
         public static final int SHUTDOWN_INTERCEPTOR = 0x220;
         public static final int INVALID_METHOD_EXCEPTION = 0x230;
+        public static final int STARTUP_AWAIT_INTERCEPTOR = 0x248;
         public static final int SINGLETON_CONTAINER_MANAGED_CONCURRENCY_INTERCEPTOR = 0x240;
         // Allows users to specify user application specific "container interceptors" which run before the
         // other JBoss specific container interceptors like the security interceptor
         public static final int USER_APP_SPECIFIC_CONTAINER_INTERCEPTORS = 0x249;
         public static final int SECURITY_CONTEXT = 0x250;
+        public static final int POLICY_CONTEXT = 0x260;
+        public static final int SECURITY_ROLES = 0x270;
         public static final int EJB_SECURITY_AUTHORIZATION_INTERCEPTOR = 0x300;
+        public static final int RUN_AS_PRINCIPAL = 0x310;
+        public static final int EXTRA_PRINCIPAL_ROLES = 0x320;
+        public static final int RUN_AS_ROLE = 0x330;
+        public static final int SECURITY_IDENTITY_OUTFLOW = 0x340;
         // after security we take note of the invocation
         public static final int EJB_WAIT_TIME_INTERCEPTOR = 0x350;
         public static final int INVOCATION_CONTEXT_INTERCEPTOR = 0x400;
         // should happen before the CMT/BMT interceptors
+        /**
+         * @deprecated Remove this field once WFLY-7860 is resolved.
+         */
+        @Deprecated
         public static final int REMOTE_TRANSACTION_PROPAGATION_INTERCEPTOR = 0x450;
+        public static final int CDI_REQUEST_SCOPE = 0x480;
         public static final int CMT_TRANSACTION_INTERCEPTOR = 0x500;
+        public static final int EE_SETUP = 0x510;
         public static final int HOME_METHOD_INTERCEPTOR = 0x600;
         public static final int ASSOCIATING_INTERCEPTOR = 0x700;
         public static final int XTS_INTERCEPTOR = 0x701;
@@ -201,6 +209,7 @@ public class InterceptorOrder {
         public static final int TO_STRING = 0x100;
         public static final int NOT_BUSINESS_METHOD_EXCEPTION = 0x110;
         public static final int LOCAL_ASYNC_LOG_SAVE = 0x180;
+        public static final int LOCAL_ASYNC_SECURITY_CONTEXT = 0x190;
         public static final int LOCAL_ASYNC_INVOCATION = 0x200;
         public static final int LOCAL_ASYNC_LOG_RESTORE = 0x280;
         public static final int ASSOCIATING_INTERCEPTOR = 0x300;

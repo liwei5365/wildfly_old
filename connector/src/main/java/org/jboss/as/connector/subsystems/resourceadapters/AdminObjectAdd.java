@@ -72,7 +72,7 @@ public class AdminObjectAdd extends AbstractAddStepHandler {
         PathAddress path = PathAddress.pathAddress(address);
         final String raName = context.getCurrentAddress().getParent().getLastElement().getValue();
         final String archiveOrModuleName;
-        ModelNode raModel = context.readResourceFromRoot(path.subAddress(0, path.size() - 1)).getModel();
+        ModelNode raModel = context.readResourceFromRoot(path.subAddress(0, path.size() - 1), false).getModel();
         final boolean statsEnabled = STATISTICS_ENABLED.resolveModelAttribute(context, raModel).asBoolean();
 
         if (!raModel.hasDefined(ARCHIVE.getName()) && !raModel.hasDefined(MODULE.getName())) {
@@ -118,8 +118,8 @@ public class AdminObjectAdd extends AbstractAddStepHandler {
         AdminObjectStatisticsService adminObjectStatisticsService = new AdminObjectStatisticsService(context.getResourceRegistrationForUpdate(), poolName, statsEnabled);
 
         ServiceBuilder statsServiceBuilder = serviceTarget.addService(serviceName.append(ConnectorServices.STATISTICS_SUFFIX), adminObjectStatisticsService);
-        statsServiceBuilder.addDependency(ConnectorServices.BOOTSTRAP_CONTEXT_SERVICE.append(bootStrapCtxName), adminObjectStatisticsService.getBootstrapContextInjector())
-                .addDependency(deploymentServiceName, adminObjectStatisticsService.getResourceAdapterDeploymentInjector())
+        statsServiceBuilder.addDependency(ConnectorServices.BOOTSTRAP_CONTEXT_SERVICE.append(bootStrapCtxName), Object.class, adminObjectStatisticsService.getBootstrapContextInjector())
+                .addDependency(deploymentServiceName, Object.class, adminObjectStatisticsService.getResourceAdapterDeploymentInjector())
                 .setInitialMode(ServiceController.Mode.PASSIVE)
                 .install();
 

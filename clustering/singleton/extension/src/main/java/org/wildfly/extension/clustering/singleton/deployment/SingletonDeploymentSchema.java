@@ -22,39 +22,47 @@
 
 package org.wildfly.extension.clustering.singleton.deployment;
 
+import java.util.Locale;
+
 import javax.xml.namespace.QName;
+
+import org.jboss.as.clustering.controller.Schema;
 
 /**
  * Enumerates the singleton deployment configuration schemas.
  * @author Paul Ferraro
  */
-public enum SingletonDeploymentSchema {
+public enum SingletonDeploymentSchema implements Schema<SingletonDeploymentSchema> {
 
-    VERSION_1_0("singleton-deployment", 1, 0),
+    VERSION_1_0(1, 0),
     ;
     public static final SingletonDeploymentSchema CURRENT = VERSION_1_0;
-    private static final String NAMESPACE_URI_PATTERN = "urn:jboss:%s:%d.%d";
+    private static final String ROOT = "singleton-deployment";
 
-    private final String root;
     private final int major;
     private final int minor;
 
-    SingletonDeploymentSchema(String root, int major, int minor) {
-        this.root = root;
+    SingletonDeploymentSchema(int major, int minor) {
         this.major = major;
         this.minor = minor;
     }
 
-    /**
-     * Indicates whether this version of the schema is greater than or equal to the version of the specified schema.
-     * @param schema a schema
-     * @return true, if this version of the schema is greater than or equal to the version of the specified schema, false otherwise.
-     */
-    public boolean since(SingletonDeploymentSchema schema) {
-        return (this.major > schema.major) || ((this.major == schema.major) && (this.minor >= schema.minor));
+    @Override
+    public int major() {
+        return this.major;
+    }
+
+    @Override
+    public int minor() {
+        return this.minor;
+    }
+
+    @Override
+    public String getNamespaceUri() {
+        return String.format(Locale.ROOT, "urn:jboss:%s:%d.%d", ROOT, this.major, this.minor);
     }
 
     public QName getRoot() {
-        return new QName(String.format(NAMESPACE_URI_PATTERN, this.root, this.major, this.minor), this.root);
+        return new QName(this.getNamespaceUri(), ROOT);
     }
 }

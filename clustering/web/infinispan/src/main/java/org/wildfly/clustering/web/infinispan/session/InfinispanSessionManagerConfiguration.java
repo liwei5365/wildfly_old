@@ -21,32 +21,37 @@
  */
 package org.wildfly.clustering.web.infinispan.session;
 
-import javax.servlet.ServletContext;
+import java.util.Map;
 
 import org.infinispan.Cache;
-import org.infinispan.remoting.transport.Address;
-import org.wildfly.clustering.dispatcher.CommandDispatcherFactory;
+import org.wildfly.clustering.Registrar;
 import org.wildfly.clustering.ee.Batcher;
+import org.wildfly.clustering.ee.Key;
 import org.wildfly.clustering.ee.Recordable;
-import org.wildfly.clustering.ee.infinispan.TransactionBatch;
-import org.wildfly.clustering.group.NodeFactory;
-import org.wildfly.clustering.infinispan.spi.distribution.Key;
+import org.wildfly.clustering.ee.Scheduler;
+import org.wildfly.clustering.ee.cache.CacheProperties;
+import org.wildfly.clustering.ee.cache.tx.TransactionBatch;
 import org.wildfly.clustering.web.IdentifierFactory;
-import org.wildfly.clustering.web.session.ImmutableSession;
+import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 import org.wildfly.clustering.web.session.SessionExpirationListener;
+import org.wildfly.clustering.web.session.SessionManager;
 
 /**
  * Configuration for an {@link InfinispanSessionManager}.
+ * @param <SC> the ServletContext specification type
+ * @param <LC> the local context type
  * @author Paul Ferraro
  */
-public interface InfinispanSessionManagerConfiguration {
-    ServletContext getServletContext();
+public interface InfinispanSessionManagerConfiguration<SC, LC> {
+    SC getServletContext();
     SessionExpirationListener getExpirationListener();
     Cache<Key<String>, ?> getCache();
+    CacheProperties getProperties();
     IdentifierFactory<String> getIdentifierFactory();
     Batcher<TransactionBatch> getBatcher();
-    CommandDispatcherFactory getCommandDispatcherFactory();
-    NodeFactory<Address> getNodeFactory();
-    int getMaxActiveSessions();
-    Recordable<ImmutableSession> getInactiveSessionRecorder();
+    Scheduler<String, ImmutableSessionMetaData> getExpirationScheduler();
+    Recordable<ImmutableSessionMetaData> getInactiveSessionRecorder();
+    Registrar<SessionExpirationListener> getExpirationRegistar();
+    Runnable getStartTask();
+    Registrar<Map.Entry<SC, SessionManager<LC, TransactionBatch>>> getContextRegistrar();
 }

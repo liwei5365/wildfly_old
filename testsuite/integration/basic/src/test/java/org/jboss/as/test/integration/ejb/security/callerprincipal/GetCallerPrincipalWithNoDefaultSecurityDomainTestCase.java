@@ -30,8 +30,6 @@ import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.ejb3.subsystem.EJB3Extension;
-import org.jboss.as.ejb3.subsystem.EJB3SubsystemModel;
 import org.jboss.as.test.categories.CommonCriteria;
 import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
@@ -69,8 +67,7 @@ import static org.junit.Assert.fail;
 @ServerSetup({GetCallerPrincipalWithNoDefaultSecurityDomainTestCase.DisableDefaultSecurityDomainSetupTask.class})
 @Category(CommonCriteria.class)
 public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
-
-    private static final Logger log = Logger.getLogger(GetCallerPrincipalWithNoDefaultSecurityDomainTestCase.class);
+    private static final Logger LOGGER = Logger.getLogger(GetCallerPrincipalWithNoDefaultSecurityDomainTestCase.class);
 
     private static final String ANONYMOUS = "anonymous"; //TODO: is this constant configured somewhere?
 
@@ -82,16 +79,19 @@ public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
      */
     static class DisableDefaultSecurityDomainSetupTask extends AbstractMgmtServerSetupTask {
 
+        private static final String DEFAULT_SECURITY_DOMAIN = "default-security-domain";
+        private static final String SUBSYSTEM_NAME = "ejb3";
+
         private String defaultSecurityDomain;
 
         @Override
         protected void doSetup(final ManagementClient managementClient) throws Exception {
             // first read the current value of the default-security-domain
-            final PathAddress ejb3SubsystemPathAddress = PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME));
+            final PathAddress ejb3SubsystemPathAddress = PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, SUBSYSTEM_NAME));
 
             final ModelNode defaultSecurityDomainAttr = new ModelNode();
             defaultSecurityDomainAttr.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.READ_ATTRIBUTE_OPERATION);
-            defaultSecurityDomainAttr.get(NAME).set(EJB3SubsystemModel.DEFAULT_SECURITY_DOMAIN);
+            defaultSecurityDomainAttr.get(NAME).set(DEFAULT_SECURITY_DOMAIN);
             defaultSecurityDomainAttr.get(OP_ADDR).set(ejb3SubsystemPathAddress.toModelNode());
 
             final ModelNode readResult = executeOperation(defaultSecurityDomainAttr);
@@ -99,7 +99,7 @@ public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
             // remove the default security domain from EJB3 subsystem
             final ModelNode disableDefaultSecurityDomain = new ModelNode();
             disableDefaultSecurityDomain.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.UNDEFINE_ATTRIBUTE_OPERATION);
-            disableDefaultSecurityDomain.get(NAME).set(EJB3SubsystemModel.DEFAULT_SECURITY_DOMAIN);
+            disableDefaultSecurityDomain.get(NAME).set(DEFAULT_SECURITY_DOMAIN);
             disableDefaultSecurityDomain.get(OP_ADDR).set(ejb3SubsystemPathAddress.toModelNode());
 
             executeOperation(disableDefaultSecurityDomain);
@@ -109,10 +109,10 @@ public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
 
         @Override
         public void tearDown(final ManagementClient managementClient, final String containerId) throws Exception {
-            final PathAddress ejb3SubsystemPathAddress = PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME));
+            final PathAddress ejb3SubsystemPathAddress = PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, SUBSYSTEM_NAME));
             final ModelNode defaultSecurityDomainAttr = new ModelNode();
             defaultSecurityDomainAttr.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.WRITE_ATTRIBUTE_OPERATION);
-            defaultSecurityDomainAttr.get(NAME).set(EJB3SubsystemModel.DEFAULT_SECURITY_DOMAIN);
+            defaultSecurityDomainAttr.get(NAME).set(DEFAULT_SECURITY_DOMAIN);
             defaultSecurityDomainAttr.get(VALUE).set(this.defaultSecurityDomain);
             defaultSecurityDomainAttr.get(OP_ADDR).set(ejb3SubsystemPathAddress.toModelNode());
 
@@ -134,7 +134,6 @@ public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
                 .addPackage(AbstractMgmtTestBase.class.getPackage()).addClasses(MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class)
                 .addAsManifestResource(GetCallerPrincipalWithNoDefaultSecurityDomainTestCase.class.getPackage(), "MANIFEST.MF-no-default-security-domain", "MANIFEST.MF");
         jar.addPackage(CommonCriteria.class.getPackage());
-        log.info(jar.toString(true));
         return jar;
     }
 
@@ -151,8 +150,7 @@ public class GetCallerPrincipalWithNoDefaultSecurityDomainTestCase {
                     principal);
             assertEquals(ANONYMOUS, principal.getName());
         } catch (RuntimeException e) {
-            e.printStackTrace();
-            log.error(e.getStackTrace());
+            LOGGER.error("EJB 3.1 FR 17.6.5", e);
             fail("EJB 3.1 FR 17.6.5 The EJB container must provide the caller’s security context information during the execution of a business method ("
                     + e.getMessage() + ")");
         }

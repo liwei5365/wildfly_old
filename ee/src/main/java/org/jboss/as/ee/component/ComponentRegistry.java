@@ -62,7 +62,7 @@ public class ComponentRegistry {
 
     public void addComponent(final ComponentConfiguration componentConfiguration) {
         if(componentConfiguration.getViews().size() < 2) {
-            if(componentConfiguration.getViews().size() == 0) {
+            if(componentConfiguration.getViews().isEmpty()) {
                 componentsByClass.put(componentConfiguration.getComponentClass(), new ComponentManagedReferenceFactory(componentConfiguration.getComponentDescription().getStartServiceName(), null));
             } else {
                 componentsByClass.put(componentConfiguration.getComponentClass(), new ComponentManagedReferenceFactory(componentConfiguration.getComponentDescription().getStartServiceName(), componentConfiguration.getViews().get(0).getViewServiceName()));
@@ -71,9 +71,14 @@ public class ComponentRegistry {
     }
 
     public ManagedReferenceFactory createInstanceFactory(final Class<?> componentClass) {
+        return createInstanceFactory(componentClass, false);
+    }
+
+    public ManagedReferenceFactory createInstanceFactory(final Class<?> componentClass, final boolean optional) {
         final ManagedReferenceFactory factory = componentsByClass.get(componentClass);
         if (factory == null) {
-            return classIntrospectorInjectedValue.getValue().createFactory(componentClass);
+            EEClassIntrospector introspector = optional ? classIntrospectorInjectedValue.getOptionalValue() : classIntrospectorInjectedValue.getValue();
+            return introspector != null ? introspector.createFactory(componentClass) : null;
         }
         return factory;
     }
@@ -83,6 +88,15 @@ public class ComponentRegistry {
         final ComponentManagedReferenceFactory factory = componentsByClass.get(instance.getClass());
         if (factory == null) {
             return classIntrospectorInjectedValue.getValue().createInstance(instance);
+        }
+        return factory.createReference(instance);
+    }
+
+    public ManagedReference getInstance(final Object instance) {
+
+        final ComponentManagedReferenceFactory factory = componentsByClass.get(instance.getClass());
+        if (factory == null) {
+            return classIntrospectorInjectedValue.getValue().getInstance(instance);
         }
         return factory.getReference(instance);
     }
@@ -96,7 +110,7 @@ public class ComponentRegistry {
         private final ComponentInstance instance;
         private boolean destroyed;
 
-        public ComponentManagedReference(final ComponentInstance component) {
+        ComponentManagedReference(final ComponentInstance component) {
             instance = component;
         }
 
@@ -156,8 +170,7 @@ public class ComponentRegistry {
             }
         }
 
-
-        public ManagedReference getReference(final Object instance) {
+        public ManagedReference createReference(final Object instance) {
             if (component == null) {
                 synchronized (this) {
                     if (component == null) {
@@ -169,6 +182,20 @@ public class ComponentRegistry {
                 return null;
             }
             return new ComponentManagedReference(component.getValue().createInstance(instance));
+        }
+
+        ManagedReference getReference(final Object instance) {
+            if (component == null) {
+                synchronized (this) {
+                    if (component == null) {
+                        component = (ServiceController<Component>) serviceRegistry.getService(serviceName);
+                    }
+                }
+            }
+            if (component == null) {
+                return null;
+            }
+            return new ComponentManagedReference(component.getValue().getInstance(instance));
         }
 
         public ServiceName getServiceName() {

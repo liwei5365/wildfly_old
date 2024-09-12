@@ -19,13 +19,18 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-
 package org.jboss.as.test.smoke.jms;
 
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OUTCOME;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.RESULT;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUCCESS;
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.FilePermission;
+import java.io.IOException;
 import java.util.UUID;
 
 import javax.annotation.Resource;
@@ -42,10 +47,15 @@ import javax.jms.TextMessage;
 import org.apache.activemq.artemis.api.jms.ActiveMQJMSConstants;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.api.ServerSetup;
+import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.client.helpers.Operations;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.jms.auxiliary.CreateQueueSetupTask;
+import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
+import org.jboss.remoting3.security.RemotingPermission;
 import org.jboss.shrinkwrap.api.ArchivePaths;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
@@ -55,7 +65,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * JMS bridge test.
+ * Jakarta Messaging bridge test.
  *
  * @author Jeff Mesnil (c) 2012 Red Hat Inc.
  */
@@ -76,23 +86,33 @@ public class JMSBridgeTest {
     @Resource(mappedName = "/myAwesomeCF")
     private ConnectionFactory factory;
 
+    @ArquillianResource
+    private ManagementClient managementClient;
+
     @Deployment
     public static JavaArchive createTestArchive() {
         return ShrinkWrap.create(JavaArchive.class, "test.jar")
                 .addPackage(JMSOperations.class.getPackage())
                 .addClass(CreateJMSBridgeSetupTask.class)
+                .addClass(AbstractCreateJMSBridgeSetupTask.class)
                 .addClass(CreateQueueSetupTask.class)
                 .addAsManifestResource(
                         EmptyAsset.INSTANCE,
                         ArchivePaths.create("beans.xml"))
-                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli\n"), "MANIFEST.MF");
+                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.remoting\n"), "MANIFEST.MF")
+                .addAsManifestResource(createPermissionsXmlAsset(
+                        new RemotingPermission("createEndpoint"),
+                        new RemotingPermission("connect"),
+                        new FilePermission(System.getProperty("jboss.inst") + "/standalone/tmp/auth/*", "read")
+                ), "permissions.xml");
     }
 
     /**
      * Send a message on the source queue
      * Consumes it on the target queue
      *
-     * The test will pass since a JMS Bridge has been created to bridge the source destination to the target destination.
+     * The test will pass since a Jakarta Messaging Bridge has been created to bridge the source destination to the target
+     * destination.
      */
     @Test
     public void sendAndReceiveMessage() throws Exception {
@@ -101,6 +121,8 @@ public class JMSBridgeTest {
         Message receivedMessage = null;
 
         try {
+            assertEquals("Message count bridge metric is not correct", 0L, readMetric("message-count"));
+            assertEquals("Aborted message count bridge metric is not correct", 0L, readMetric("aborted-message-count"));
             // SEND A MESSAGE on the source queue
             connection = factory.createConnection();
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
@@ -123,9 +145,12 @@ public class JMSBridgeTest {
             assertNotNull("did not receive expected message", receivedMessage);
             assertTrue(receivedMessage instanceof TextMessage);
             assertEquals(text, ((TextMessage) receivedMessage).getText());
-            assertNotNull("did not get header set by the JMS bridge", receivedMessage.getStringProperty(ActiveMQJMSConstants.AMQ_MESSAGING_BRIDGE_MESSAGE_ID_LIST));
+            assertNotNull("did not get header set by the Jakarta Messaging bridge", receivedMessage.getStringProperty(ActiveMQJMSConstants.AMQ_MESSAGING_BRIDGE_MESSAGE_ID_LIST));
+            assertEquals("Message count bridge metric is not correct", 1L, readMetric("message-count"));
+            assertEquals("Aborted message count bridge metric is not correct", 0L, readMetric("aborted-message-count"));
         } catch (Exception e) {
             e.printStackTrace();
+            throw e;
         } finally {
             // CLEANUP
             if (session != null) {
@@ -135,6 +160,15 @@ public class JMSBridgeTest {
                 connection.close();
             }
         }
+    }
 
+    private long readMetric(String metric) throws IOException {
+        ModelNode address = new ModelNode();
+        address.add("subsystem", "messaging-activemq");
+        address.add("jms-bridge", CreateJMSBridgeSetupTask.JMS_BRIDGE_NAME);
+        ModelNode operation = Operations.createReadAttributeOperation(address, metric);
+        ModelNode result = managementClient.getControllerClient().execute(operation);
+        assertEquals(SUCCESS, result.get(OUTCOME).asString());
+        return result.get(RESULT).asLong();
     }
 }

@@ -30,7 +30,7 @@ import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.value.Value;
 
 /**
- * Injection source for EJB remote views.
+ * Injection source for Jakarta Enterprise Beans remote views.
  *
  * @author Stuart Douglas
  */
@@ -44,8 +44,9 @@ public class RemoteViewInjectionSource extends InjectionSource {
     private final String viewClass;
     private final boolean stateful;
     private final Value<ClassLoader> viewClassLoader;
+    private final boolean appclient;
 
-    public RemoteViewInjectionSource(final ServiceName serviceName, final String appName, final String moduleName, final String distinctName, final String beanName, final String viewClass, final boolean stateful, final Value<ClassLoader> viewClassLoader) {
+    public RemoteViewInjectionSource(final ServiceName serviceName, final String appName, final String moduleName, final String distinctName, final String beanName, final String viewClass, final boolean stateful, final Value<ClassLoader> viewClassLoader, boolean appclient) {
         this.serviceName = serviceName;
         this.appName = appName;
         this.moduleName = moduleName;
@@ -54,6 +55,7 @@ public class RemoteViewInjectionSource extends InjectionSource {
         this.viewClass = viewClass;
         this.stateful = stateful;
         this.viewClassLoader = viewClassLoader;
+        this.appclient = appclient;
     }
 
     /**
@@ -61,9 +63,9 @@ public class RemoteViewInjectionSource extends InjectionSource {
      */
     public void getResourceValue(final ResolutionContext resolutionContext, final ServiceBuilder<?> serviceBuilder, final DeploymentPhaseContext phaseContext, final Injector<ManagedReferenceFactory> injector) {
         if(serviceName != null) {
-            serviceBuilder.addDependency(serviceName);
+            serviceBuilder.requires(serviceName);
         }
-        final RemoteViewManagedReferenceFactory factory = new RemoteViewManagedReferenceFactory(appName, moduleName, distinctName, beanName, viewClass, stateful, viewClassLoader);
+        final RemoteViewManagedReferenceFactory factory = new RemoteViewManagedReferenceFactory(appName, moduleName, distinctName, beanName, viewClass, stateful, viewClassLoader, appclient);
         injector.inject(factory);
     }
 

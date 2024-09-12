@@ -29,7 +29,8 @@ import javax.ejb.Stateless;
 import javax.ejb.Timeout;
 import javax.ejb.Timer;
 import javax.ejb.TimerService;
-import org.apache.log4j.Logger;
+
+import org.jboss.logging.Logger;
 
 /**
  * @author Stuart Douglas
@@ -67,7 +68,7 @@ public class SuspendTimerServiceBean {
 
     @Timeout
     public synchronized void timeout(Timer timer) {
-        log.info("Timer is: " + timer + ", timer info is: " + timer.getInfo());
+        log.trace("Timer is: " + timer + ", timer info is: " + timer.getInfo());
         timerInfo = (String) timer.getInfo();
 
         timerServiceCount++;

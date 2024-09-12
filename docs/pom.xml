@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ JBoss, Home of Professional Open Source.
+  ~ Copyright 2017, Red Hat, Inc., and individual contributors
+  ~ as indicated by the @author tags. See the copyright.txt file in the
+  ~ distribution for a full listing of individual contributors.
+  ~
+  ~ This is free software; you can redistribute it and/or modify it
+  ~ under the terms of the GNU Lesser General Public License as
+  ~ published by the Free Software Foundation; either version 2.1 of
+  ~ the License, or (at your option) any later version.
+  ~
+  ~ This software is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+  ~ Lesser General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Lesser General Public
+  ~ License along with this software; if not, write to the Free
+  ~ Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+  ~ 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+  -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.wildfly</groupId>
+        <artifactId>wildfly-parent</artifactId>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>docs</artifactId>
+
+    <name>WildFly: Documentation</name>
+
+    <properties>
+        <!-- Because this version is only used here and should not currently be used outside of this module we are
+             going to define it here rather than the root pom. -->
+        <version.org.jboss.wildscribe>2.0.0.Final</version.org.jboss.wildscribe>
+        <server.name>wildfly-${project.version}</server.name>
+        <messages.filename>${server.name}.messages</messages.filename>
+        <management-model.filename>${server.name}.dmr</management-model.filename>
+
+        <wildfly.github.io.dir>
+            ..${file.separator}..${file.separator}wildfly.github.io${file.separator}${product.docs.server.version}
+        </wildfly.github.io.dir>
+        <jboss.home>${project.build.directory}/wildfly</jboss.home>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.asciidoctor</groupId>
+                <artifactId>asciidoctor-maven-plugin</artifactId>
+                <configuration>
+                    <attributes>
+                        <!-- Attributes to use in the asciidoc source files. Please leave in alphabetical order -->
+                        <appservername>${full.dist.product.release.name}</appservername>
+                        <javaee_version>8</javaee_version>
+                        <oracle-javadoc>https://docs.oracle.com/javase/8/docs/api</oracle-javadoc>
+                        <wildflyversion>${product.docs.server.version}</wildflyversion>
+
+                        <!-- Default asciidoc setting attributes -->
+                        <linkcss>false</linkcss>
+                        <toc>left</toc>
+                    </attributes>
+                    <backend>html5</backend>
+                    <resources>
+                        <resource>
+                            <directory>src/main/asciidoc/images</directory>
+                            <targetPath>images</targetPath>
+                        </resource>
+                        <resource>
+                            <directory>src/main/asciidoc/downloads</directory>
+                            <targetPath>downloads</targetPath>
+                        </resource>
+                    </resources>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>output-html</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>process-asciidoc</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jboss.galleon</groupId>
+                <artifactId>galleon-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>server-provisioning</id>
+                        <goals>
+                            <goal>provision</goal>
+                        </goals>
+                        <phase>prepare-package</phase>
+                        <configuration>
+                            <install-dir>${jboss.home}</install-dir>
+                            <record-state>false</record-state>
+                            <log-time>${galleon.log.time}</log-time>
+                            <feature-packs>
+                                <feature-pack>
+                                    <groupId>${project.groupId}</groupId>
+                                    <artifactId>wildfly-galleon-pack</artifactId>
+                                    <version>${project.version}</version>
+                                    <inherit-configs>false</inherit-configs>
+                                    <excluded-packages>
+                                        <name>docs</name>
+                                        <name>docs.licenses.merge</name>
+                                    </excluded-packages>
+                                    <included-configs>
+                                        <config>
+                                            <model>standalone</model>
+                                            <name>standalone-full-ha.xml</name>
+                                        </config>
+                                    </included-configs>
+                                </feature-pack>
+                            </feature-packs>
+                            <plugin-options>
+                                <jboss-fork-embedded>${galleon.fork.embedded}</jboss-fork-embedded>
+                            </plugin-options>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jboss.wildscribe</groupId>
+                <artifactId>wildscribe-maven-plugin</artifactId>
+                <version>${version.org.jboss.wildscribe}</version>
+                <configuration>
+                    <jboss-home>${jboss.home}</jboss-home>
+                    <display-name>${full.dist.product.release.name}</display-name>
+                    <display-version>${product.docs.server.version}</display-version>
+                    <site-dir>${project.build.directory}/generated-docs/wildscribe</site-dir>
+                    <required-extensions>
+                        <required-extension>org.wildfly.extension.rts</required-extension>
+                        <required-extension>org.jboss.as.xts</required-extension>
+                        <required-extension>org.wildfly.extension.datasources-agroal</required-extension>
+                        <required-extension>org.wildfly.extension.microprofile.fault-tolerance-smallrye</required-extension>
+                        <required-extension>org.wildfly.extension.microprofile.openapi-smallrye</required-extension>
+                    </required-extensions>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>generate-site</id>
+                        <goals>
+                            <goal>generate-site</goal>
+                        </goals>
+                        <phase>package</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>copy-site</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>copy-site</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${wildfly.github.io.dir}</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.build.directory}${file.separator}generated-docs</directory>
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

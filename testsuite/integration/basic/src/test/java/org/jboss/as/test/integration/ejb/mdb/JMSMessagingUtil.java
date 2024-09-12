@@ -23,6 +23,9 @@
 package org.jboss.as.test.integration.ejb.mdb;
 
 
+import org.jboss.as.test.shared.TimeoutUtil;
+
+import java.io.Serializable;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
@@ -37,7 +40,6 @@ import javax.jms.MessageProducer;
 import javax.jms.ObjectMessage;
 import javax.jms.Session;
 import javax.jms.TextMessage;
-import java.io.Serializable;
 
 /**
  * User: jpai
@@ -92,10 +94,10 @@ public class JMSMessagingUtil {
         this.sendMessage(replyMsg, destination, null);
     }
 
-    public Message receiveMessage(final Destination destination, final long waitInMillis) throws JMSException {
+    public Message receiveMessage(final Destination destination, final int waitInMillis) throws JMSException {
         MessageConsumer consumer = this.session.createConsumer(destination);
         try {
-            return consumer.receive(waitInMillis);
+            return consumer.receive(TimeoutUtil.adjust(waitInMillis));
         } finally {
             consumer.close();
         }

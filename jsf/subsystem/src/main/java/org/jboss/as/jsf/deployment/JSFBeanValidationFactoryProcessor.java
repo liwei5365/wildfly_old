@@ -34,7 +34,7 @@ import org.jboss.as.server.deployment.DeploymentUnitProcessor;
 import org.jboss.as.web.common.ServletContextAttribute;
 
 /**
- * Deployment processor that adds the CDI-enabled ValidatorFactory to the servlet context.
+ * Deployment processor that adds the Jakarta Contexts and Dependency Injection enabled ValidatorFactory to the servlet context.
  *
  * @author Farah Juma
  */
@@ -42,13 +42,19 @@ public class JSFBeanValidationFactoryProcessor implements DeploymentUnitProcesso
 
     @Override
     public void deploy(DeploymentPhaseContext phaseContext) throws DeploymentUnitProcessingException {
+
         final DeploymentUnit deploymentUnit = phaseContext.getDeploymentUnit();
 
-        // Get the CDI-enabled ValidatorFactory and add it to the servlet context
-        ValidatorFactory validatorFactory = deploymentUnit.getAttachment(BeanValidationAttachments.VALIDATOR_FACTORY);
+        if(JsfVersionMarker.isJsfDisabled(deploymentUnit)) {
+            return;
+        }
 
-        deploymentUnit.addToAttachmentList(ServletContextAttribute.ATTACHMENT_KEY,
-                new ServletContextAttribute(VALIDATOR_FACTORY_KEY, validatorFactory));
+        // Get the Jakarta Contexts and Dependency Injection enabled ValidatorFactory and add it to the servlet context
+        ValidatorFactory validatorFactory = deploymentUnit.getAttachment(BeanValidationAttachments.VALIDATOR_FACTORY);
+        if(validatorFactory != null) {
+            deploymentUnit.addToAttachmentList(ServletContextAttribute.ATTACHMENT_KEY,
+                    new ServletContextAttribute(VALIDATOR_FACTORY_KEY, validatorFactory));
+        }
     }
 
     @Override

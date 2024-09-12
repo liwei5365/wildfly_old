@@ -22,23 +22,6 @@
 
 package org.jboss.as.ejb3.subsystem;
 
-import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.PathElement;
-import org.jboss.as.controller.operations.common.Util;
-import org.jboss.as.controller.parsing.ParseUtils;
-import org.jboss.as.threads.Namespace;
-import org.jboss.as.threads.ThreadsParser;
-import org.jboss.dmr.ModelNode;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLExtendedStreamReader;
-
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.List;
-
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
@@ -65,12 +48,27 @@ import static org.jboss.as.ejb3.subsystem.EJB3SubsystemModel.STRICT_MAX_BEAN_INS
 import static org.jboss.as.ejb3.subsystem.EJB3SubsystemModel.THREAD_POOL;
 import static org.jboss.as.ejb3.subsystem.EJB3SubsystemModel.TIMER_SERVICE;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.controller.parsing.ParseUtils;
+import org.jboss.as.threads.Namespace;
+import org.jboss.as.threads.ThreadsParser;
+import org.jboss.dmr.ModelNode;
+import org.jboss.staxmapper.XMLElementReader;
+import org.jboss.staxmapper.XMLExtendedStreamReader;
+
 /**
  * @author Jaikiran Pai
  */
 public class EJB3Subsystem12Parser implements XMLElementReader<List<ModelNode>> {
 
-    public static final EJB3Subsystem12Parser INSTANCE = new EJB3Subsystem12Parser();
     protected static final PathAddress SUBSYSTEM_PATH = PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME));
 
     protected EJB3Subsystem12Parser() {
@@ -191,6 +189,7 @@ public class EJB3Subsystem12Parser implements XMLElementReader<List<ModelNode>> 
         if (!required.isEmpty()) {
             throw missingRequired(reader, required);
         }
+        operation.get(EJB3SubsystemModel.EXECUTE_IN_WORKER).set(ModelNode.FALSE);
         requireNoContent(reader);
         operations.add(operation);
     }
@@ -498,9 +497,7 @@ public class EJB3Subsystem12Parser implements XMLElementReader<List<ModelNode>> 
                     break;
                 }
                 case ALIASES: {
-                    for (String alias : reader.getListAttributeValue(i)) {
-                        CacheFactoryResourceDefinition.ALIASES.parseAndAddParameterElement(alias, operation, reader);
-                    }
+                    CacheFactoryResourceDefinition.ALIASES.getParser().parseAndSetParameter(CacheFactoryResourceDefinition.ALIASES, value, operation, reader);
                     break;
                 }
                 default: {
@@ -740,7 +737,7 @@ public class EJB3Subsystem12Parser implements XMLElementReader<List<ModelNode>> 
             EJB3SubsystemNamespace readerNS = EJB3SubsystemNamespace.forUri(reader.getNamespaceURI());
             switch (EJB3SubsystemXMLElement.forName(reader.getLocalName())) {
                 case THREAD_POOL: {
-                    ThreadsParser.getInstance().parseUnboundedQueueThreadPool(reader, readerNS.getUriString(),
+                    ThreadsParser.getInstance().parseEnhancedQueueThreadPool(reader, readerNS.getUriString(),
                             Namespace.THREADS_1_1, parentAddress, operations, THREAD_POOL, null);
                     break;
                 }

@@ -23,17 +23,46 @@ package org.wildfly.clustering.server.singleton;
 
 import org.jboss.msc.service.Service;
 import org.jboss.msc.service.ServiceName;
+import org.wildfly.clustering.group.Group;
+import org.wildfly.clustering.service.InjectedValueDependency;
+import org.wildfly.clustering.service.SupplierDependency;
 import org.wildfly.clustering.singleton.SingletonServiceBuilder;
 import org.wildfly.clustering.singleton.SingletonServiceBuilderFactory;
 
 /**
- * Service that provides a non-clustered {@link SingletonServiceBuilderFactory}
+ * Factory for creating local {@link SingletonServiceBuilder} instances.
  * @author Paul Ferraro
  */
-public class LocalSingletonServiceBuilderFactory implements SingletonServiceBuilderFactory {
+@SuppressWarnings("deprecation")
+public class LocalSingletonServiceBuilderFactory extends LocalSingletonServiceConfiguratorFactory implements SingletonServiceBuilderFactory {
+
+    private final LegacyLocalSingletonServiceConfiguratorContext context;
+
+    public LocalSingletonServiceBuilderFactory(LocalSingletonServiceConfiguratorFactoryContext context) {
+        super(context);
+        this.context = new LegacyLocalSingletonServiceConfiguratorContext(context);
+    }
 
     @Override
-    public <T> SingletonServiceBuilder<T> createSingletonServiceBuilder(final ServiceName name, final Service<T> service) {
-        return new LocalSingletonServiceBuilder<>(name, service);
+    public <T> SingletonServiceBuilder<T> createSingletonServiceBuilder(ServiceName name, Service<T> service) {
+        return new LocalSingletonServiceBuilder<>(name, service, this.context);
+    }
+
+    @Override
+    public <T> SingletonServiceBuilder<T> createSingletonServiceBuilder(ServiceName name, Service<T> primaryService, Service<T> backupService) {
+        return this.createSingletonServiceBuilder(name, primaryService);
+    }
+
+    private class LegacyLocalSingletonServiceConfiguratorContext implements LocalSingletonServiceConfiguratorContext {
+        private final LocalSingletonServiceConfiguratorFactoryContext context;
+
+        LegacyLocalSingletonServiceConfiguratorContext(LocalSingletonServiceConfiguratorFactoryContext context) {
+            this.context = context;
+        }
+
+        @Override
+        public SupplierDependency<Group> getGroupDependency() {
+            return new InjectedValueDependency<>(this.context.getGroupServiceName(), Group.class);
+        }
     }
 }

@@ -22,8 +22,10 @@
 
 package org.jboss.as.test.integration.ejb.stateful.passivation;
 
+import javax.ejb.Local;
 import javax.ejb.PostActivate;
 import javax.ejb.PrePassivate;
+import javax.ejb.Remove;
 import javax.ejb.Stateful;
 
 import org.jboss.ejb3.annotation.Cache;
@@ -33,7 +35,8 @@ import org.jboss.ejb3.annotation.Cache;
  */
 @Stateful(passivationCapable = true)
 @Cache("passivating")
-public class PassivationEnabledBean {
+@Local(Bean.class)
+public class PassivationEnabledBean implements Bean {
 
     private boolean prePrePassivateInvoked;
     private boolean postActivateInvoked;
@@ -48,16 +51,18 @@ public class PassivationEnabledBean {
         this.postActivateInvoked = true;
     }
 
-    public void doNothing() {
-
-    }
-
+    @Override
     public boolean wasPassivated() {
         return this.prePrePassivateInvoked;
     }
 
+    @Override
     public boolean wasActivated() {
         return this.postActivateInvoked;
     }
 
+    @Remove
+    @Override
+    public void close() {
+    }
 }

@@ -56,7 +56,7 @@ public class TempClassLoader extends ConcurrentClassLoader {
     }
 
     TempClassLoader(final ClassLoader delegate) {
-        super(null);
+        super((ConcurrentClassLoader) null);
         this.delegate = delegate;
     }
 
@@ -69,8 +69,8 @@ public class TempClassLoader extends ConcurrentClassLoader {
         }
 
         // javax.persistence classes must be loaded by module classloader, otherwise
-        // the persistence provider can't read JPA annotations with reflection
-        if (name.startsWith("javax.")) {
+        // the persistence provider can't read Jakarta Persistence annotations with reflection
+        if (name.startsWith("javax.") || name.startsWith("java.")) {
             return Class.forName(name, resolve, delegate);
         }
 

@@ -25,6 +25,8 @@ package org.jboss.as.jpa.config;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.persistence.EntityManagerFactory;
+
 import org.jipijapa.plugin.spi.PersistenceUnitMetadata;
 
 
@@ -40,9 +42,9 @@ public class Configuration {
     public static final String PROVIDER_MODULE = "jboss.as.jpa.providerModule";
 
     /**
-     * Hibernate 4.3.x (default) persistence provider
+     * Hibernate main module (default) persistence provider
      */
-    public static final String PROVIDER_MODULE_HIBERNATE4_3 = "org.hibernate";
+    public static final String PROVIDER_MODULE_HIBERNATE = "org.hibernate";
 
     /**
      * Hibernate 4.1.x persistence provider, note that Hibernate 4.1.x is expected to be in the 4.1 slot
@@ -67,7 +69,7 @@ public class Configuration {
     /**
      * default if no PROVIDER_MODULE is specified.
      */
-    public static final String PROVIDER_MODULE_DEFAULT = PROVIDER_MODULE_HIBERNATE4_3;
+    public static final String PROVIDER_MODULE_DEFAULT = PROVIDER_MODULE_HIBERNATE;
 
     /**
      * Hibernate 4.1.x persistence provider class
@@ -127,7 +129,7 @@ public class Configuration {
 
     /**
      * defaults to true, if changed to false (in the persistence.xml),
-     * the JPA container will not start the persistence unit service.
+     * the Jakarta Persistence container will not start the persistence unit service.
      */
     public static final String JPA_CONTAINER_MANAGED = "jboss.as.jpa.managed";
 
@@ -139,11 +141,18 @@ public class Configuration {
      */
     public static final String JPA_CONTAINER_CLASS_TRANSFORMER = "jboss.as.jpa.classtransformer";
 
+    private static final String HIBERNATE_USE_CLASS_ENHANCER = "hibernate.ejb.use_class_enhancer";
+    private static final String HIBERNATE_ENABLE_DIRTY_TRACKING = "hibernate.enhancer.enableDirtyTracking";
+    private static final String HIBERNATE_ENABLE_LAZY_INITIALIZATION = "hibernate.enhancer.enableLazyInitialization";
+    private static final String HIBERNATE_ENABLE_ASSOCIATION_MANAGEMENT = "hibernate.enhancer.enableAssociationManagement";
+
     /**
      * set to false to force a single phase persistence unit bootstrap to be used (default is true
      * which uses two phases to start the persistence unit).
      */
     public static final String JPA_ALLOW_TWO_PHASE_BOOTSTRAP = "wildfly.jpa.twophasebootstrap";
+
+    private static final String JPA_ALLOW_APPLICATION_DEFINED_DATASOURCE = "wildfly.jpa.applicationdatasource";
 
     /**
      * set to false to ignore default data source (defaults to true)
@@ -156,6 +165,11 @@ public class Configuration {
     private static final String JPA_DEFER_DETACH = "jboss.as.jpa.deferdetach";
 
     /**
+     * set to true to defer detaching query results until persistence context is closed (WFLY-12674)
+     */
+    private static final String JPA_SKIP_QUERY_DETACH = "wildfly.jpa.skipquerydetach";
+
+    /**
      * unique name for the persistence unit that is unique across all deployments (
      * defaults to include the application name prepended to the persistence unit name)
      */
@@ -166,6 +180,16 @@ public class Configuration {
      */
     public static final String ADAPTER_CLASS = "jboss.as.jpa.adapterClass";
 
+    public static final String ALLOWJOINEDUNSYNCPC = "wildfly.jpa.allowjoinedunsync";
+
+    public static final String SKIPMIXEDSYNCTYPECHECKING = "wildfly.jpa.skipmixedsynctypechecking";
+
+    /**
+     * Document properties that allow Jakarta Persistence apps to disable WildFly Jakarta Transactions platform/2lc integration for Hibernate ORM 5.3+ (WFLY-10433)
+     * public static final String CONTROLJTAINTEGRATION = "wildfly.jpa.jtaplatform";
+     * public static final String CONTROL2LCINTEGRATION = "wildfly.jpa.regionfactory";
+     */
+
     /**
      * name of the Hibernate Search module name configuration setting in persistence unit definition
      */
@@ -174,7 +198,8 @@ public class Configuration {
     /**
      * name of the Hibernate Search module name
      */
-    public static final String PROVIDER_MODULE_HIBERNATE_SEARCH = "org.hibernate.search.orm:main";
+    public static final String PROVIDER_MODULE_HIBERNATE_SEARCH = "org.hibernate.search.orm";
+
 
     private static final String EE_DEFAULT_DATASOURCE = "java:comp/DefaultDataSource";
     // key = provider class name, value = module name
@@ -183,13 +208,13 @@ public class Configuration {
     static {
         // always choose the default hibernate version for the Hibernate provider class mapping
         // if the user wants a different version. they can specify the provider module name
-        providerClassToModuleName.put(PROVIDER_CLASS_HIBERNATE, PROVIDER_MODULE_HIBERNATE4_3);
+        providerClassToModuleName.put(PROVIDER_CLASS_HIBERNATE, PROVIDER_MODULE_HIBERNATE);
         // WFLY-2136/HHH-8543 to make migration to Hibernate 4.3.x easier, we also map the (now)
         // deprecated PROVIDER_CLASS_HIBERNATE4_1 to the org.hibernate:main module
         // when PROVIDER_CLASS_HIBERNATE4_1 is no longer in a future Hibernate version (5.x?)
         // we can map PROVIDER_CLASS_HIBERNATE4_1 to org.hibernate:4.3 at that time.
         // persistence units can set "jboss.as.jpa.providerModule=org.hibernate:4.1" to use Hibernate 4.1.x/4.2.x
-        providerClassToModuleName.put(PROVIDER_CLASS_HIBERNATE4_1, PROVIDER_MODULE_HIBERNATE4_3);
+        providerClassToModuleName.put(PROVIDER_CLASS_HIBERNATE4_1, PROVIDER_MODULE_HIBERNATE);
         providerClassToModuleName.put(PROVIDER_CLASS_HIBERNATE_OGM, PROVIDER_MODULE_HIBERNATE_OGM);
         providerClassToModuleName.put(PROVIDER_CLASS_TOPLINK_ESSENTIALS, PROVIDER_MODULE_TOPLINK);
         providerClassToModuleName.put(PROVIDER_CLASS_TOPLINK, PROVIDER_MODULE_TOPLINK);
@@ -224,12 +249,20 @@ public class Configuration {
         if (pu.getProperties().containsKey(Configuration.JPA_CONTAINER_CLASS_TRANSFORMER)) {
             result = Boolean.parseBoolean(pu.getProperties().getProperty(Configuration.JPA_CONTAINER_CLASS_TRANSFORMER));
         }
-        else if (provider == null
-            || provider.equals(Configuration.PROVIDER_CLASS_HIBERNATE)) {
-            String useHibernateClassEnhancer = pu.getProperties().getProperty("hibernate.ejb.use_class_enhancer");
-            result = "true".equals(useHibernateClassEnhancer);
+        else if (isHibernateProvider(provider)) {
+            result = (Boolean.TRUE.toString().equals(pu.getProperties().getProperty(HIBERNATE_USE_CLASS_ENHANCER))
+                    || Boolean.TRUE.toString().equals(pu.getProperties().getProperty(HIBERNATE_ENABLE_DIRTY_TRACKING))
+                    || Boolean.TRUE.toString().equals(pu.getProperties().getProperty(HIBERNATE_ENABLE_LAZY_INITIALIZATION))
+                    || Boolean.TRUE.toString().equals(pu.getProperties().getProperty(HIBERNATE_ENABLE_ASSOCIATION_MANAGEMENT)));
         }
         return result;
+    }
+
+    private static boolean isHibernateProvider(String provider) {
+        return provider == null ||
+                PROVIDER_CLASS_HIBERNATE.equals(provider) ||
+                PROVIDER_CLASS_HIBERNATE_OGM.equals(provider) ||
+                PROVIDER_CLASS_HIBERNATE4_1.equals(provider);
     }
 
     // key = provider class name, value = adapter module name
@@ -266,6 +299,20 @@ public class Configuration {
     }
 
     /**
+     * Determine if persistence unit can use application defined DataSource (e.g. DataSourceDefinition or resource ref).
+     *
+     * @param pu
+     * @return true if application defined DataSource can be used, false (default) if not.
+     */
+    public static boolean allowApplicationDefinedDatasource(PersistenceUnitMetadata pu) {
+        boolean result = false;
+        if (pu.getProperties().containsKey(Configuration.JPA_ALLOW_APPLICATION_DEFINED_DATASOURCE)) {
+            result = Boolean.parseBoolean(pu.getProperties().getProperty(Configuration.JPA_ALLOW_APPLICATION_DEFINED_DATASOURCE));
+        }
+        return result;
+    }
+
+    /**
      * Determine if the default data-source should be used
      *
      * @param pu
@@ -281,7 +328,7 @@ public class Configuration {
 
     /**
      * Return true if detaching of managed entities should be deferred until the entity manager is closed.
-     * Note:  only applies to transaction scoped entity managers used without an active JTA transaction.
+     * Note:  only applies to transaction scoped entity managers used without an active Jakarta Transactions transaction.
      *
      * @param properties
      * @return
@@ -293,6 +340,20 @@ public class Configuration {
         return result;
     }
 
+    /**
+     * Return true if detaching of query results (entities) should be deferred until the entity manager is closed.
+     * Note:  only applies to transaction scoped entity managers used without an active Jakarta Transactions transaction.
+     *
+     * @param properties
+     * @return
+     */
+    public static boolean skipQueryDetach(final Map<String, Object> properties) {
+        boolean result = false;
+        if ( properties.containsKey(JPA_SKIP_QUERY_DETACH))
+            result = Boolean.parseBoolean((String)properties.get(JPA_SKIP_QUERY_DETACH));
+        return result;
+    }
+
     public static String getScopedPersistenceUnitName(PersistenceUnitMetadata pu) {
 
         Object name = pu.getProperties().get(JPA_SCOPED_PERSISTENCE_UNIT_NAME);
@@ -301,4 +362,46 @@ public class Configuration {
         }
         return null;
     }
+
+    /**
+     * Allow the mixed synchronization checking to be skipped for backward compatibility with WildFly 10.1.0
+     *
+     *
+     * @param emf
+     * @param targetEntityManagerProperties
+     * @return
+     */
+    public static boolean skipMixedSynchronizationTypeCheck(EntityManagerFactory emf, Map targetEntityManagerProperties) {
+        boolean result = false;
+        // EntityManager properties will take priority over persistence.xml level (emf) properties
+        if(targetEntityManagerProperties != null && targetEntityManagerProperties.containsKey(SKIPMIXEDSYNCTYPECHECKING)) {
+            result = Boolean.parseBoolean((String) targetEntityManagerProperties.get(SKIPMIXEDSYNCTYPECHECKING));
+        }
+        else if(emf.getProperties() != null && emf.getProperties().containsKey(SKIPMIXEDSYNCTYPECHECKING)) {
+            result = Boolean.parseBoolean((String) emf.getProperties().get(SKIPMIXEDSYNCTYPECHECKING));
+        }
+        return result;
+    }
+
+    /**
+     * Allow an unsynchronized persistence context that is joined to the transaction, be treated the same as a synchronized
+     * persistence context, with respect to the checking for mixed unsync/sync types.
+     *
+     *
+     * @param emf
+     * @param targetEntityManagerProperties
+     * @return
+     */
+    public static boolean allowJoinedUnsyncPersistenceContext(EntityManagerFactory emf, Map targetEntityManagerProperties) {
+        boolean result = false;
+        // EntityManager properties will take priority over persistence.xml (emf) properties
+        if(targetEntityManagerProperties != null && targetEntityManagerProperties.containsKey(ALLOWJOINEDUNSYNCPC)) {
+            result = Boolean.parseBoolean((String) targetEntityManagerProperties.get(ALLOWJOINEDUNSYNCPC));
+        }
+        else if(emf.getProperties() != null && emf.getProperties().containsKey(ALLOWJOINEDUNSYNCPC)) {
+            result = Boolean.parseBoolean((String) emf.getProperties().get(ALLOWJOINEDUNSYNCPC));
+        }
+        return result;
+    }
+
 }

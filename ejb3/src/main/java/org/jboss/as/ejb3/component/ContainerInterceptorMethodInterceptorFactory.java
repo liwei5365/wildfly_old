@@ -34,11 +34,11 @@ import java.lang.reflect.Method;
 
 /**
  * An {@link InterceptorFactory} responsible for creating {@link Interceptor} instance corresponding to a <code>container-interceptor</code>
- * applicable for an EJB
+ * applicable for an Jakarta Enterprise Beans
  *
  * @author Jaikiran Pai
  */
-final class ContainerInterceptorMethodInterceptorFactory implements InterceptorFactory {
+public final class ContainerInterceptorMethodInterceptorFactory implements InterceptorFactory {
     private final ManagedReference interceptorInstanceRef;
     private final Method method;
 
@@ -46,7 +46,7 @@ final class ContainerInterceptorMethodInterceptorFactory implements InterceptorF
      * @param interceptorInstanceRef The managed reference to the container-interceptor instance
      * @param method                 The method for which the interceptor has to be created
      */
-    ContainerInterceptorMethodInterceptorFactory(final ManagedReference interceptorInstanceRef, final Method method) {
+    public ContainerInterceptorMethodInterceptorFactory(final ManagedReference interceptorInstanceRef, final Method method) {
         this.interceptorInstanceRef = interceptorInstanceRef;
         this.method = method;
     }

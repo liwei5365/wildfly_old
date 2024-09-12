@@ -21,9 +21,12 @@
  */
 package org.jboss.as.test.integration.ee.injection.support.servlet;
 
+import static org.wildfly.common.Assert.checkNotNullParam;
+
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import javax.servlet.ReadListener;
@@ -37,10 +40,7 @@ public class TestReadListener implements ReadListener {
     private final TestHttpUpgradeHandler handler;
 
     public TestReadListener(TestHttpUpgradeHandler handler) {
-        if (handler == null) {
-            throw new IllegalArgumentException("No upgrade handler set");
-        }
-        this.handler = handler;
+        this.handler = checkNotNullParam("handler", handler);
     }
 
     @Override
@@ -49,23 +49,21 @@ public class TestReadListener implements ReadListener {
         ServletInputStream input = handler.getWebConnection().getInputStream();
 
         int len = -1;
-        byte b[] = new byte[1024];
+        byte[] b = new byte[1024];
 
         if (input.isReady()) {
             // Expected data is "dummy request#"
             len = input.read(b);
             if (len > 0) {
-                String data = new String(b, 0, len);
+                String data = new String(b, 0, len, StandardCharsets.UTF_8);
                 if (data.endsWith("#")) {
-                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(handler.getWebConnection().getOutputStream()));
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(handler.getWebConnection().getOutputStream(), StandardCharsets.UTF_8));
                     writeLine(writer, "isPostConstructCallbackInvoked: " + handler.isPostConstructCallbackInvoked());
                     writeLine(writer, "isInjectionOk: " + handler.isInjectionOk());
                     writeLine(writer, "isInterceptorInvoked: " + isInterceptorInvoked());
                     writeLine(writer, "END");
                     writer.flush();
                 }
-            } else {
-                System.out.println("Data length: " + len);
             }
         }
     }

@@ -48,7 +48,7 @@ public class BinderService implements Service<ManagedReferenceFactory> {
     private final InjectedValue<ServiceBasedNamingStore> namingStoreValue = new InjectedValue<ServiceBasedNamingStore>();
     private final String name;
     private final InjectedValue<ManagedReferenceFactory> managedReferenceFactory = new InjectedValue<ManagedReferenceFactory>();
-    private final Object source;
+    private volatile Object source;
     private final AtomicInteger refcnt;
     private volatile ServiceController<?> controller;
 
@@ -87,16 +87,26 @@ public class BinderService implements Service<ManagedReferenceFactory> {
         return source;
     }
 
+    public void setSource(Object source) {
+        this.source = source;
+    }
+
     public void acquire() {
         if (refcnt != null) {
             refcnt.incrementAndGet();
         }
     }
 
-    public void release() {
+    /**
+     * Releases the service, returns <code>true</code> if the service is removed as a result, or false otherwise
+     * @return
+     */
+    public boolean release() {
         if (refcnt != null && refcnt.decrementAndGet() <= 0 && controller != null) {
             controller.setMode(ServiceController.Mode.REMOVE);
+            return true;
         }
+        return false;
     }
 
     public ServiceName getServiceName() {
@@ -161,4 +171,7 @@ public class BinderService implements Service<ManagedReferenceFactory> {
         return "BinderService[name=" + name + ", source=" + source + ", refcnt=" + (refcnt != null ? refcnt.get() : "n/a") +"]";
     }
 
+    public String getName() {
+        return name;
+    }
 }

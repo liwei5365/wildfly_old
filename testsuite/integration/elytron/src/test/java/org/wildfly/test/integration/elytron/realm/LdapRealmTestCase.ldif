@@ -1,0 +1,73 @@
+dn: ou=People,dc=jboss,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: People
+
+dn: uid=userWithMoreRoles,ou=People,dc=jboss,dc=org
+objectclass: top
+objectclass: person
+objectClass: inetOrgPerson
+uid: userWithMoreRoles
+cn: User With More Roles
+sn: More Roles
+userPassword: Password1
+
+dn: uid=userWithOneRole,ou=People,dc=jboss,dc=org
+objectClass: top
+objectClass: person
+objectClass: inetOrgPerson
+cn: User With One Role
+sn: One Role
+uid: userWithOneRole
+userPassword: Password1
+
+dn: uid=ssha512UserCharset,ou=People,dc=jboss,dc=org
+objectClass: top
+objectClass: person
+objectClass: inetOrgPerson
+cn: ssha512UserCharset
+sn: ssha512UserCharset
+uid: ssha512UserCharset
+userPassword:: e3NzaGE1MTJ9QUcvNmJGQWZFbmhiZUl3UHdjWjg4TjVkeEhMZGR2VXUxeEhVTlRXMXFqaTNuc0VmWGNQV3BZcVFib2NhRmh3cnpaUUc5OEhla0dMY1NMN09WTEowNEkzM0Y5anRaamRxMzRQemVRdGFHTG89
+# Password password密码 using a the GB2312 character set
+
+dn: uid=cryptUserCharsetHex,ou=People,dc=jboss,dc=org
+objectClass: top
+objectClass: person
+objectClass: inetOrgPerson
+cn: cryptUserCharsetHex
+sn: cryptUserCharsetHex
+uid: cryptUserCharsetHex
+userPassword: {crypt}XQ8317569289fa78a2
+# Password password密码 using a the GB2312 character set
+
+dn: uid=userWithoutRole,ou=People,dc=jboss,dc=org
+objectClass: top
+objectClass: person
+objectClass: inetOrgPerson
+cn: User Without Role
+sn: Without Role
+uid: userWithoutRole
+userPassword: Password1
+
+dn: ou=Roles,dc=jboss,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: Roles
+
+dn: cn=JBossAdmin,ou=Roles,dc=jboss,dc=org
+objectClass: top
+objectClass: groupOfNames
+cn: JBossAdmin
+description: the JBossAdmin group
+member: uid=userWithMoreRoles,ou=People,dc=jboss,dc=org
+member: uid=userWithOneRole,ou=People,dc=jboss,dc=org
+member: uid=ssha512UserCharset,ou=People,dc=jboss,dc=org
+member: uid=cryptUserCharsetHex,ou=People,dc=jboss,dc=org
+
+dn: cn=TheDuke,ou=Roles,dc=jboss,dc=org
+objectClass: groupOfNames
+objectClass: top
+cn: TheDuke
+description: the duke role
+member: uid=userWithMoreRoles,ou=People,dc=jboss,dc=org

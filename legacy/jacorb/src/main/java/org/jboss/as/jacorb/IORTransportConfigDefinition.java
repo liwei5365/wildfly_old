@@ -28,10 +28,9 @@ import java.util.Collections;
 import java.util.List;
 
 import org.jboss.as.controller.AttributeDefinition;
-import org.jboss.as.controller.OperationContext;
-import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.PersistentResourceDefinition;
+import org.jboss.as.controller.ReloadRequiredAddStepHandler;
 import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
@@ -39,9 +38,7 @@ import org.jboss.as.controller.access.management.AccessConstraintDefinition;
 import org.jboss.as.controller.operations.validation.EnumValidator;
 import org.jboss.as.controller.operations.validation.ParameterValidator;
 import org.jboss.as.controller.registry.AttributeAccess;
-import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
-import org.jboss.metadata.ejb.jboss.IORTransportConfigMetaData;
 
 /**
  * <p>
@@ -55,12 +52,9 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final ParameterValidator VALIDATOR = new EnumValidator<IORTransportConfigValues>(
             IORTransportConfigValues.class, true, true);
 
-    static final ModelNode DEFAULT_VALUE = new ModelNode(IORTransportConfigValues.NONE.toString());
-
     static final AttributeDefinition INTEGRITY =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_INTEGRITY, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(VALIDATOR)
                     .setAllowExpression(true)
                     .build();
@@ -68,7 +62,6 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final AttributeDefinition CONFIDENTIALITY =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_CONFIDENTIALITY, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(VALIDATOR)
                     .setAllowExpression(true)
                     .build();
@@ -76,7 +69,6 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final AttributeDefinition TRUST_IN_TARGET =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_TRUST_IN_TARGET, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(new EnumValidator<IORTransportConfigValues>(IORTransportConfigValues.class, true, true,
                             IORTransportConfigValues.NONE, IORTransportConfigValues.SUPPORTED))
                     .setAllowExpression(true)
@@ -85,7 +77,6 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final AttributeDefinition TRUST_IN_CLIENT =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_TRUST_IN_CLIENT, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(VALIDATOR)
                     .setAllowExpression(true)
                     .build();
@@ -93,7 +84,6 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final AttributeDefinition DETECT_REPLAY =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_DETECT_REPLAY, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(VALIDATOR)
                     .setAllowExpression(true)
                     .build();
@@ -101,7 +91,6 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
     static final SimpleAttributeDefinition DETECT_MISORDERING =
             new SimpleAttributeDefinitionBuilder(JacORBSubsystemConstants.IOR_TRANSPORT_DETECT_MISORDERING, ModelType.STRING, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(DEFAULT_VALUE)
                     .setValidator(VALIDATOR)
                     .setAllowExpression(true)
                     .build();
@@ -143,31 +132,5 @@ class IORTransportConfigDefinition extends PersistentResourceDefinition {
         public String toString() {
             return this.name;
         }
-    }
-
-    /**
-     * <p>
-     * Builds a {@code IORTransportConfigMetaData} using the specified {@code OperationContext} and {@code ModelNode}.
-     * </p>
-     *
-     * @param context a reference to the {@code OperationContext}.
-     * @param model a {@code ModelNode} containing the configured transport metadata.
-     * @return the constructed {@code IORTransportConfigMetaData} or {@code null} if the specified model is undefined.
-     * @throws OperationFailedException if an error occurs while creating the transport metadata,
-     */
-    protected IORTransportConfigMetaData getTransportConfigMetaData(final OperationContext context, final ModelNode model)
-            throws OperationFailedException {
-
-        if (!model.isDefined())
-            return null;
-
-        IORTransportConfigMetaData metaData = new IORTransportConfigMetaData();
-        metaData.setIntegrity(INTEGRITY.resolveModelAttribute(context, model).asString());
-        metaData.setConfidentiality(CONFIDENTIALITY.resolveModelAttribute(context, model).asString());
-        metaData.setEstablishTrustInTarget(TRUST_IN_TARGET.resolveModelAttribute(context, model).asString());
-        metaData.setEstablishTrustInClient(TRUST_IN_CLIENT.resolveModelAttribute(context, model).asString());
-        metaData.setDetectMisordering(DETECT_MISORDERING.resolveModelAttribute(context, model).asString());
-        metaData.setDetectReplay(DETECT_REPLAY.resolveModelAttribute(context, model).asString());
-        return metaData;
     }
 }

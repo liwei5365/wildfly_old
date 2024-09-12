@@ -24,9 +24,12 @@ package org.jboss.as.test.integration.ejb.mdb.cdi;
 
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 
+import java.io.IOException;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.PropertyPermission;
 
 import javax.naming.Context;
 import javax.naming.InitialContext;
@@ -37,15 +40,20 @@ import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
+import org.jboss.as.controller.operations.common.Util;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
 import org.jboss.as.test.integration.ejb.mdb.JMSMessagingUtil;
 import org.jboss.as.test.integration.jca.ear.RarInsideEarReDeploymentTestCase;
 import org.jboss.as.test.integration.jca.rar.MultipleAdminObject1;
+import org.jboss.as.test.integration.management.ManagementOperations;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
 import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
 import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.shared.TestSuiteEnvironment;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
@@ -63,16 +71,16 @@ import org.junit.runner.RunWith;
 
 /**
  * Tests that the CDI request scope is active in MDB invocations.
- * 
+ *
  * @author baranowb
  */
 @RunWith(Arquillian.class)
 @ServerSetup({ MDBRAScopeCdiIntegrationTestCase.JmsQueueSetup.class })
 public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestBase {
 
-    public final static String testDeploymentName = "test.jar";
-    public final static String deploymentName = "test-ear.ear";
-    public final static String subDeploymentName = "ear_packaged.rar";
+    public static final String testDeploymentName = "test.jar";
+    public static final String deploymentName = "test-ear.ear";
+    public static final String subDeploymentName = "ear_packaged.rar";
 
     private ModelNode raAddress_subdeployment;
     private ModelNode raAddress_regular;
@@ -104,8 +112,15 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
         setupSubdeployedRA();
     }
 
+    @Override
+    protected void remove(ModelNode address) throws IOException, MgmtOperationException {
+        ModelNode operation = Util.createRemoveOperation(PathAddress.pathAddress(address));
+        operation.get(ModelDescriptionConstants.OPERATION_HEADERS, ModelDescriptionConstants.ALLOW_RESOURCE_SERVICE_RESTART).set(true);
+        ManagementOperations.executeOperation(getModelControllerClient(), operation);
+    }
+
     /**
-     * 
+     *
      */
     private void setupSubdeployedRA() throws Exception {
         // since it is created after deployment it needs activation
@@ -117,7 +132,7 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
     }
 
     /**
-     * 
+     *
      */
     private void setupStandaloneRA() throws Exception {
         raAddress_regular = new ModelNode();
@@ -168,8 +183,8 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
         ResourceAdapterArchive raa = createRAR();
         JavaArchive ejbJar = ShrinkWrap.create(JavaArchive.class, "xxx-ejbs.jar");
         ejbJar.addClasses(/* MDBRAScopeCdiIntegrationTestCase.class, */CdiIntegrationMDB.class, RequestScopedCDIBean.class,
-                MDBProxy.class, MDBProxyBean.class, JMSMessagingUtil.class, JmsQueueSetup.class).addPackage(
-                JMSOperations.class.getPackage());
+                MDBProxy.class, MDBProxyBean.class, JMSMessagingUtil.class, JmsQueueSetup.class, TimeoutUtil.class)
+                .addPackage(JMSOperations.class.getPackage());
         ejbJar.addAsManifestResource(new StringAsset(
                 "Dependencies: org.jboss.as.controller-client, org.jboss.as.controller, org.jboss.dmr \n"), "MANIFEST.MF");
         ejbJar.addAsManifestResource(EmptyAsset.INSTANCE, "beans.xml");
@@ -177,6 +192,8 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
         final EnterpriseArchive ear = ShrinkWrap.create(EnterpriseArchive.class, deploymentName);
         ear.addAsModule(raa);
         ear.addAsModule(ejbJar);
+        ear.addAsManifestResource(createPermissionsXmlAsset(
+                new PropertyPermission(TimeoutUtil.FACTOR_SYS_PROP, "read")), "permissions.xml");
         return ear;
     }
 
@@ -194,7 +211,7 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
         raa.addAsManifestResource(RarInsideEarReDeploymentTestCase.class.getPackage(), "ra.xml", "ra.xml")
                 .addAsManifestResource(
                         new StringAsset(
-                                "Dependencies: org.jboss.as.controller-client, org.jboss.as.controller, org.jboss.dmr,org.jboss.as.cli\n"),
+                                "Dependencies: org.jboss.as.controller-client, org.jboss.as.controller, org.jboss.dmr\n"),
                         "MANIFEST.MF");
 
         return raa;
@@ -238,7 +255,7 @@ public class MDBRAScopeCdiIntegrationTestCase extends ContainerResourceMgmtTestB
         final Hashtable env = new Hashtable();
         env.put(Context.URL_PKG_PREFIXES, "org.jboss.ejb.client.naming");
         env.put(Context.INITIAL_CONTEXT_FACTORY, org.jboss.naming.remote.client.InitialContextFactory.class.getName());
-        env.put(Context.PROVIDER_URL, "remote://" + TestSuiteEnvironment.getServerAddress() + ":" + 4447);
+        env.put(Context.PROVIDER_URL, "remote+http://" + TestSuiteEnvironment.getServerAddress() + ":" + 8080);
         return new InitialContext(env);
     }
 }

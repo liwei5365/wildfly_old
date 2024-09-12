@@ -30,6 +30,7 @@ import com.arjuna.mw.wst11.UserTransaction;
 import com.arjuna.mw.wst11.UserTransactionFactory;
 import com.arjuna.wst.TransactionRolledBackException;
 
+import org.apache.commons.lang.SystemUtils;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 
@@ -44,6 +45,13 @@ import org.jboss.as.test.xts.wsat.service.ATService2;
 import org.jboss.as.test.xts.wsat.service.ATService3;
 
 import static org.jboss.as.test.xts.util.ServiceCommand.*;
+
+import java.io.File;
+import java.io.FilePermission;
+import java.lang.reflect.ReflectPermission;
+import java.util.PropertyPermission;
+
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 import static org.jboss.as.test.xts.util.EventLogEvent.*;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -62,12 +70,12 @@ public class ATTestCase extends BaseFunctionalTest {
 
     private UserTransaction ut;
     private AT client1, client2, client3;
-    
+
     public static final String ARCHIVE_NAME = "wsat-test";
 
     @Inject
     EventLog eventLog;
-    
+
     @Deployment
     public static WebArchive createTestArchive() {
         final WebArchive archive = DeploymentHelper.getInstance().getWebArchiveWithPermissions(ARCHIVE_NAME)
@@ -78,6 +86,29 @@ public class ATTestCase extends BaseFunctionalTest {
                 // needed to setup the server-side handler chain
                 .addAsResource("context-handlers.xml")
                 .addAsManifestResource(new StringAsset("Dependencies: org.jboss.xts,org.jboss.jts\n"), "MANIFEST.MF");
+        if (SystemUtils.JAVA_VENDOR.startsWith("IBM")) {
+                archive.addAsManifestResource(
+                        createPermissionsXmlAsset(
+                                //This is not catastrophic if absent
+                                ///.../testsuite/integration/xts/xcatalog
+                                //$JAVA_HOME/jre/conf/jaxm.properties
+                                //$JAVA_HOME/jre/lib/jaxws.properties
+                                //$JAVA_HOME/jre/conf/jaxws.properties
+                                new FilePermission(System.getProperties().getProperty("jbossas.ts.integ.dir") + File.separator + "xts" + File.separator
+                                        + "xcatalog", "read"),
+                                new FilePermission(System.getenv().get("JAVA_HOME") + File.separator + "jre" + File.separator
+                                        + "conf" + File.separator + "jaxm.properties", "read"),
+                                new FilePermission(System.getenv().get("JAVA_HOME") + File.separator + "jre" + File.separator
+                                        + "conf" + File.separator + "jaxws.properties", "read"),
+                                new FilePermission(System.getenv().get("JAVA_HOME") + File.separator + "jre" + File.separator
+                                        + "lib" + File.separator + "jaxws.properties", "read"),
+                                new ReflectPermission("suppressAccessChecks"),
+                                new RuntimePermission("accessDeclaredMembers"),
+                                new RuntimePermission("accessClassInPackage.com.sun.org.apache.xerces.internal.jaxp"),
+                                new PropertyPermission("arquillian.debug", "read"),
+                                new PropertyPermission("node0", "read")),
+                        "permissions.xml");
+        }
         return archive;
     }
 
@@ -92,7 +123,7 @@ public class ATTestCase extends BaseFunctionalTest {
     protected EventLog getEventLog() {
         return eventLog;
     }
-    
+
     @After
     public void teardownTest() throws Exception {
         getEventLog().clear();
@@ -149,7 +180,7 @@ public class ATTestCase extends BaseFunctionalTest {
             throw e;
         }
     }
-    
+
     @Test(expected = TransactionRolledBackException.class)
     public void testWSATVoteRollbackPrePrepare() throws Exception {
         try {
@@ -189,7 +220,7 @@ public class ATTestCase extends BaseFunctionalTest {
         client2.invoke(VOTE_READONLY_DURABLE); // durable for COMMIT
         client3.invoke(VOTE_READONLY_DURABLE, VOTE_READONLY_VOLATILE);
         ut.commit();
-    
+
         assertEventLogClient1(BEFORE_PREPARE, PREPARE, COMMIT);
         assertEventLogClient2(BEFORE_PREPARE, PREPARE, VOLATILE_COMMIT);
         assertEventLogClient3(BEFORE_PREPARE, PREPARE);
@@ -213,7 +244,7 @@ public class ATTestCase extends BaseFunctionalTest {
         assertEventLogClient2(ROLLBACK, VOLATILE_ROLLBACK);
         assertEventLogClient3(ROLLBACK, VOLATILE_ROLLBACK);
     }
-    
+
     @Test
     public void testWSATApplicationExceptionCommit() throws Exception {
         try {
@@ -232,16 +263,18 @@ public class ATTestCase extends BaseFunctionalTest {
         assertEventLogClient2(BEFORE_PREPARE, PREPARE, COMMIT, VOLATILE_COMMIT);
         assertEventLogClient3(BEFORE_PREPARE, PREPARE, COMMIT, VOLATILE_COMMIT);
     }
-    
-    
+
+
     // --- assert methods
     // --- they take event log names from the service called by particular client
     private void assertEventLogClient1(EventLogEvent... expectedOrder) {
         assertEventLog(ATService1.LOG_NAME, expectedOrder);
     }
+
     private void assertEventLogClient2(EventLogEvent... expectedOrder) {
         assertEventLog(ATService2.LOG_NAME, expectedOrder);
     }
+
     private void assertEventLogClient3(EventLogEvent... expectedOrder) {
         assertEventLog(ATService3.LOG_NAME, expectedOrder);
     }

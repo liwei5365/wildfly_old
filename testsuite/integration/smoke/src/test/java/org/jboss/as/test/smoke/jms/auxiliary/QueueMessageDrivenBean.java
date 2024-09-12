@@ -34,7 +34,7 @@ import javax.jms.MessageListener;
 import javax.jms.TextMessage;
 
 /**
- * Auxiliary class for JMS smoke tests - receives messages from a queue and fires events afterwards
+ * Auxiliary class for Jakarta Messaging smoke tests - receives messages from a queue and fires events afterwards
  *
  * @author <a href="jmartisk@redhat.com">Jan Martiska</a>
  */
@@ -54,7 +54,7 @@ public class QueueMessageDrivenBean implements MessageListener {
 
     public void onMessage(Message message) {
         try {
-            logger.info("message " + ((TextMessage) message).getText() + " received! Sending event.");
+            logger.trace("message " + ((TextMessage) message).getText() + " received! Sending event.");
         } catch (JMSException e) {
             e.printStackTrace();
         }

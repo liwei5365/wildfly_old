@@ -25,10 +25,10 @@ package org.jboss.as.ejb3.deployment.processors;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLResolver;
 import javax.xml.stream.XMLStreamException;
@@ -39,15 +39,16 @@ import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.ee.metadata.MetadataCompleteMarker;
 import org.jboss.as.ee.structure.JBossDescriptorPropertyReplacement;
 import org.jboss.as.ee.structure.SpecDescriptorPropertyReplacement;
-import org.jboss.as.ejb3.clustering.EJBBoundClusteringMetaDataParser11;
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.cache.EJBBoundCacheParser;
+import org.jboss.as.ejb3.clustering.ClusteringSchema;
 import org.jboss.as.ejb3.clustering.EJBBoundClusteringMetaDataParser;
 import org.jboss.as.ejb3.deliveryactive.parser.EJBBoundMdbDeliveryMetaDataParser;
 import org.jboss.as.ejb3.deliveryactive.parser.EJBBoundMdbDeliveryMetaDataParser11;
+import org.jboss.as.ejb3.deliveryactive.parser.EJBBoundMdbDeliveryMetaDataParser12;
 import org.jboss.as.ejb3.deployment.EjbDeploymentAttachmentKeys;
 import org.jboss.as.ejb3.deployment.EjbJarDescription;
 import org.jboss.as.ejb3.interceptor.ContainerInterceptorsParser;
+import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.pool.EJBBoundPoolParser;
 import org.jboss.as.ejb3.resourceadapterbinding.parser.EJBBoundResourceAdapterBindingMetaDataParser;
 import org.jboss.as.ejb3.security.parser.EJBBoundSecurityMetaDataParser;
@@ -66,7 +67,9 @@ import org.jboss.metadata.ejb.parser.jboss.ejb3.JBossEjb3MetaDataParser;
 import org.jboss.metadata.ejb.parser.jboss.ejb3.TransactionTimeoutMetaDataParser;
 import org.jboss.metadata.ejb.parser.spec.AbstractMetaDataParser;
 import org.jboss.metadata.ejb.parser.spec.EjbJarMetaDataParser;
+import org.jboss.metadata.ejb.spec.AbstractEnterpriseBeanMetaData;
 import org.jboss.metadata.ejb.spec.EjbJarMetaData;
+import org.jboss.metadata.ejb.spec.EjbType;
 import org.jboss.metadata.parser.util.MetaDataElementParser;
 import org.jboss.vfs.VirtualFile;
 
@@ -135,7 +138,7 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
         EjbDeploymentMarker.mark(deploymentUnit);
         if (!deploymentUnit.hasAttachment(EjbDeploymentAttachmentKeys.EJB_JAR_DESCRIPTION)) {
             final EEModuleDescription moduleDescription = deploymentUnit.getAttachment(org.jboss.as.ee.component.Attachments.EE_MODULE_DESCRIPTION);
-            final EjbJarDescription ejbModuleDescription = new EjbJarDescription(moduleDescription, applicationClassesDescription, deploymentUnit.getName().endsWith(".war"));
+            final EjbJarDescription ejbModuleDescription = new EjbJarDescription(moduleDescription, deploymentUnit.getName().endsWith(".war"));
             deploymentUnit.putAttachment(EjbDeploymentAttachmentKeys.EJB_JAR_DESCRIPTION, ejbModuleDescription);
         }
 
@@ -157,6 +160,26 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
             //EJB spec 20.5.1, we do not process annotations for older deployments
             MetadataCompleteMarker.setMetadataComplete(deploymentUnit, true);
         }
+
+        if(ejbJarMetaData.getEnterpriseBeans() != null) {
+            //check for entity beans
+            StringBuilder beans = new StringBuilder();
+            boolean error = false;
+            for (AbstractEnterpriseBeanMetaData bean : ejbJarMetaData.getEnterpriseBeans()) {
+                if (bean.getEjbType() == EjbType.ENTITY) {
+                    if (!error) {
+                        error = true;
+                    } else {
+                        beans.append(", ");
+                    }
+                    beans.append(bean.getEjbName());
+                }
+            }
+            if (error) {
+                throw EjbLogger.ROOT_LOGGER.entityBeansAreNotSupported(beans.toString());
+            }
+        }
+
     }
 
     /**
@@ -167,14 +190,15 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
 
     }
 
-    private static VirtualFile getDescriptor(final VirtualFile deploymentRoot, final String descriptorName) {
+    private static VirtualFile getDescriptor(final DeploymentUnit deploymentUnit, final VirtualFile deploymentRoot, final String descriptorName) {
+        final String deploymentUnitName = deploymentUnit.getName().toLowerCase(Locale.ENGLISH);
         // Locate the descriptor
         final VirtualFile descriptor;
         // EJB 3.1 FR 20.4 Enterprise Beans Packaged in a .war
-        if (isWar(deploymentRoot)) {
+        if (deploymentUnitName.endsWith(WAR_FILE_EXTENSION)) {
             // it's a .war file, so look for the ejb-jar.xml in WEB-INF
             descriptor = deploymentRoot.getChild(WEB_INF + "/" + descriptorName);
-        } else if (deploymentRoot.getName().toLowerCase(Locale.ENGLISH).endsWith(JAR_FILE_EXTENSION)) {
+        } else if (deploymentUnitName.endsWith(JAR_FILE_EXTENSION)) {
             descriptor = deploymentRoot.getChild(META_INF + "/" + descriptorName);
         } else {
             // neither a .jar nor a .war. Return
@@ -208,11 +232,6 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
         }
     }
 
-    private static boolean isWar(final VirtualFile deploymentRoot) {
-        // TODO: Is there a better way to do this?
-        return deploymentRoot.getName().toLowerCase(Locale.ENGLISH).endsWith(WAR_FILE_EXTENSION);
-    }
-
     private static InputStream open(final VirtualFile file) throws DeploymentUnitProcessingException {
         try {
             return file.openStream();
@@ -232,7 +251,7 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
         if (alternateDescriptor != null) {
             descriptor = alternateDescriptor;
         } else {
-            descriptor = getDescriptor(deploymentRoot.getRoot(), EJB_JAR_XML);
+            descriptor = getDescriptor(deploymentUnit, deploymentRoot.getRoot(), EJB_JAR_XML);
         }
 
         if (descriptor == null) {
@@ -262,7 +281,7 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
         final VirtualFile deploymentRoot = deploymentUnit.getAttachment(Attachments.DEPLOYMENT_ROOT).getRoot();
 
         // Locate the descriptor
-        final VirtualFile descriptor = getDescriptor(deploymentRoot, JBOSS_EJB3_XML);
+        final VirtualFile descriptor = getDescriptor(deploymentUnit, deploymentRoot, JBOSS_EJB3_XML);
         if (descriptor == null) {
             // no descriptor found
             //but there may have been an ejb-jar element in jboss-all.xml
@@ -292,8 +311,9 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
 
     static Map<String, AbstractMetaDataParser<?>> createJbossEjbJarParsers() {
         Map<String, AbstractMetaDataParser<?>> parsers = new HashMap<String, AbstractMetaDataParser<?>>();
-        parsers.put(EJBBoundClusteringMetaDataParser.NAMESPACE_URI_1_0, new EJBBoundClusteringMetaDataParser());
-        parsers.put(EJBBoundClusteringMetaDataParser11.NAMESPACE_URI_1_1, EJBBoundClusteringMetaDataParser11.INSTANCE);
+        for (ClusteringSchema schema : EnumSet.allOf(ClusteringSchema.class)) {
+            parsers.put(schema.getNamespaceUri(), new EJBBoundClusteringMetaDataParser(schema));
+        }
         parsers.put(EJBBoundSecurityMetaDataParser.LEGACY_NAMESPACE_URI, EJBBoundSecurityMetaDataParser.INSTANCE);
         parsers.put(EJBBoundSecurityMetaDataParser.NAMESPACE_URI_1_0, EJBBoundSecurityMetaDataParser.INSTANCE);
         parsers.put(EJBBoundSecurityMetaDataParser11.NAMESPACE_URI_1_1, EJBBoundSecurityMetaDataParser11.INSTANCE);
@@ -303,6 +323,7 @@ public class EjbJarParsingDeploymentUnitProcessor implements DeploymentUnitProce
         parsers.put(EJBBoundResourceAdapterBindingMetaDataParser.NAMESPACE_URI, EJBBoundResourceAdapterBindingMetaDataParser.INSTANCE);
         parsers.put(EJBBoundMdbDeliveryMetaDataParser.NAMESPACE_URI_1_0, EJBBoundMdbDeliveryMetaDataParser.INSTANCE);
         parsers.put(EJBBoundMdbDeliveryMetaDataParser11.NAMESPACE_URI_1_1, EJBBoundMdbDeliveryMetaDataParser11.INSTANCE);
+        parsers.put(EJBBoundMdbDeliveryMetaDataParser12.NAMESPACE_URI_1_2, EJBBoundMdbDeliveryMetaDataParser12.INSTANCE);
         parsers.put("urn:iiop", new IIOPMetaDataParser());
         parsers.put("urn:iiop:1.0", new IIOPMetaDataParser());
         parsers.put("urn:trans-timeout", new TransactionTimeoutMetaDataParser());

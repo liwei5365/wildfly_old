@@ -22,14 +22,14 @@
 package org.jboss.as.security;
 
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.AttributeMarshaller;
+import org.jboss.as.controller.AttributeParser;
 import org.jboss.as.controller.ObjectTypeAttributeDefinition;
-import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PropertiesAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
 /**
@@ -70,9 +70,9 @@ public class JSSEResourceDefinition extends SimpleResourceDefinition {
             .setAllowExpression(true)
             .build();
     static final PropertiesAttributeDefinition ADDITIONAL_PROPERTIES = new PropertiesAttributeDefinition.Builder(Constants.ADDITIONAL_PROPERTIES, true)
-            .setXmlName(Constants.PROPERTY)
             .setAllowExpression(true)
-            .setWrapXmlElement(false)
+            .setAttributeMarshaller(AttributeMarshaller.PROPERTIES_MARSHALLER_UNWRAPPED)
+            .setAttributeParser(AttributeParser.PROPERTIES_PARSER_UNWRAPPED)
             .build();
 
     private static final AttributeDefinition[] ATTRIBUTES = {KEYSTORE, TRUSTSTORE, KEYMANAGER, TRUSTMANAGER, CLIENT_ALIAS, SERVER_ALIAS, SERVICE_AUTH_TOKEN,
@@ -83,26 +83,16 @@ public class JSSEResourceDefinition extends SimpleResourceDefinition {
     private JSSEResourceDefinition() {
         super(SecurityExtension.JSSE_PATH,
                 SecurityExtension.getResourceDescriptionResolver(Constants.JSSE),
-                JSSEResourceDefinitionAdd.INSTANCE,
+                new SecurityDomainReloadAddHandler(ATTRIBUTES),
                 new SecurityDomainReloadRemoveHandler());
         setDeprecated(SecurityExtension.DEPRECATED_SINCE);
     }
 
+    @Override
     public void registerAttributes(final ManagementResourceRegistration resourceRegistration) {
+        SecurityDomainReloadWriteHandler writeHandler = new SecurityDomainReloadWriteHandler(ATTRIBUTES);
         for (AttributeDefinition attr : ATTRIBUTES) {
-            resourceRegistration.registerReadWriteAttribute(attr, null, new SecurityDomainReloadWriteHandler(attr));
-        }
-    }
-
-    static class JSSEResourceDefinitionAdd extends SecurityDomainReloadAddHandler {
-
-        static final JSSEResourceDefinitionAdd INSTANCE = new JSSEResourceDefinitionAdd();
-
-        @Override
-        protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
-            for (AttributeDefinition attr : ATTRIBUTES) {
-                attr.validateAndSet(operation, model);
-            }
+            resourceRegistration.registerReadWriteAttribute(attr, null, writeHandler);
         }
     }
 

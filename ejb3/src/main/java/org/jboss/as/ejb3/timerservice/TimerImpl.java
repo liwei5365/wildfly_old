@@ -23,20 +23,20 @@ package org.jboss.as.ejb3.timerservice;
 
 import java.io.Serializable;
 import java.util.Date;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.Semaphore;
 
 import javax.ejb.EJBException;
 import javax.ejb.ScheduleExpression;
 import javax.ejb.Timer;
 import javax.ejb.TimerHandle;
 
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.component.allowedmethods.AllowedMethodsInformation;
 import org.jboss.as.ejb3.component.allowedmethods.MethodType;
+import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.timerservice.spi.TimedObjectInvoker;
 
 /**
- * Implementation of EJB3.1 {@link Timer}
+ * Implementation of Enterprise Beans 3.1 {@link Timer}
  *
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
  * @version $Revision: $
@@ -117,7 +117,13 @@ public class TimerImpl implements Timer {
      *
      * todo: we can probably just use a sync block here
      */
-    private final ReentrantLock inUseLock = new ReentrantLock();
+    private final Semaphore inUseLock = new Semaphore(1);
+
+    /**
+     * The executing thread which is processing the timeout task This is only set to executing thread for TimerState.IN_TIMEOUT
+     * and TimerState.RETRY_TIMEOUT
+     */
+    private volatile Thread executingThread = null;
 
     /**
      * Creates a {@link TimerImpl}
@@ -146,6 +152,7 @@ public class TimerImpl implements Timer {
         this.timerService = service;
         this.timedObjectInvoker = service.getInvoker();
         this.handle = new TimerHandleImpl(this.id, this.timedObjectInvoker.getTimedObjectId(), service);
+        this.executingThread = null;
     }
 
     /**
@@ -153,7 +160,11 @@ public class TimerImpl implements Timer {
      */
     @Override
     public void cancel() throws IllegalStateException, EJBException {
-        timerService.cancelTimer(this);
+        try {
+            timerService.cancelTimer(this);
+        } catch (InterruptedException e) {
+            throw new EJBException(e);
+        }
     }
 
     /**
@@ -186,9 +197,9 @@ public class TimerImpl implements Timer {
         // make sure it's in correct state
         this.assertTimerState();
 
-        // for non-persistent timers throws an exception (mandated by EJB3 spec)
+        // for non-persistent timers throws an exception (mandated by Enterprise Beans 3 spec)
         if (this.persistent == false) {
-            throw EjbLogger.ROOT_LOGGER.invalidTimerHandlersForPersistentTimers("EJB3.1 Spec 18.2.6");
+            throw EjbLogger.EJB3_TIMER_LOGGER.invalidTimerHandlersForPersistentTimers("Enterprise Beans 3.1 Spec 18.2.6");
         }
         return this.handle;
     }
@@ -253,7 +264,7 @@ public class TimerImpl implements Timer {
         // first check the validity of the timer state
         this.assertTimerState();
         if (this.nextExpiration == null) {
-            throw EjbLogger.ROOT_LOGGER.noMoreTimeoutForTimer(this);
+            throw EjbLogger.EJB3_TIMER_LOGGER.noMoreTimeoutForTimer(this);
         }
         return this.nextExpiration;
     }
@@ -276,7 +287,7 @@ public class TimerImpl implements Timer {
      */
     public void setNextTimeout(Date next) {
         if(next == null) {
-            setTimerState(TimerState.EXPIRED);
+            setTimerState(TimerState.EXPIRED, null);
         }
         this.nextExpiration = next;
     }
@@ -287,7 +298,7 @@ public class TimerImpl implements Timer {
     @Override
     public ScheduleExpression getSchedule() throws IllegalStateException, EJBException {
         this.assertTimerState();
-        throw EjbLogger.ROOT_LOGGER.invalidTimerNotCalendarBaseTimer(this);
+        throw EjbLogger.EJB3_TIMER_LOGGER.invalidTimerNotCalendarBaseTimer(this);
     }
 
     /**
@@ -300,7 +311,7 @@ public class TimerImpl implements Timer {
         // first check the validity of the timer state
         this.assertTimerState();
         if (this.nextExpiration == null) {
-            throw EjbLogger.ROOT_LOGGER.noMoreTimeoutForTimer(this);
+            throw EjbLogger.EJB3_TIMER_LOGGER.noMoreTimeoutForTimer(this);
         }
         long currentTimeInMillis = System.currentTimeMillis();
         long nextTimeoutInMillis = this.nextExpiration.getTime();
@@ -443,20 +454,28 @@ public class TimerImpl implements Timer {
     }
 
     /**
+     * Returns the executing thread which is processing the timeout task
+     *
+     * @return the executingThread
+     */
+    protected Thread getExecutingThread() {
+        return executingThread;
+    }
+
+    /**
      * Asserts that the timer is <i>not</i> in any of the following states:
      * <ul>
      * <li>{@link TimerState#CANCELED}</li>
      * <li>{@link TimerState#EXPIRED}</li>
      * </ul>
      *
-     * @throws javax.ejb.NoSuchObjectLocalException
-     *          if the txtimer was canceled or has expired
+     * @throws javax.ejb.NoSuchObjectLocalException if the txtimer was canceled or has expired
      */
     protected void assertTimerState() {
         if (timerState == TimerState.EXPIRED)
-            throw EjbLogger.ROOT_LOGGER.timerHasExpired();
+            throw EjbLogger.EJB3_TIMER_LOGGER.timerHasExpired(id);
         if (timerState == TimerState.CANCELED)
-            throw EjbLogger.ROOT_LOGGER.timerWasCanceled();
+            throw EjbLogger.EJB3_TIMER_LOGGER.timerWasCanceled(id);
         AllowedMethodsInformation.checkAllowed(MethodType.TIMER_SERVICE_METHOD);
     }
 
@@ -464,9 +483,22 @@ public class TimerImpl implements Timer {
      * Sets the state of this timer
      *
      * @param state The state of this timer
+     * @deprecated Use {@link #setTimerState(TimerState state, Thread thread)} instead.
      */
     public void setTimerState(TimerState state) {
+        setTimerState(state, null);
+    }
+
+    /**
+     * Sets the state and timer task executing thread of this timer
+     *
+     * @param state The state of this timer
+     * @param thread The executing thread which is processing the timeout task
+     */
+    protected void setTimerState(TimerState state, Thread thread) {
+        assert ((state == TimerState.IN_TIMEOUT || state == TimerState.RETRY_TIMEOUT) && thread != null) || thread == null : "Invalid to set timer state " + state + " with executing Thread " + thread;
         this.timerState = state;
+        this.executingThread = thread;
     }
 
     /**
@@ -515,12 +547,12 @@ public class TimerImpl implements Timer {
         return new TimerTask<TimerImpl>(this);
     }
 
-    public void lock() {
-        inUseLock.lock();
+    public void lock() throws InterruptedException {
+        inUseLock.acquire();
     }
 
     public void unlock() {
-        inUseLock.unlock();
+        inUseLock.release();
     }
 
     /**
@@ -567,6 +599,8 @@ public class TimerImpl implements Timer {
             sb.append(this.persistent);
             sb.append(" timerService=");
             sb.append(this.timerService);
+            sb.append(" previousRun=");
+            sb.append(this.previousRun);
             sb.append(" initialExpiration=");
             sb.append(this.initialExpiration);
             sb.append(" intervalDuration(in milli sec)=");

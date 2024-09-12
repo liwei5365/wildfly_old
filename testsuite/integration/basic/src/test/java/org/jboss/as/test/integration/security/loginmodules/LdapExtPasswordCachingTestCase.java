@@ -25,16 +25,13 @@ import static org.junit.Assert.assertEquals;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.naming.Context;
 import javax.security.auth.login.LoginException;
 
-import org.apache.http.client.ClientProtocolException;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.OperateOnDeployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
@@ -65,13 +62,15 @@ import org.junit.runner.RunWith;
  * @author Filip Bogyai
  */
 @RunWith(Arquillian.class)
-@ServerSetup({ LdapExtLDAPServerSetupTask.SystemPropertiesSetup.class, LdapExtLDAPServerSetupTask.class,
-			LdapExtPasswordCachingTestCase.SecurityDomainsSetup.class })
+@ServerSetup({LdapExtLDAPServerSetupTask.SystemPropertiesSetup.class, LdapExtLDAPServerSetupTask.class,
+        LdapExtPasswordCachingTestCase.SecurityDomainsSetup.class})
 @RunAsClient
 @Category(CommonCriteria.class)
 public class LdapExtPasswordCachingTestCase {
 
-    /** The SECURITY_DOMAIN_NAME_PREFIX */
+    /**
+     * The SECURITY_DOMAIN_NAME_PREFIX
+     */
     public static final String SECURITY_DOMAIN_NAME_PREFIX = "test-";
 
     private static Logger LOGGER = Logger.getLogger(LdapExtPasswordCachingTestCase.class);
@@ -107,14 +106,14 @@ public class LdapExtPasswordCachingTestCase {
     }
 
     /**
-    * Creates {@link WebArchive} for {@link #test3(URL)}.
-    *
-    * @return
-    */
-   @Deployment(name = DEP3)
-   public static WebArchive deployment3() {
-       return createWar(SECURITY_DOMAIN_NAME_PREFIX + DEP3);
-   }
+     * Creates {@link WebArchive} for {@link #test3(URL)}.
+     *
+     * @return
+     */
+    @Deployment(name = DEP3)
+    public static WebArchive deployment3() {
+        return createWar(SECURITY_DOMAIN_NAME_PREFIX + DEP3);
+    }
 
     /**
      * Test case for command option {EXT}..
@@ -126,15 +125,16 @@ public class LdapExtPasswordCachingTestCase {
     @OperateOnDeployment(DEP1)
     public void test1(@ArquillianResource URL webAppURL) throws Exception {
 
-    	passwordProvider.resetFileCounter();
-    	assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
-    	checkPrincipal(webAppURL, "jduke");
+        passwordProvider.resetFileCounter();
+        assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
+        checkPrincipal(webAppURL, "jduke");
         assertEquals("Password call 1", 1, passwordProvider.readFileCounter());
 
         checkPrincipal(webAppURL, "jduke");
         assertEquals("Password call 2", 2, passwordProvider.readFileCounter());
 
     }
+
     /**
      * Test case for command option {EXTC}..
      * Password should be stored after first authentication request
@@ -145,16 +145,16 @@ public class LdapExtPasswordCachingTestCase {
     @OperateOnDeployment(DEP2)
     public void test2(@ArquillianResource URL webAppURL) throws Exception {
 
-    	passwordProvider.resetFileCounter();
-    	assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
-    	checkPrincipal(webAppURL, "jduke");
+        passwordProvider.resetFileCounter();
+        assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
+        checkPrincipal(webAppURL, "jduke");
         assertEquals("Password call: 1", 1, passwordProvider.readFileCounter());
 
         checkPrincipal(webAppURL, "jduke");
         assertEquals("Password from cache: 1", 1, passwordProvider.readFileCounter());
 
         long WAIT = 800;
-        Thread.sleep(WAIT);
+        sleep(WAIT);
 
         checkPrincipal(webAppURL, "jduke");
         assertEquals("Password from cache: 1", 1, passwordProvider.readFileCounter());
@@ -164,7 +164,7 @@ public class LdapExtPasswordCachingTestCase {
      * Test case for command option  {EXTC[:expiration_in_millis]}
      * Password should be stored for [:expiration_in_millis] after authentication request
      * and then another call for password is needed
-     *
+     * <p>
      * expiration_in_millis is set to 500 in test
      *
      * @throws Exception
@@ -173,16 +173,16 @@ public class LdapExtPasswordCachingTestCase {
     @OperateOnDeployment(DEP3)
     public void test3(@ArquillianResource URL webAppURL) throws Exception {
 
-    	passwordProvider.resetFileCounter();
-    	assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
-    	checkPrincipal(webAppURL, "jduke");
+        passwordProvider.resetFileCounter();
+        assertEquals("External counter is not reset", 0, passwordProvider.readFileCounter());
+        checkPrincipal(webAppURL, "jduke");
         assertEquals("Password call: 1", 1, passwordProvider.readFileCounter());
 
         checkPrincipal(webAppURL, "jduke");
         assertEquals("Password from cache 1", 1, passwordProvider.readFileCounter());
 
         long WAIT = 800;
-        Thread.sleep(WAIT);
+        sleep(WAIT);
 
         checkPrincipal(webAppURL, "jduke");
         assertEquals("Password call 2", 2, passwordProvider.readFileCounter());
@@ -194,10 +194,22 @@ public class LdapExtPasswordCachingTestCase {
 
     // Private methods -------------------------------------------------------
 
-    private void checkPrincipal(URL webAppURL, String username) throws MalformedURLException,
-    ClientProtocolException, IOException, URISyntaxException, LoginException {
+    /**
+     * Sleep the thread for given time, protected against spurious wakeups.
+     */
+    private void sleep(long millis) throws InterruptedException {
+        long endTime = System.currentTimeMillis() + millis;
+        long sleepTime = millis;
+        while(sleepTime > 0) {
+            Thread.sleep(sleepTime);
+            sleepTime = endTime - System.currentTimeMillis();
+        }
+    }
 
-    	final URL principalPrintingURL = new URL(webAppURL.toExternalForm()
+    private void checkPrincipal(URL webAppURL, String username) throws
+            IOException, URISyntaxException, LoginException {
+
+        final URL principalPrintingURL = new URL(webAppURL.toExternalForm()
                 + PrincipalPrintingServlet.SERVLET_PATH.substring(1));
         final String principal = Utils.makeCallWithBasicAuthn(principalPrintingURL, username, "theduke", 200);
         assertEquals("Unexpected Principal name", username, principal);
@@ -210,15 +222,11 @@ public class LdapExtPasswordCachingTestCase {
      * @return
      */
     private static WebArchive createWar(String securityDomainName) {
-        LOGGER.info("Start deployment for security-domain " + securityDomainName);
         final WebArchive war = ShrinkWrap.create(WebArchive.class, securityDomainName + ".war");
         war.addClasses(PrincipalPrintingServlet.class);
         war.addAsWebInfResource(LdapExtLoginModuleTestCase.class.getPackage(), LdapExtLoginModuleTestCase.class.getSimpleName()
                 + "-web.xml", "web.xml");
         war.addAsWebInfResource(Utils.getJBossWebXmlAsset(securityDomainName), "jboss-web.xml");
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(war.toString(true));
-        }
         return war;
     }
 
@@ -245,37 +253,37 @@ public class LdapExtPasswordCachingTestCase {
                     .loginModules(
                             new SecurityModule.Builder()
                                     .name(LdapExtLoginModule.class.getName())
-                                    .options(getCommonOptions(buildExtCommand(EXT)+LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
+                                    .options(getCommonOptions(buildExtCommand(EXT) + LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
                                     .build())
                     .build();
             final SecurityDomain sd2 = new SecurityDomain.Builder()
-		            .name(SECURITY_DOMAIN_NAME_PREFIX + DEP2)
-		            .loginModules(
-		                    new SecurityModule.Builder()
-		                            .name("org.jboss.security.auth.spi.LdapExtLoginModule")
-		                            .options(getCommonOptions(buildExtCommand(EXTC)+LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
-		                            .build())
-            .build();
+                    .name(SECURITY_DOMAIN_NAME_PREFIX + DEP2)
+                    .loginModules(
+                            new SecurityModule.Builder()
+                                    .name("org.jboss.security.auth.spi.LdapExtLoginModule")
+                                    .options(getCommonOptions(buildExtCommand(EXTC) + LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
+                                    .build())
+                    .build();
             final SecurityDomain sd3 = new SecurityDomain.Builder()
-		            .name(SECURITY_DOMAIN_NAME_PREFIX + DEP3)
-		            .loginModules(
-		                    new SecurityModule.Builder()
-		                            .name("org.jboss.security.auth.spi.LdapExtLoginModule")
-		                            .options(getCommonOptions(buildExtCommand(EXTC500)+LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
-		                            .build())
-		            .build();
-            return new SecurityDomain[] {sd1, sd2, sd3};
+                    .name(SECURITY_DOMAIN_NAME_PREFIX + DEP3)
+                    .loginModules(
+                            new SecurityModule.Builder()
+                                    .name("org.jboss.security.auth.spi.LdapExtLoginModule")
+                                    .options(getCommonOptions(buildExtCommand(EXTC500) + LdapExtLDAPServerSetupTask.SECURITY_CREDENTIALS))
+                                    .build())
+                    .build();
+            return new SecurityDomain[]{sd1, sd2, sd3};
         }
 
         // bindCredential uses extPasswordCommand to retrieve password
-        private Map<String, String> getCommonOptions(String extPasswordCommand ) {
-        	final String secondaryTestAddress = Utils.getSecondaryTestAddress(managementClient);
+        private Map<String, String> getCommonOptions(String extPasswordCommand) {
+            final String secondaryTestAddress = Utils.getSecondaryTestAddress(managementClient);
 
             final Map<String, String> moduleOptions = new HashMap<String, String>();
             moduleOptions.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
             moduleOptions.put(Context.SECURITY_AUTHENTICATION, "simple");
             moduleOptions.put("bindDN", LdapExtLDAPServerSetupTask.SECURITY_PRINCIPAL);
-            moduleOptions.put("bindCredential", extPasswordCommand );
+            moduleOptions.put("bindCredential", extPasswordCommand);
             moduleOptions.put("throwValidateError", "true");
             moduleOptions.put(Context.REFERRAL, "follow");
             moduleOptions.put("baseCtxDN", "ou=People,dc=jboss,dc=org");
@@ -304,21 +312,17 @@ public class LdapExtPasswordCachingTestCase {
             File java = new File(System.getProperty("java.home"), "/bin/java");
             File javaExe = new File(System.getProperty("java.home"), "/bin/java.exe");
             String jre;
-            if( java.exists() )
-               jre = java.getAbsolutePath();
-            else
-               jre = javaExe.getAbsolutePath();
+            if (java.exists()) { jre = java.getAbsolutePath(); } else { jre = javaExe.getAbsolutePath(); }
             // Build the command to run this jre
-            String cmd = jre + " -cp "+ ExternalPasswordProvider.class.getProtectionDomain().getCodeSource().getLocation().getPath()
-            				 + " org.jboss.as.test.integration.security.loginmodules.ExternalPasswordProvider "+passwordProvider.getCounterFile() + " ";
+            String cmd = jre + " -cp " + ExternalPasswordProvider.class.getProtectionDomain().getCodeSource().getLocation().getPath()
+                    + " org.jboss.as.test.integration.security.loginmodules.ExternalPasswordProvider " + passwordProvider.getCounterFile() + " ";
 
-            return "{" + extOption +"}"+cmd;
-         }
+            return "{" + extOption + "}" + cmd;
+        }
     }
 
     @AfterClass
-    public static void cleanup(){
-        System.out.println("doing cleanup");
+    public static void cleanup() {
         passwordProvider.cleanup();
     }
 

@@ -47,6 +47,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 import org.jboss.arquillian.container.test.api.ContainerController;
 import org.jboss.arquillian.container.test.api.Deployer;
@@ -87,7 +88,7 @@ public class WSAttributesChangesTestCase {
 
     @ArquillianResource
     Deployer deployer;
-    
+
     @Deployment(name = DEP_1, testable = false, managed = false)
     public static WebArchive deployment1() {
         WebArchive pojoWar = ShrinkWrap.create(WebArchive.class, DEP_1 + ".war").addClasses(
@@ -112,42 +113,42 @@ public class WSAttributesChangesTestCase {
         performWsdlHostAttributeTest(false);
         performWsdlHostAttributeTest(true);
     }
-    
+
     private void performWsdlHostAttributeTest(boolean checkUpdateWithDeployedEndpoint) throws Exception {
         Assert.assertTrue(containerController.isStarted(DEFAULT_JBOSSAS));
         ManagementClient managementClient = new ManagementClient(TestSuiteEnvironment.getModelControllerClient(),
-                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "http-remoting");
-        
+                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "remote+http");
+
         ModelControllerClient client = managementClient.getControllerClient();
         String initialWsdlHost = null;
         try {
             initialWsdlHost = getAttribute("wsdl-host", client);
-            
+
             final String hostnameA = "foo-host-a";
-            
+
             ModelNode op = createOpNode("subsystem=webservices/", WRITE_ATTRIBUTE_OPERATION);
             op.get(NAME).set("wsdl-host");
             op.get(VALUE).set(hostnameA);
             applyUpdate(client, op, false); //update successful, no need to reload
-            
+
             //now we deploy an endpoint...
             deployer.deploy(DEP_1);
 
             //verify the updated wsdl host is used...
             URL wsdlURL = new URL(managementClient.getWebUri().toURL(), '/' + DEP_1 + "/POJOService?wsdl");
-            checkWsdl(wsdlURL, hostnameA); 
-            
+            checkWsdl(wsdlURL, hostnameA);
+
             if (checkUpdateWithDeployedEndpoint) {
                 final String hostnameB = "foo-host-b";
-                
+
                 ModelNode opB = createOpNode("subsystem=webservices/", WRITE_ATTRIBUTE_OPERATION);
                 opB.get(NAME).set("wsdl-host");
                 opB.get(VALUE).set(hostnameB);
                 applyUpdate(client, opB, true); //update again, but we'll need to reload, as there's an active deployment
-                
+
                 //check the wsdl host is still the one we updated to before
                 checkWsdl(wsdlURL, hostnameA);
-                
+
                 //and check that still applies even if we undeploy and redeploy the endpoint
                 deployer.undeploy(DEP_1);
                 deployer.deploy(DEP_1);
@@ -171,45 +172,45 @@ public class WSAttributesChangesTestCase {
             }
         }
     }
-    
+
     @Test
     public void testWsdlPortChanges() throws Exception {
         performWsdlPortAttributeTest(false);
         performWsdlPortAttributeTest(true);
     }
-    
+
     private void performWsdlPortAttributeTest(boolean checkUpdateWithDeployedEndpoint) throws Exception {
         Assert.assertTrue(containerController.isStarted(DEFAULT_JBOSSAS));
         ManagementClient managementClient = new ManagementClient(TestSuiteEnvironment.getModelControllerClient(),
-                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "http-remoting");
-        
+                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "remote+http");
+
         ModelControllerClient client = managementClient.getControllerClient();
         try {
             final String portA = "55667";
-            
+
             ModelNode op = createOpNode("subsystem=webservices/", WRITE_ATTRIBUTE_OPERATION);
             op.get(NAME).set("wsdl-port");
             op.get(VALUE).set(portA);
             applyUpdate(client, op, false); //update successful, no need to reload
-            
+
             //now we deploy an endpoint...
             deployer.deploy(DEP_2);
 
             //verify the updated wsdl port is used...
             URL wsdlURL = new URL(managementClient.getWebUri().toURL(), '/' + DEP_2 + "/POJOService?wsdl");
-            checkWsdl(wsdlURL, portA); 
-            
+            checkWsdl(wsdlURL, portA);
+
             if (checkUpdateWithDeployedEndpoint) {
                 final String portB = "55668";
-                
+
                 ModelNode opB = createOpNode("subsystem=webservices/", WRITE_ATTRIBUTE_OPERATION);
                 opB.get(NAME).set("wsdl-port");
                 opB.get(VALUE).set(portB);
                 applyUpdate(client, opB, true); //update again, but we'll need to reload, as there's an active deployment
-                
+
                 //check the wsdl port is still the one we updated to before
                 checkWsdl(wsdlURL, portA);
-                
+
                 //and check that still applies even if we undeploy and redeploy the endpoint
                 deployer.undeploy(DEP_2);
                 deployer.deploy(DEP_2);
@@ -240,8 +241,8 @@ public class WSAttributesChangesTestCase {
     private void performWsdlUriSchemeAttributeTest(boolean checkUpdateWithDeployedEndpoint) throws Exception {
         Assert.assertTrue(containerController.isStarted(DEFAULT_JBOSSAS));
         ManagementClient managementClient = new ManagementClient(TestSuiteEnvironment.getModelControllerClient(),
-                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "http-remoting");
-        
+                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "remote+http");
+
         ModelControllerClient client = managementClient.getControllerClient();
         String initialWsdlUriScheme = null;
         try {
@@ -256,7 +257,7 @@ public class WSAttributesChangesTestCase {
             //check if it works for the deployed endpoint url
             checkWSDLUriScheme(client, DEP_1 + ".war", "https");
             deployer.undeploy(DEP_1);
-            
+
             //set wsdl-uri-scheme value to http
             ModelNode op2 = createOpNode("subsystem=webservices/", WRITE_ATTRIBUTE_OPERATION);
             op2.get(NAME).set("wsdl-uri-scheme");
@@ -312,7 +313,7 @@ public class WSAttributesChangesTestCase {
     private void performWsdlPathRewriteRuleAttributeTest(boolean checkUpdateWithDeployedEndpoint) throws Exception {
         Assert.assertTrue(containerController.isStarted(DEFAULT_JBOSSAS));
         ManagementClient managementClient = new ManagementClient(TestSuiteEnvironment.getModelControllerClient(),
-            TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "http-remoting");
+                TestSuiteEnvironment.getServerAddress(), TestSuiteEnvironment.getServerPort(), "remote+http");
 
         ModelControllerClient client = managementClient.getControllerClient();
 
@@ -435,7 +436,7 @@ public class WSAttributesChangesTestCase {
             Assert.assertEquals(200, connection.getResponseCode());
             connection.getInputStream();
 
-            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
             String line;
             while ((line = in.readLine()) != null) {
                 if (line.contains("address location")) {
@@ -448,29 +449,29 @@ public class WSAttributesChangesTestCase {
             connection.disconnect();
         }
     }
-    
+
     private void checkWSDLUriScheme(final ModelControllerClient managementClient, String deploymentName, String expectedScheme) throws Exception {
-    	final ModelNode address = new ModelNode();
+        final ModelNode address = new ModelNode();
         address.add(DEPLOYMENT, deploymentName);
-        address.add(SUBSYSTEM, "webservices"); 
+        address.add(SUBSYSTEM, "webservices");
         address.add("endpoint", "*"); // get all endpoints
-       
+
         final ModelNode operation = new ModelNode();
         operation.get(OP).set(READ_RESOURCE_OPERATION);
         operation.get(OP_ADDR).set(address);
         operation.get(INCLUDE_RUNTIME).set(true);
         operation.get(RECURSIVE).set(true);
-                
+
         ModelNode result = managementClient.execute(operation);
         Assert.assertEquals(SUCCESS, result.get(OUTCOME).asString());
         for (final ModelNode endpointResult : result.get("result").asList()) {
             final ModelNode endpoint = endpointResult.get("result");
-            final URL wsdlURL = new URL (endpoint.get("wsdl-url").asString());
+            final URL wsdlURL = new URL(endpoint.get("wsdl-url").asString());
             HttpURLConnection connection = (HttpURLConnection) wsdlURL.openConnection();
             try {
                 connection.connect();
                 Assert.assertEquals(200, connection.getResponseCode());
-                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
                 String line;
                 while ((line = in.readLine()) != null) {
                     if (line.contains("address location")) {

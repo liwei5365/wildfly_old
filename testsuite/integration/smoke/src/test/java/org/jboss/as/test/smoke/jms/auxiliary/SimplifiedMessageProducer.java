@@ -27,7 +27,13 @@ import org.jboss.logging.Logger;
 import javax.annotation.Resource;
 import javax.ejb.Stateful;
 import javax.enterprise.context.RequestScoped;
-import javax.jms.*;
+import javax.jms.Connection;
+import javax.jms.ConnectionFactory;
+import javax.jms.DeliveryMode;
+import javax.jms.Destination;
+import javax.jms.Message;
+import javax.jms.MessageProducer;
+import javax.jms.Session;
 
 /**
  * @author <a href="http://jmesnil.net">Jeff Mesnil</a> (c) 2013 Red Hat Inc.
@@ -53,7 +59,7 @@ public class SimplifiedMessageProducer {
     }
 
     private void send(ConnectionFactory cf, Destination destination, String text) throws Exception {
-        // TODO use JMS 2.0 context when HornetQ supports it
+        // TODO use Jakarta Messaging 2.0 context when HornetQ supports it
         Connection connection = cf.createConnection();
         Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
         MessageProducer producer = session.createProducer(destination);

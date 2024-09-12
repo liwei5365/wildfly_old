@@ -1,4 +1,4 @@
-<subsystem xmlns="urn:jboss:domain:resource-adapters:4.0">
+<subsystem xmlns="urn:jboss:domain:resource-adapters:6.0">
   <!--Optional:-->
   <resource-adapters>
     <!--1 or more repetitions:-->
@@ -12,7 +12,7 @@
         <bean-validation-group>${test.expr:group}</bean-validation-group>
       </bean-validation-groups>
       <!--Optional:-->
-      <transaction-support>XATransaction</transaction-support>
+      <transaction-support>${test.expr:XATransaction}</transaction-support>
       <!--Zero or more repetitions:-->
       <config-property name="config1">value</config-property>
       <!--Optional:-->

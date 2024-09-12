@@ -30,7 +30,6 @@ import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.operations.validation.IntRangeValidator;
 import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.as.controller.registry.OperationEntry;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.as.server.ServerEnvironment;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
@@ -41,6 +40,8 @@ import org.jboss.dmr.ModelType;
 @Deprecated
 public class FilePassivationStoreResourceDefinition extends LegacyPassivationStoreResourceDefinition {
 
+    // this actually has a dependency on a cache factory using default cache container and cache name "passivation"
+    // but no attributes to set requirements for !?
     @Deprecated
     public static final SimpleAttributeDefinition MAX_SIZE = MAX_SIZE_BUILDER.build();
     @Deprecated
@@ -81,20 +82,17 @@ public class FilePassivationStoreResourceDefinition extends LegacyPassivationSto
             .build()
     ;
 
+
     private static final AttributeDefinition[] ATTRIBUTES = { IDLE_TIMEOUT, IDLE_TIMEOUT_UNIT, MAX_SIZE, RELATIVE_TO, GROUPS_PATH, SESSIONS_PATH, SUBDIRECTORY_COUNT };
 
     private static final FilePassivationStoreAdd ADD = new FilePassivationStoreAdd(ATTRIBUTES);
     private static final PassivationStoreRemove REMOVE = new PassivationStoreRemove(ADD);
-    private static final PassivationStoreWriteHandler WRITE_HANDLER = new PassivationStoreWriteHandler(ATTRIBUTES);
 
     @Deprecated
     public static final FilePassivationStoreResourceDefinition INSTANCE = new FilePassivationStoreResourceDefinition();
 
     private FilePassivationStoreResourceDefinition() {
-        super(EJB3SubsystemModel.FILE_PASSIVATION_STORE, ADD, REMOVE, OperationEntry.Flag.RESTART_NONE, OperationEntry.Flag.RESTART_RESOURCE_SERVICES, WRITE_HANDLER, ATTRIBUTES);
+        super(EJB3SubsystemModel.FILE_PASSIVATION_STORE, ADD, REMOVE, OperationEntry.Flag.RESTART_NONE, OperationEntry.Flag.RESTART_RESOURCE_SERVICES, ATTRIBUTES);
     }
 
-    static void registerTransformers_1_1_0(ResourceTransformationDescriptionBuilder parent) {
-        LegacyPassivationStoreResourceDefinition.registerTransformers_1_1_0(INSTANCE.getPathElement(), parent);
-    }
 }

@@ -41,7 +41,6 @@ import javax.jms.Session;
 import javax.jms.TextMessage;
 
 import org.jboss.as.test.shared.TimeoutUtil;
-import org.jboss.ejb3.annotation.ResourceAdapter;
 import org.jboss.logging.Logger;
 
 /**
@@ -55,7 +54,7 @@ import org.jboss.logging.Logger;
         @ActivationConfigProperty(propertyName = "useDLQ", propertyValue = "false") })
 public class ReplyingMDB implements MessageListener {
     private static final Logger log = Logger.getLogger(ReplyingMDB.class);
-    
+
     @Resource(lookup = "java:/ConnectionFactory")
     private ConnectionFactory factory;
 
@@ -74,7 +73,7 @@ public class ReplyingMDB implements MessageListener {
             if (message instanceof TextMessage) {
                 if (text.equals("await") && !message.getJMSRedelivered()) {
                     // we have received the first message
-                    log.infof("Message [%s, %s] contains text 'await'", message, text);
+                    log.debugf("Message [%s, %s] contains text 'await'", message, text);
                     // synchronize with test to start with undeploy
                     HelperSingletonImpl.barrier.await(WAIT_S, SECONDS);
                     HelperSingletonImpl.barrier.reset();
@@ -84,10 +83,10 @@ public class ReplyingMDB implements MessageListener {
                     try {
                         Thread.sleep(SECONDS.toMillis(WAIT_S));
                     } catch (InterruptedException ie) {
-                        log.info("Sleeping for transaction timeout was interrupted."
+                        log.trace("Sleeping for transaction timeout was interrupted."
                                 + "This is expected at least for JTS transaction.");
                     }
-                    // synchronize with test to undeploy would be in processing 
+                    // synchronize with test to undeploy would be in processing
                     HelperSingletonImpl.barrier.await(WAIT_S, SECONDS);
                 }
                 replyMessage = session.createTextMessage("Reply: " + text);
@@ -97,7 +96,7 @@ public class ReplyingMDB implements MessageListener {
             Destination destination = message.getJMSReplyTo();
             message.setJMSDeliveryMode(NON_PERSISTENT);
             sender.send(destination, replyMessage);
-            log.infof("onMessage method [OK], msg: [%s] with id [%s]. Replying to destination [%s].", 
+            log.debugf("onMessage method [OK], msg: [%s] with id [%s]. Replying to destination [%s].",
                     text, message, destination);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -106,7 +105,7 @@ public class ReplyingMDB implements MessageListener {
 
     @PostConstruct
     public void postConstruct() {
-        log.info(ReplyingMDB.class.getSimpleName() + " was created");
+        log.trace(ReplyingMDB.class.getSimpleName() + " was created");
         try {
             connection = factory.createConnection();
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
@@ -118,7 +117,7 @@ public class ReplyingMDB implements MessageListener {
 
     @PreDestroy
     public void preDestroy() {
-        log.info("Destroying MDB " + ReplyingMDB.class.getSimpleName());
+        log.trace("Destroying MDB " + ReplyingMDB.class.getSimpleName());
         try {
             if (connection != null)
                 connection.close();

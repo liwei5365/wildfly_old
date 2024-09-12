@@ -21,6 +21,7 @@
  */
 package org.wildfly.clustering.ejb.infinispan.bean;
 
+import org.wildfly.clustering.ee.infinispan.GroupedKey;
 import org.wildfly.clustering.ejb.infinispan.BeanKey;
 
 /**
@@ -30,41 +31,9 @@ import org.wildfly.clustering.ejb.infinispan.BeanKey;
  *
  * @param <I> the bean identifier type
  */
-public class InfinispanBeanKey<I> implements BeanKey<I> {
+public class InfinispanBeanKey<I> extends GroupedKey<I> implements BeanKey<I> {
 
-    private final String beanName;
-    private final I id;
-
-    public InfinispanBeanKey(String beanName, I id) {
-        this.beanName = beanName;
-        this.id = id;
-    }
-
-    @Override
-    public String getBeanName() {
-        return this.beanName;
-    }
-
-    @Override
-    public I getId() {
-        return this.id;
-    }
-
-    @Override
-    public int hashCode() {
-        return this.id.hashCode();
-    }
-
-    @Override
-    public boolean equals(Object object) {
-        if (!(object instanceof BeanKey)) return false;
-        @SuppressWarnings("unchecked")
-        BeanKey<I> key = (BeanKey<I>) object;
-        return this.id.equals(key.getId());
-    }
-
-    @Override
-    public String toString() {
-        return this.id.toString();
+    public InfinispanBeanKey(I id) {
+        super(id);
     }
 }

@@ -21,10 +21,9 @@
  */
 package org.wildfly.clustering.ejb.infinispan;
 
-import java.util.concurrent.ScheduledExecutorService;
+import java.time.Duration;
 
 import org.wildfly.clustering.ejb.RemoveListener;
-import org.wildfly.clustering.ejb.Time;
 
 /**
  * The expiration-related configuration of a bean manager.
@@ -36,17 +35,11 @@ public interface ExpirationConfiguration<T> {
      * The duration of time a bean can be idle after which it will expire.
      * @return a time duration
      */
-    Time getTimeout();
+    Duration getTimeout();
 
     /**
      * Returns the listener to notify of bean removal/expiration.
      * @return an event listener.
      */
     RemoveListener<T> getRemoveListener();
-
-    /**
-     * Returns the scheduled executor suitable for scheduling bean expiration.
-     * @return a scheduled executor
-     */
-    ScheduledExecutorService getExecutor();
 }

@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -28,6 +28,7 @@ package org.wildfly.extension.undertow;
 
 public interface Constants {
     String ACCESS_LOG = "access-log";
+    String CONSOLE_ACCESS_LOG = "console-access-log";
     String AJP_LISTENER = "ajp-listener";
     String BUFFER_CACHE = "buffer-cache";
     String BUFFER_CACHES = "buffer-caches";
@@ -39,11 +40,14 @@ public interface Constants {
     String SETTING = "setting";
     String SECURITY_REALM = "security-realm";
     String SOCKET_BINDING = "socket-binding";
+    String SSL_CONTEXT = "ssl-context";
     String PATH = "path";
     String HTTP_LISTENER = "http-listener";
     String HTTPS_LISTENER = "https-listener";
+    String HTTP_INVOKER = "http-invoker";
     String LISTENER = "listener";
     String INSTANCE_ID = "instance-id";
+    String OBFUSCATE_SESSION_ROUTE = "obfuscate-session-route";
     String NAME = "name";
     String WORKER = "worker";
     String SERVLET_CONTAINER = "servlet-container";
@@ -71,7 +75,7 @@ public interface Constants {
     String SCHEME = "scheme";
     String MAX_POST_SIZE = "max-post-size";
     String DEFAULT_RESPONSE_CODE = "default-response-code";
-    /*JSP config */
+    /*Jakarta Server Pages config */
     String CHECK_INTERVAL = "check-interval";
     String CONTAINER = "container";
     String DEVELOPMENT = "development";
@@ -148,7 +152,6 @@ public interface Constants {
     String MANAGEMENT_SOCKET_BINDING = "management-socket-binding";
     String ADVERTISE_SOCKET_BINDING = "advertise-socket-binding";
     String SECURITY_KEY = "security-key";
-    String ADVERTISE_MULTICAST_SOCKET_BINDING = "advertise-multicast-socket-binding";
     String ADVERTISE_PROTOCOL = "advertise-protocol";
     String ADVERTISE_PATH = "advertise-path";
     String ADVERTISE_FREQUENCY = "advertise-frequency";
@@ -158,6 +161,7 @@ public interface Constants {
     String REQUEST_QUEUE_SIZE = "request-queue-size";
     String CACHED_CONNECTIONS_PER_THREAD = "cached-connections-per-thread";
     String CONNECTION_IDLE_TIMEOUT = "connection-idle-timeout";
+    String FAILOVER_STRATEGY = "failover-strategy";
 
     String USE_SERVER_LOG = "use-server-log";
     String VALUE = "value";
@@ -216,4 +220,59 @@ public interface Constants {
     String EXTENDED = "extended";
     String MAX_BUFFERED_REQUEST_SIZE = "max-buffered-request-size";
     String MAX_SESSIONS = "max-sessions";
+    String USER_AGENTS = "user-agents";
+    String SESSION_TIMEOUT = "session-timeout";
+    String CRAWLER_SESSION_MANAGEMENT = "crawler-session-management";
+    String MAX_AJP_PACKET_SIZE = "max-ajp-packet-size";
+    String STATISTICS_ENABLED = "statistics-enabled";
+    String DEFAULT_SECURITY_DOMAIN = "default-security-domain";
+    String DISABLE_FILE_WATCH_SERVICE = "disable-file-watch-service";
+    String DISABLE_SESSION_ID_REUSE = "disable-session-id-reuse";
+    String PER_MESSAGE_DEFLATE = "per-message-deflate";
+    String DEFLATER_LEVEL = "deflater-level";
+    String MAX_RETRIES = "max-retries";
+
+    // Affinity
+    String AFFINITY = "affinity";
+    String NO_AFFINITY = "no-affinity";
+    String SINGLE = "single";
+    String SINGLE_AFFINITY = "single-affinity";
+    String RANKED = "ranked";
+    String RANKED_AFFINITY = "ranked-affinity";
+    String DELIMITER = "delimiter";
+
+    // Elytron Integration
+    String APPLICATION_SECURITY_DOMAIN = "application-security-domain";
+    String APPLICATION_SECURITY_DOMAINS = "application-security-domains";
+    String HTTP_AUTHENTICATION_FACTORY = "http-authentication-factory";
+    String OVERRIDE_DEPLOYMENT_CONFIG = "override-deployment-config";
+    String REFERENCING_DEPLOYMENTS = "referencing-deployments";
+    String SECURITY_DOMAIN = "security-domain";
+    String ENABLE_JACC = "enable-jacc";
+    String ENABLE_JASPI = "enable-jaspi";
+    String INTEGRATED_JASPI = "integrated-jaspi";
+
+    String FILE_CACHE_MAX_FILE_SIZE = "file-cache-max-file-size";
+    String FILE_CACHE_METADATA_SIZE = "file-cache-metadata-size";
+    String FILE_CACHE_TIME_TO_LIVE =  "file-cache-time-to-live";
+    String SESSION_ID = "session-id";
+    String ATTRIBUTE = "attribute";
+    String INVALIDATE_SESSION = "invalidate-session";
+    String LIST_SESSIONS = "list-sessions";
+    String LIST_SESSION_ATTRIBUTE_NAMES = "list-session-attribute-names";
+    String LIST_SESSION_ATTRIBUTES = "list-session-attributes";
+    String GET_SESSION_ATTRIBUTE = "get-session-attribute";
+    String GET_SESSION_LAST_ACCESSED_TIME = "get-session-last-accessed-time";
+    String GET_SESSION_LAST_ACCESSED_TIME_MILLIS = "get-session-last-accessed-time-millis";
+    String GET_SESSION_CREATION_TIME = "get-session-creation-time";
+    String GET_SESSION_CREATION_TIME_MILLIS = "get-session-creation-time-millis";
+    String DEFAULT_COOKIE_VERSION = "default-cookie-version";
+    String PRESERVE_PATH_ON_FORWARD = "preserve-path-on-forward";
+
+    String PROXY_PROTOCOL = "proxy-protocol";
+    String MAX_POOL_SIZE = "max-pool-size";
+    String THREAD_LOCAL_CACHE_SIZE = "thread-local-cache-size";
+    String DIRECT = "direct";
+    String LEAK_DETECTION_PERCENT = "leak-detection-percent";
+    String BYTE_BUFFER_POOL = "byte-buffer-pool";
 }

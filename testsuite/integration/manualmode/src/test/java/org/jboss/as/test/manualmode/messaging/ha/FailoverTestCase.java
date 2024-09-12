@@ -22,20 +22,20 @@
 
 package org.jboss.as.test.manualmode.messaging.ha;
 
-import java.io.File;
-import java.io.FilenameFilter;
 
 import javax.naming.InitialContext;
 
 import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
+import org.jboss.logging.Logger;
 import org.junit.Test;
 
 /**
  * @author <a href="http://jmesnil.net/">Jeff Mesnil</a> (c) 2015 Red Hat inc.
  */
 public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
+    private final Logger log = Logger.getLogger(FailoverTestCase.class);
 
     protected final String jmsQueueName = "FailoverTestCase-Queue";
     protected final String jmsQueueLookup = "jms/" + jmsQueueName;
@@ -53,14 +53,17 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         sendMessage(context1, jmsQueueLookup, text);
         context1.close();
 
-        System.out.println("===================");
-        System.out.println("STOP SERVER1...");
-        System.out.println("===================");
+        testMasterInSyncWithReplica(createClient1());
+        testSlaveInSyncWithReplica(client2);
+        log.trace("===================");
+        log.trace("STOP SERVER1...");
+        log.trace("===================");
         container.stop(SERVER1);
 
         // let some time for the backup to detect the failure
         waitForHornetQServerActivation(jmsOperations2, true);
         checkJMSQueue(jmsOperations2, jmsQueueName, true);
+        testSlaveOutOfSyncWithReplica(client2);
 
         InitialContext context2 = createJNDIContextFromServer2();
         // receive the message that was sent to server1 before failover occurs
@@ -69,10 +72,11 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         String text2 = "sent to server2, received from server 1 (after failback)";
         sendMessage(context2, jmsQueueLookup, text2);
         context2.close();
+        testSlaveOutOfSyncWithReplica(client2);
 
-        System.out.println("====================");
-        System.out.println("START SERVER1...");
-        System.out.println("====================");
+        log.trace("====================");
+        log.trace("START SERVER1...");
+        log.trace("====================");
         // restart the live server
         container.start(SERVER1);
 
@@ -96,9 +100,17 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         sendAndReceiveMessage(context1, jmsQueueLookup);
         context1.close();
 
-        System.out.println("=============================");
-        System.out.println("RETURN TO NORMAL OPERATION...");
-        System.out.println("=============================");
+        testMasterInSyncWithReplica(client1);
+        testSlaveInSyncWithReplica(client2);
+        log.trace("=============================");
+        log.trace("RETURN TO NORMAL OPERATION...");
+        log.trace("=============================");
+
+        log.trace("===================");
+        log.trace("STOP SERVER2...");
+        log.trace("===================");
+        container.stop(SERVER2);
+        testMasterOutOfSyncWithReplica(client1);
     }
 
     @Test
@@ -112,20 +124,23 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         sendMessage(context1, jmsQueueLookup, text);
         context1.close();
 
-        System.err.println("############## 1 #############");
-        listSharedStoreDir();
+        testMasterInSyncWithReplica(createClient1());
+        testSlaveInSyncWithReplica(client2);
+        log.trace("############## 1 #############");
+        //listSharedStoreDir();
 
-        System.err.println("===================");
-        System.err.println("STOP SERVER1...");
-        System.err.println("===================");
+        log.trace("===================");
+        log.trace("STOP SERVER1...");
+        log.trace("===================");
         container.stop(SERVER1);
 
-        System.out.println("############## 2 #############");
-        listSharedStoreDir();
+        log.trace("############## 2 #############");
+        //listSharedStoreDir();
 
         // let some time for the backup to detect the failure
         waitForHornetQServerActivation(backupJMSOperations, true);
         checkJMSQueue(backupJMSOperations, jmsQueueName, true);
+        testSlaveOutOfSyncWithReplica(client2);
 
         InitialContext context2 = createJNDIContextFromServer2();
         // receive the message that was sent to server1 before failover occurs
@@ -134,10 +149,11 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         String text2 = "sent to server2, received from server 1 (after failback)";
         sendMessage(context2, jmsQueueLookup, text2);
         context2.close();
+        testSlaveOutOfSyncWithReplica(client2);
 
-        System.out.println("====================");
-        System.out.println("START SERVER1...");
-        System.out.println("====================");
+        log.trace("====================");
+        log.trace("START SERVER1...");
+        log.trace("====================");
         // restart the live server
         container.start(SERVER1);
         // let some time for the backup to detect the live node and failback
@@ -161,9 +177,11 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         sendMessage(context1, jmsQueueLookup, text3);
         context1.close();
 
-        System.out.println("==============================");
-        System.out.println("STOP SERVER1 A 2ND TIME...");
-        System.out.println("==============================");
+        testMasterInSyncWithReplica(client1);
+        testSlaveInSyncWithReplica(client2);
+        log.trace("==============================");
+        log.trace("STOP SERVER1 A 2ND TIME...");
+        log.trace("==============================");
         // shutdown server1 a 2nd time
         container.stop(SERVER1);
 
@@ -177,29 +195,35 @@ public abstract class FailoverTestCase extends AbstractMessagingHATestCase {
         receiveMessage(context2, jmsQueueLookup, text3);
         context2.close();
 
-        //Assert.fail("wth");
+        log.trace("====================");
+        log.trace("START SERVER1 A 2ND TIME...");
+        log.trace("====================");
+        // restart the live server
+        container.start(SERVER1);
+        // let some time for the backup to detect the live node and failback
+        client1 = createClient1();
+        liveJMSOperations = JMSOperationsProvider.getInstance(client1);
+        waitForHornetQServerActivation(liveJMSOperations, true);
+        checkHornetQServerStartedAndActiveAttributes(liveJMSOperations, true, true);
+
+        // let some time for the backup to detect the failure
+        waitForHornetQServerActivation(backupJMSOperations, false);
+        // backup server has been restarted in passive mode
+        checkHornetQServerStartedAndActiveAttributes(backupJMSOperations, true, false);
+
+        checkJMSQueue(backupJMSOperations, jmsQueueName, false);
+
+        context1 = createJNDIContextFromServer1();
+        // There should be no message to receive as it was consumed from the backup
+        receiveNoMessage(context1, jmsQueueLookup);
 
     }
 
-    private void listSharedStoreDir() {
-        final File SHARED_STORE_DIR = new File(System.getProperty("java.io.tmpdir"), "activemq");
-        if (!SHARED_STORE_DIR.exists()) {
-            return;
-        }
-        System.err.println("@@@@@@@@@@@@@@@@@@@@@@@@@");
-        System.err.println("SHARED_STORE_DIR = " + SHARED_STORE_DIR);
-        for (File file : SHARED_STORE_DIR.listFiles(new FilenameFilter() {
-            @Override
-            public boolean accept(File dir, String name) {
-                return true;
-            }})) {
-            System.err.format("+ %s [r=%s,w=%s,x=%s]\n", file, file.canRead(), file.canWrite(), file.canExecute());
-            if (file.isDirectory()) {
-                for (File f : file.listFiles()) {
-                    System.err.println("    + " + f);
-                }
-            }
-        }
-        System.err.println("@@@@@@@@@@@@@@@@@@@@@@@@@");
-    }
+    protected void testMasterInSyncWithReplica(ModelControllerClient client) throws Exception {}
+
+    protected void testSlaveInSyncWithReplica(ModelControllerClient client) throws Exception  {}
+
+    protected void testMasterOutOfSyncWithReplica(ModelControllerClient client) throws Exception {}
+
+    protected void testSlaveOutOfSyncWithReplica(ModelControllerClient client) throws Exception  {}
 }

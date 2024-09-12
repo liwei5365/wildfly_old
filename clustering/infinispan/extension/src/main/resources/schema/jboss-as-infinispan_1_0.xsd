@@ -234,7 +234,7 @@
     </xs:complexType>
 
     <xs:complexType name="locking">
-        <xs:attribute name="isolation" type="tns:isolation" default="REPEATABLE_READ">
+        <xs:attribute name="isolation" type="tns:isolation" default="READ_COMMITTED">
             <xs:annotation>
                 <xs:documentation>Sets the cache locking isolation level.</xs:documentation>
             </xs:annotation>
@@ -262,7 +262,7 @@
                 <xs:documentation>Sets the cache transaction mode to one of NONE, NON_XA, NON_DURABLE_XA, FULL_XA.</xs:documentation>
             </xs:annotation>
         </xs:attribute>
-        <xs:attribute name="stop-timeout" type="xs:long" default="30000">
+        <xs:attribute name="stop-timeout" type="xs:long" default="10000">
             <xs:annotation>
                 <xs:documentation>If there are any ongoing transactions when a cache is stopped, Infinispan waits for ongoing remote and local transactions to finish. The amount of time to wait for is defined by the cache stop timeout.</xs:documentation>
             </xs:annotation>
@@ -323,7 +323,7 @@
                         <xs:documentation>In ASYNC mode, this attribute controls how often the asynchronous thread used to flush the replication queue runs. This should be a positive integer which represents thread wakeup time in milliseconds.</xs:documentation>
                     </xs:annotation>
                 </xs:attribute>
-                <xs:attribute name="remote-timeout" type="xs:long" default="17500">
+                <xs:attribute name="remote-timeout" type="xs:long" default="10000">
                     <xs:annotation>
                         <xs:documentation>In SYNC mode, the timeout (in ms) used to wait for an acknowledgment when making a remote call, after which the call is aborted and an exception is thrown.</xs:documentation>
                     </xs:annotation>
@@ -401,7 +401,7 @@
         </xs:attribute>
         <xs:attribute name="passivation" type="xs:boolean" default="true">
             <xs:annotation>
-                <xs:documentation>If true, data is only written to the cache store when it is evicted from memory, a phenomenon known as 'passivation'. Next time the data is requested, it will be 'activated' which means that data will be brought back to memory and removed from the persistent store. f false, the cache store contains a copy of the contents in memory, so writes to cache result in cache store writes. This essentially gives you a 'write-through' configuration.</xs:documentation>
+                <xs:documentation>If true, data is only written to the cache store when it is evicted from memory, a phenomenon known as 'passivation'. Next time the data is requested, it will be 'activated' which means that data will be brought back to memory and removed from the persistent store. If false, the cache store contains a copy of the contents in memory, so writes to cache result in cache store writes. This essentially gives you a 'write-through' configuration.</xs:documentation>
             </xs:annotation>
         </xs:attribute>
         <xs:attribute name="fetch-state" type="xs:boolean" default="true">

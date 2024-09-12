@@ -14,7 +14,7 @@ import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
 import org.jboss.as.test.integration.ejb.mdb.JMSMessagingUtil;
-import org.jboss.logging.Logger;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -23,11 +23,13 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.PropertyPermission;
+
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
+
 @RunWith(Arquillian.class)
 @ServerSetup({ConfiguredResourceAdapterNameTestCase.JmsQueueSetup.class})
 public class ConfiguredResourceAdapterNameTestCase {
-
-    private static final Logger logger = Logger.getLogger(ConfiguredResourceAdapterNameTestCase.class);
 
     private static final String REPLY_QUEUE_JNDI_NAME = "java:jboss/override-resource-adapter-name-test/replyQueue";
     public static final String QUEUE_JNDI_NAME = "java:jboss/override-resource-adapter-name-test/queue";
@@ -47,7 +49,7 @@ public class ConfiguredResourceAdapterNameTestCase {
 
         @Override
         public void setup(ManagementClient managementClient, String containerId) throws Exception {
-            jmsAdminOperations = JMSOperationsProvider.getInstance(managementClient);
+            jmsAdminOperations = JMSOperationsProvider.getInstance(managementClient.getControllerClient());
             jmsAdminOperations.createJmsQueue("override-resource-adapter-name-test/queue", QUEUE_JNDI_NAME);
             jmsAdminOperations.createJmsQueue("override-resource-adapter-name-test/reply-queue", REPLY_QUEUE_JNDI_NAME);
         }
@@ -66,11 +68,12 @@ public class ConfiguredResourceAdapterNameTestCase {
     public static Archive<JavaArchive> getDeployment() {
         final JavaArchive ejbJar = ShrinkWrap.create(JavaArchive.class, "configured-resource-adapter-name-mdb-test.jar")
                 .addClasses(ConfiguredResourceAdapterNameMDB.class, JMSMessagingUtil.class, ConfiguredResourceAdapterNameTestCase.class,
-                        JmsQueueSetup.class)
+                        JmsQueueSetup.class, TimeoutUtil.class)
                 .addPackage(JMSOperations.class.getPackage())
                 .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client, org.jboss.dmr \n"), "MANIFEST.MF")
-                .addAsManifestResource(ConfiguredResourceAdapterNameTestCase.class.getPackage(), "jboss-ejb3.xml", "jboss-ejb3.xml");
-        logger.info(ejbJar.toString(true));
+                .addAsManifestResource(ConfiguredResourceAdapterNameTestCase.class.getPackage(), "jboss-ejb3.xml", "jboss-ejb3.xml")
+                .addAsManifestResource(createPermissionsXmlAsset(
+                    new PropertyPermission(TimeoutUtil.FACTOR_SYS_PROP, "read")), "permissions.xml");
         return ejbJar;
     }
 

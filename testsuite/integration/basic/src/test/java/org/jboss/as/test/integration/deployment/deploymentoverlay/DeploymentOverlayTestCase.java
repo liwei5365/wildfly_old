@@ -1,6 +1,7 @@
 package org.jboss.as.test.integration.deployment.deploymentoverlay;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
@@ -12,6 +13,7 @@ import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.client.OperationBuilder;
+import org.jboss.as.controller.client.helpers.Operations;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.test.integration.management.ManagementOperations;
 import org.jboss.as.test.integration.management.util.MgmtOperationException;
@@ -49,7 +51,7 @@ public class DeploymentOverlayTestCase {
             op = new ModelNode();
             op.get(ModelDescriptionConstants.OP_ADDR).set(new ModelNode());
             op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.UPLOAD_DEPLOYMENT_BYTES);
-            op.get(ModelDescriptionConstants.BYTES).set(FileUtils.readFile(DeploymentOverlayTestCase.class, "override.xml").getBytes());
+            op.get(ModelDescriptionConstants.BYTES).set(FileUtils.readFile(DeploymentOverlayTestCase.class, "override.xml").getBytes(StandardCharsets.UTF_8));
             ModelNode result = ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
 
             //add the content
@@ -83,7 +85,7 @@ public class DeploymentOverlayTestCase {
             addr.add(ModelDescriptionConstants.CONTENT, "WEB-INF/web.xml");
             op.get(ModelDescriptionConstants.OP_ADDR).set(addr);
             op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.ADD);
-            op.get(ModelDescriptionConstants.CONTENT).get(ModelDescriptionConstants.BYTES).set(FileUtils.readFile(DeploymentOverlayTestCase.class, "wildcard-override.xml").getBytes());
+            op.get(ModelDescriptionConstants.CONTENT).get(ModelDescriptionConstants.BYTES).set(FileUtils.readFile(DeploymentOverlayTestCase.class, "wildcard-override.xml").getBytes(StandardCharsets.UTF_8));
             ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
 
             op = new ModelNode();
@@ -133,28 +135,20 @@ public class DeploymentOverlayTestCase {
 
         }
 
-        private void removeContentItem(final ManagementClient managementClient, final String w, final String a) throws IOException, MgmtOperationException {
-            final ModelNode op;
-            final ModelNode addr;
-            op = new ModelNode();
-            addr = new ModelNode();
-            addr.add(ModelDescriptionConstants.DEPLOYMENT_OVERLAY, w);
-            addr.add(ModelDescriptionConstants.CONTENT, a);
-            op.get(ModelDescriptionConstants.OP_ADDR).set(addr);
-            op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.REMOVE);
+        private void removeContentItem(final ManagementClient managementClient, final String overlayName, final String content) throws IOException, MgmtOperationException {
+            final ModelNode addr = new ModelNode();
+            addr.add(ModelDescriptionConstants.DEPLOYMENT_OVERLAY, overlayName);
+            addr.add(ModelDescriptionConstants.CONTENT, content);
+            final ModelNode op = Operations.createRemoveOperation(addr);
             ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
         }
 
 
-        private void removeDeploymentItem(final ManagementClient managementClient, final String w, final String a) throws IOException, MgmtOperationException {
-            final ModelNode op;
-            final ModelNode addr;
-            op = new ModelNode();
-            addr = new ModelNode();
-            addr.add(ModelDescriptionConstants.DEPLOYMENT_OVERLAY, w);
-            addr.add(ModelDescriptionConstants.DEPLOYMENT, a);
-            op.get(ModelDescriptionConstants.OP_ADDR).set(addr);
-            op.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.REMOVE);
+        private void removeDeploymentItem(final ManagementClient managementClient, final String overlayName, final String deploymentRuntimeName) throws IOException, MgmtOperationException {
+            final ModelNode addr = new ModelNode();
+            addr.add(ModelDescriptionConstants.DEPLOYMENT_OVERLAY, overlayName);
+            addr.add(ModelDescriptionConstants.DEPLOYMENT, deploymentRuntimeName);
+            final ModelNode op = Operations.createRemoveOperation(addr);
             ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
         }
     }

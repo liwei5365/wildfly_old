@@ -22,31 +22,35 @@
 
 package org.jboss.as.test.integration.jpa.secondlevelcache;
 
+import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.arquillian.container.test.api.RunAsClient;
+import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.arquillian.junit.InSequence;
+import org.jboss.arquillian.test.api.ArquillianResource;
+import org.jboss.as.test.integration.management.util.CLIOpResult;
+import org.jboss.as.test.integration.management.util.CLIWrapper;
+import org.jboss.shrinkwrap.api.Archive;
+import org.jboss.shrinkwrap.api.ShrinkWrap;
+import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.junit.Assert;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import javax.sql.DataSource;
+import java.sql.Connection;
+
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.sql.Connection;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import javax.sql.DataSource;
-
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.arquillian.junit.Arquillian;
-import org.jboss.arquillian.junit.InSequence;
-import org.jboss.arquillian.test.api.ArquillianResource;
-import org.jboss.shrinkwrap.api.Archive;
-import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.spec.JavaArchive;
-import org.junit.FixMethodOrder;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.MethodSorters;
-
 /**
- * JPA Second level cache tests
+ * Jakarta Persistence Second level cache tests
  *
- * @author Scott Marlow and Zbynek Roubalik
+ * @author Scott Marlow and Zbynek Roubalik and Tommaso Borgato
  */
 @RunWith(Arquillian.class)
 public class JPA2LCTestCase {
@@ -62,8 +66,12 @@ public class JPA2LCTestCase {
         JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
         jar.addClasses(JPA2LCTestCase.class,
                 Employee.class,
+                Company.class,
                 SFSB1.class,
-                SFSB2LC.class
+                SFSB2LC.class,
+                SFSB3LC.class,
+                SFSB4LC.class,
+                RollbackException.class
         );
 
         jar.addAsManifestResource(JPA2LCTestCase.class.getPackage(), "persistence.xml", "persistence.xml");
@@ -144,6 +152,27 @@ public class JPA2LCTestCase {
     // will put all entities in the cache. During the SAME session,
     // when looking up for the ID of an entity which was returned by
     // the original query, no SQL queries should be executed.
+    //
+    // Hibernate ORM 5.3 internally changed from 5.1.
+    // Infinispan caches are now non-transactional, meaning that the Hibernate first level cache is
+    // relied on inside of transactions for caching.
+    // Note from Radim:
+    // "
+    // With (5.1) transactional caches, Infinispan was storing the fact that you've
+    // stored some entities in transactional context and when you attempted to
+    // read it from cache, it transparently provided the updated data. With
+    // non-transactional caches the *Infinispan layer* (as opposed to *2LC
+    // layer*) does not do that. Instead the 2LC provider registers Jakarta Persistence
+    // synchronization to execute the update if the Jakarta Persistence transaction commits.
+    // "
+    //
+    // In response to this change, the current sameSessionCheck doesn't make sense anymore,
+    // as the "sameSession" refers to the same persistence context being used for the entire test.
+    // The same persistence context being used, means that the persistence context first level cache (1lc),
+    // is used, instead of the 2lc, which leads to emp2LCStats.getElementCountInMemory() being zero, which would
+    // cause this test to fail.
+    // Since this test, as currently written, doesn't really test the 2lc, we will ignore it.
+    @Ignore
     @Test
     @InSequence(3)
     public void testEntityCacheSameSession() throws Exception {
@@ -158,6 +187,8 @@ public class JPA2LCTestCase {
     // will put all entities in the cache. During the SECOND session,
     // when looking up for the ID of an entity which was returned by
     // the original query, no SQL queries should be executed.
+
+    @Ignore // see comment for testEntityCacheSameSession, ignored for same reason.
     @Test
     @InSequence(4)
     public void testEntityCacheSecondSession() throws Exception {
@@ -172,6 +203,7 @@ public class JPA2LCTestCase {
     }
 
     // Check if evicting entity second level cache is working as expected
+    @Ignore // see comment for testEntityCacheSameSession, ignored for same reason.
     @Test
     @InSequence(5)
     public void testEvictEntityCache() throws Exception {
@@ -250,6 +282,57 @@ public class JPA2LCTestCase {
             fail(message);
         }
 
+    }
+
+    /**
+     <p>
+     Check that, when L2 cache is enabled, it does not prevent recovery in separate transactions;
+     </p>
+     <p>
+     Note that all EJB calls are marked with <code>TransactionAttributeType.REQUIRES_NEW</code>;
+     </p>
+     <p>
+     Test sequence:
+     <ul>
+     <li>{@link SFSB3LC} calls {@link SFSB4LC}</li>
+     <li>{@link SFSB4LC} throws and exception</li>
+     <li>{@link SFSB3LC} intercepts the exception and calls again {@link SFSB4LC} (hence creating a new transaction)</li>
+     <li>this time {@link SFSB4LC} succeeds and {@link SFSB3LC} should succeed as well</li>
+     </ul>
+     </p>
+     */
+    @Test
+    @InSequence(9)
+    public void testTransaction() throws Exception {
+        SFSB3LC sfsb = lookup("SFSB3LC", SFSB3LC.class);
+
+        int id = 10_000;
+
+        // create entity
+        sfsb.createEmployee("Gisele Bundchen", "Milan, ITALY", id);
+
+        String message = sfsb.entityCacheCheck(id);
+
+        if (!message.equals("OK")) {
+            fail(message);
+        }
+
+        // update entity
+        message = sfsb.testL2CacheWithRollbackAndRetry(id, "Brookline, Massachusetts (MA), US");
+        assertEquals("Expected message is OK", "OK", message);
+    }
+
+    /**
+     * Verify that we can read Cache Region Statistics via cli
+     */
+    @Test
+    @InSequence(10)
+    @RunAsClient
+    public void testStatistics() throws Exception {
+        CLIWrapper cli = new CLIWrapper(true);
+        cli.sendLine(String.format("/deployment=%s.jar:read-resource(include-runtime=true,recursive=true)", ARCHIVE_NAME));
+        CLIOpResult opResult = cli.readAllAsOpResult();
+        Assert.assertTrue(opResult.isIsOutcomeSuccess());
     }
 
 }

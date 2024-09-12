@@ -22,114 +22,297 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.UnaryOperator;
 
-import org.infinispan.configuration.cache.Index;
-import org.jboss.as.clustering.controller.AttributeMarshallers;
-import org.jboss.as.clustering.controller.AttributeParsers;
+import org.infinispan.Cache;
+import org.infinispan.lifecycle.ComponentStatus;
+import org.jboss.as.clustering.controller.AttributeTranslation;
+import org.jboss.as.clustering.controller.BinaryRequirementCapability;
+import org.jboss.as.clustering.controller.CapabilityProvider;
 import org.jboss.as.clustering.controller.ChildResourceDefinition;
-import org.jboss.as.clustering.controller.MetricHandler;
-import org.jboss.as.clustering.controller.validation.EnumValidatorBuilder;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
+import org.jboss.as.clustering.controller.ListAttributeTranslation;
+import org.jboss.as.clustering.controller.ManagementResourceRegistration;
+import org.jboss.as.clustering.controller.Metric;
+import org.jboss.as.clustering.controller.PropertiesAttributeDefinition;
+import org.jboss.as.clustering.controller.ReadAttributeTranslationHandler;
+import org.jboss.as.clustering.controller.Registration;
+import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.ResourceServiceHandler;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
+import org.jboss.as.clustering.controller.transform.DiscardSingletonListAttributeChecker;
+import org.jboss.as.clustering.controller.transform.RejectNonSingletonListAttributeChecker;
+import org.jboss.as.clustering.controller.transform.SingletonListAttributeConverter;
+import org.jboss.as.clustering.controller.validation.EnumValidator;
 import org.jboss.as.clustering.controller.validation.ModuleIdentifierValidatorBuilder;
-import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
-import org.jboss.as.controller.AbstractAttributeDefinitionBuilder;
+import org.jboss.as.clustering.infinispan.subsystem.remote.HotRodStoreResourceDefinition;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.ModelVersion;
+import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
+import org.jboss.as.controller.OperationStepHandler;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
-import org.jboss.as.controller.SimpleMapAttributeDefinition;
+import org.jboss.as.controller.StringListAttributeDefinition;
+import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.registry.AttributeAccess;
-import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.Resource;
-import org.jboss.as.controller.services.path.PathManager;
 import org.jboss.as.controller.transform.ResourceTransformationContext;
 import org.jboss.as.controller.transform.ResourceTransformer;
-import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
+import org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement;
+import org.wildfly.clustering.service.BinaryRequirement;
+import org.wildfly.clustering.spi.ClusteringCacheRequirement;
 
 /**
  * Base class for cache resources which require common cache attributes only.
  *
  * @author Richard Achmatowicz (c) 2011 Red Hat Inc.
  */
-public class CacheResourceDefinition extends ChildResourceDefinition {
+public class CacheResourceDefinition extends ChildResourceDefinition<ManagementResourceRegistration> {
 
-    enum Attribute implements org.jboss.as.clustering.controller.Attribute {
-        MODULE("module", ModelType.STRING, null, new ModuleIdentifierValidatorBuilder()),
-        JNDI_NAME("jndi-name", ModelType.STRING, null),
-        STATISTICS_ENABLED("statistics-enabled", ModelType.BOOLEAN, new ModelNode(false)),
+    enum Capability implements CapabilityProvider {
+        CACHE(InfinispanCacheRequirement.CACHE),
+        CONFIGURATION(InfinispanCacheRequirement.CONFIGURATION),
+        ;
+        private final org.jboss.as.clustering.controller.Capability capability;
+
+        Capability(BinaryRequirement requirement) {
+            this.capability = new BinaryRequirementCapability(requirement);
+        }
+
+        @Override
+        public org.jboss.as.clustering.controller.Capability getCapability() {
+            return this.capability;
+        }
+    }
+
+    static final Map<ClusteringCacheRequirement, org.jboss.as.clustering.controller.Capability> CLUSTERING_CAPABILITIES = new EnumMap<>(ClusteringCacheRequirement.class);
+    static {
+        for (ClusteringCacheRequirement requirement : EnumSet.allOf(ClusteringCacheRequirement.class)) {
+            CLUSTERING_CAPABILITIES.put(requirement, new BinaryRequirementCapability(requirement));
+        }
+    }
+
+    enum Attribute implements org.jboss.as.clustering.controller.Attribute, UnaryOperator<SimpleAttributeDefinitionBuilder> {
+        STATISTICS_ENABLED(ModelDescriptionConstants.STATISTICS_ENABLED, ModelType.BOOLEAN) {
+            @Override
+            public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+                return builder.setDefaultValue(ModelNode.FALSE);
+            }
+        },
         ;
         private final AttributeDefinition definition;
 
-        Attribute(String name, ModelType type, ModelNode defaultValue) {
-            this.definition = createBuilder(name, type, defaultValue).build();
-        }
-
-        Attribute(String name, ModelType type, ModelNode defaultValue, ParameterValidatorBuilder validator) {
-            SimpleAttributeDefinitionBuilder builder = createBuilder(name, type, defaultValue);
-            this.definition = builder.setValidator(validator.configure(builder).build()).build();
+        Attribute(String name, ModelType type) {
+            this.definition = this.apply(createBuilder(name, type))
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    .build();
         }
 
         @Override
         public AttributeDefinition getDefinition() {
             return this.definition;
+        }
+    }
+
+    enum ListAttribute implements org.jboss.as.clustering.controller.Attribute, UnaryOperator<StringListAttributeDefinition.Builder> {
+        MODULES("modules") {
+            @Override
+            public StringListAttributeDefinition.Builder apply(StringListAttributeDefinition.Builder builder) {
+                return builder.setElementValidator(new ModuleIdentifierValidatorBuilder().configure(builder).build());
+            }
+        },
+        ;
+        private final AttributeDefinition definition;
+
+        ListAttribute(String name) {
+            this.definition = this.apply(new StringListAttributeDefinition.Builder(name)
+                    .setRequired(false)
+                    .setAllowExpression(true)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    ).build();
+        }
+
+        @Override
+        public AttributeDefinition getDefinition() {
+            return this.definition;
+        }
+
+        @Override
+        public StringListAttributeDefinition.Builder apply(StringListAttributeDefinition.Builder builder) {
+            return builder;
         }
     }
 
     @Deprecated
-    enum DeprecatedAttribute implements org.jboss.as.clustering.controller.Attribute {
-        @Deprecated BATCHING("batching", ModelType.BOOLEAN, new ModelNode(false), InfinispanModel.VERSION_3_0_0),
-        @Deprecated INDEXING("indexing", ModelType.STRING, new ModelNode(Index.NONE.name()), new EnumValidatorBuilder<>(Index.class), InfinispanModel.VERSION_4_0_0),
-        @Deprecated INDEXING_PROPERTIES("indexing-properties", InfinispanModel.VERSION_4_0_0),
-        @Deprecated START("start", ModelType.STRING, new ModelNode(StartMode.LAZY.name()), new EnumValidatorBuilder<>(StartMode.class), InfinispanModel.VERSION_3_0_0),
+    enum DeprecatedAttribute implements org.jboss.as.clustering.controller.Attribute, UnaryOperator<SimpleAttributeDefinitionBuilder> {
+        BATCHING("batching", ModelType.BOOLEAN, InfinispanModel.VERSION_3_0_0) {
+            @Override
+            public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+                return builder.setDefaultValue(ModelNode.FALSE);
+            }
+        },
+        INDEXING("indexing", ModelType.STRING, InfinispanModel.VERSION_4_0_0) {
+            @Override
+            public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+                return builder.setDefaultValue(new ModelNode(org.infinispan.configuration.cache.Index.NONE.name()))
+                        .setValidator(new EnumValidator<>(org.infinispan.configuration.cache.Index.class))
+                        ;
+            }
+        },
+        INDEXING_PROPERTIES("indexing-properties", InfinispanModel.VERSION_4_0_0),
+        JNDI_NAME("jndi-name", ModelType.STRING, InfinispanModel.VERSION_6_0_0),
+        MODULE(ModelDescriptionConstants.MODULE, ModelType.STRING, InfinispanModel.VERSION_14_0_0) {
+            @Override
+            public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+                return builder.setFlags(AttributeAccess.Flag.ALIAS);
+            }
+        },
+        START("start", ModelType.STRING, InfinispanModel.VERSION_3_0_0) {
+            @Override
+            public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+                return builder.setDefaultValue(new ModelNode(StartMode.LAZY.name()))
+                        .setValidator(new EnumValidator<>(StartMode.class))
+                        ;
+            }
+        },
         ;
         private final AttributeDefinition definition;
 
-        DeprecatedAttribute(String name, ModelType type, ModelNode defaultValue, InfinispanModel deprecation) {
-            this(createBuilder(name, type, defaultValue), deprecation);
-        }
-
-        DeprecatedAttribute(String name, ModelType type, ModelNode defaultValue, ParameterValidatorBuilder validator, InfinispanModel deprecation) {
-            this(createBuilder(name, type, defaultValue), validator, deprecation);
+        DeprecatedAttribute(String name, ModelType type, InfinispanModel deprecation) {
+            this.definition = this.apply(createBuilder(name, type))
+                    .setDeprecated(deprecation.getVersion())
+                    .setFlags(AttributeAccess.Flag.RESTART_NONE)
+                    .build();
         }
 
         DeprecatedAttribute(String name, InfinispanModel deprecation) {
-            this(new SimpleMapAttributeDefinition.Builder(name, true)
-                    .setAllowNull(true)
-                    .setAttributeMarshaller(AttributeMarshallers.PROPERTY_LIST)
-                    .setAttributeParser(AttributeParsers.COLLECTION)
-                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES), deprecation);
-        }
-
-        DeprecatedAttribute(AbstractAttributeDefinitionBuilder<?, ?> builder, ParameterValidatorBuilder validator, InfinispanModel deprecation) {
-            this(builder.setValidator(validator.configure(builder).build()), deprecation);
-        }
-
-        DeprecatedAttribute(AbstractAttributeDefinitionBuilder<?, ?> builder, InfinispanModel deprecation) {
-            this.definition = builder.setDeprecated(deprecation.getVersion()).build();
+            this.definition = new PropertiesAttributeDefinition.Builder(name)
+                    .setDeprecated(deprecation.getVersion())
+                    .setFlags(AttributeAccess.Flag.RESTART_NONE)
+                    .build();
         }
 
         @Override
         public AttributeDefinition getDefinition() {
             return this.definition;
         }
+
+        @Override
+        public SimpleAttributeDefinitionBuilder apply(SimpleAttributeDefinitionBuilder builder) {
+            return builder;
+        }
     }
 
-    static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
+    enum DeprecatedMetric implements org.jboss.as.clustering.controller.Attribute, AttributeTranslation, UnaryOperator<PathAddress>, Registration<ManagementResourceRegistration> {
+
+        ACTIVATIONS(CacheActivationMetric.ACTIVATIONS),
+        AVERAGE_READ_TIME(CacheMetric.AVERAGE_READ_TIME),
+        AVERAGE_WRITE_TIME(CacheMetric.AVERAGE_WRITE_TIME),
+        ELAPSED_TIME("elapsed-time", CacheMetric.TIME_SINCE_START),
+        HIT_RATIO(CacheMetric.HIT_RATIO),
+        HITS(CacheMetric.HITS),
+        INVALIDATIONS(CacheInvalidationInterceptorMetric.INVALIDATIONS),
+        MISSES(CacheMetric.MISSES),
+        NUMBER_OF_ENTRIES(CacheMetric.NUMBER_OF_ENTRIES),
+        PASSIVATIONS(CachePassivationMetric.PASSIVATIONS),
+        READ_WRITE_RATIO(CacheMetric.READ_WRITE_RATIO),
+        REMOVE_HITS(CacheMetric.REMOVE_HITS),
+        REMOVE_MISSES(CacheMetric.REMOVE_MISSES),
+        STORES("stores", CacheMetric.WRITES),
+        TIME_SINCE_RESET(CacheMetric.TIME_SINCE_RESET),
+        ;
+        private final AttributeDefinition definition;
+        private final org.jboss.as.clustering.controller.Attribute targetAttribute;
+
+        DeprecatedMetric(Metric<?> metric) {
+            this(metric.getName(), metric);
+        }
+
+        DeprecatedMetric(String name, Metric<?> metric) {
+            this.targetAttribute = metric;
+            this.definition = new SimpleAttributeDefinitionBuilder(name, metric.getDefinition().getType())
+                    .setDeprecated(InfinispanModel.VERSION_11_0_0.getVersion())
+                    .setStorageRuntime()
+                    .build();
+        }
+
+        @Override
+        public AttributeDefinition getDefinition() {
+            return this.definition;
+        }
+
+        @Override
+        public void register(ManagementResourceRegistration registration) {
+            registration.registerReadOnlyAttribute(this.definition, new ReadAttributeTranslationHandler(this));
+        }
+
+        @Override
+        public org.jboss.as.clustering.controller.Attribute getTargetAttribute() {
+            return this.targetAttribute;
+        }
+
+        @Override
+        public UnaryOperator<PathAddress> getPathAddressTransformation() {
+            return this;
+        }
+
+        @Override
+        public PathAddress apply(PathAddress address) {
+            return address.getParent().append(CacheRuntimeResourceDefinition.pathElement(address.getLastElement().getValue()));
+        }
+    }
+
+    enum FixedMetric implements OperationStepHandler, Registration<ManagementResourceRegistration> {
+        CACHE_STATUS("cache-status", ModelType.STRING, new ModelNode(ComponentStatus.RUNNING.toString())),
+        ;
+        private final ModelNode result;
+        private final AttributeDefinition definition;
+
+        FixedMetric(String name, ModelType type, ModelNode result) {
+            this.definition = new SimpleAttributeDefinitionBuilder(name, type)
+                    .setDeprecated(InfinispanModel.VERSION_11_0_0.getVersion())
+                    .setStorageRuntime()
+                    .build();
+            this.result = result;
+        }
+
+        @Override
+        public void execute(OperationContext context, ModelNode operation) {
+            context.getResult().set(this.result);
+        }
+
+        @Override
+        public void register(ManagementResourceRegistration registration) {
+            registration.registerReadOnlyAttribute(this.definition, this);
+        }
+    }
+
+    static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type) {
         return new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
-                .setDefaultValue(defaultValue)
-                .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                .setRequired(false)
                 ;
     }
 
+    @SuppressWarnings("deprecation")
     static void buildTransformation(ModelVersion version, ResourceTransformationDescriptionBuilder builder) {
+
+        if (InfinispanModel.VERSION_14_0_0.requiresTransformation(version)) {
+            builder.getAttributeBuilder()
+                    .setValueConverter(new SingletonListAttributeConverter(ListAttribute.MODULES), DeprecatedAttribute.MODULE.getDefinition())
+                    .setDiscard(DiscardSingletonListAttributeChecker.INSTANCE, ListAttribute.MODULES.getDefinition())
+                    .addRejectCheck(RejectNonSingletonListAttributeChecker.INSTANCE, ListAttribute.MODULES.getDefinition())
+                    .end();
+        }
 
         if (InfinispanModel.VERSION_4_0_0.requiresTransformation(version)) {
             builder.discardChildResource(NoStoreResourceDefinition.PATH);
@@ -145,10 +328,10 @@ public class CacheResourceDefinition extends ChildResourceDefinition {
                     PathAddress transactionAddress = address.append(TransactionResourceDefinition.PATH);
                     try {
                         ModelNode transaction = context.readResourceFromRoot(transactionAddress).getModel();
-                        if (transaction.hasDefined(TransactionResourceDefinition.Attribute.MODE.getDefinition().getName())) {
-                            ModelNode mode = transaction.get(TransactionResourceDefinition.Attribute.MODE.getDefinition().getName());
+                        if (transaction.hasDefined(TransactionResourceDefinition.Attribute.MODE.getName())) {
+                            ModelNode mode = transaction.get(TransactionResourceDefinition.Attribute.MODE.getName());
                             if ((mode.getType() == ModelType.STRING) && (TransactionMode.valueOf(mode.asString()) == TransactionMode.BATCH)) {
-                                resource.getModel().get(DeprecatedAttribute.BATCHING.getDefinition().getName()).set(true);
+                                resource.getModel().get(DeprecatedAttribute.BATCHING.getName()).set(true);
                             }
                         }
                     } catch (NoSuchElementException e) {
@@ -160,16 +343,11 @@ public class CacheResourceDefinition extends ChildResourceDefinition {
             builder.setCustomResourceTransformer(batchingTransformer);
         }
 
-        if (InfinispanModel.VERSION_1_5_0.requiresTransformation(version)) {
-            builder.getAttributeBuilder()
-                    .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(false, false, new ModelNode(true)), Attribute.STATISTICS_ENABLED.getDefinition())
-                    .addRejectCheck(RejectAttributeChecker.UNDEFINED, Attribute.STATISTICS_ENABLED.getDefinition())
-                    .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, Attribute.STATISTICS_ENABLED.getDefinition())
-                    .addRejectCheck(new RejectAttributeChecker.SimpleRejectAttributeChecker(new ModelNode(false)), Attribute.STATISTICS_ENABLED.getDefinition());
-        }
+        HeapMemoryResourceDefinition.buildTransformation(version, builder);
+        OffHeapMemoryResourceDefinition.buildTransformation(version, builder);
+        HotRodStoreResourceDefinition.buildTransformation(version, builder);
 
         LockingResourceDefinition.buildTransformation(version, builder);
-        EvictionResourceDefinition.buildTransformation(version, builder);
         ExpirationResourceDefinition.buildTransformation(version, builder);
         TransactionResourceDefinition.buildTransformation(version, builder);
 
@@ -181,33 +359,57 @@ public class CacheResourceDefinition extends ChildResourceDefinition {
         CustomStoreResourceDefinition.buildTransformation(version, builder);
     }
 
-    private final PathManager pathManager;
-    final boolean allowRuntimeOnlyRegistration;
+    private final UnaryOperator<ResourceDescriptor> configurator;
+    private final ResourceServiceHandler handler;
 
-    public CacheResourceDefinition(PathElement path, PathManager pathManager, boolean allowRuntimeOnlyRegistration) {
-        super(path, new InfinispanResourceDescriptionResolver(path, PathElement.pathElement("cache")));
-        this.pathManager = pathManager;
-        this.allowRuntimeOnlyRegistration = allowRuntimeOnlyRegistration;
+    public CacheResourceDefinition(PathElement path, UnaryOperator<ResourceDescriptor> configurator, CacheServiceHandler handler, FunctionExecutorRegistry<Cache<?, ?>> executors) {
+        super(path, InfinispanExtension.SUBSYSTEM_RESOLVER.createChildResolver(path, PathElement.pathElement("cache")));
+        this.configurator = configurator;
+        this.handler = handler;
     }
 
+    @SuppressWarnings("deprecation")
     @Override
-    public void register(ManagementResourceRegistration registration) {
+    public ManagementResourceRegistration register(ManagementResourceRegistration parent) {
+        ManagementResourceRegistration registration = parent.registerSubModel(this);
 
-        if (this.allowRuntimeOnlyRegistration) {
-            new MetricHandler<>(new CacheMetricExecutor(), CacheMetric.class).register(registration);
+        ResourceDescriptor descriptor = this.configurator.apply(new ResourceDescriptor(this.getResourceDescriptionResolver()))
+                .addAttributes(Attribute.class)
+                .addAttributes(ListAttribute.class)
+                .addIgnoredAttributes(EnumSet.complementOf(EnumSet.of(DeprecatedAttribute.MODULE)))
+                .addAttributeTranslation(DeprecatedAttribute.MODULE, new ListAttributeTranslation(ListAttribute.MODULES))
+                .addCapabilities(Capability.class)
+                .addCapabilities(CLUSTERING_CAPABILITIES.values())
+                .addRequiredChildren(ExpirationResourceDefinition.PATH, LockingResourceDefinition.PATH, TransactionResourceDefinition.PATH)
+                .addRequiredSingletonChildren(HeapMemoryResourceDefinition.PATH, NoStoreResourceDefinition.PATH)
+                ;
+        new SimpleResourceRegistration(descriptor, this.handler).register(registration);
+
+        if (registration.isRuntimeOnlyRegistrationValid()) {
+            for (DeprecatedMetric metric : EnumSet.allOf(DeprecatedMetric.class)) {
+                metric.register(registration);
+            }
+            for (FixedMetric metric : EnumSet.allOf(FixedMetric.class)) {
+                metric.register(registration);
+            }
         }
 
-        new EvictionResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
+        new HeapMemoryResourceDefinition().register(registration);
+        new OffHeapMemoryResourceDefinition().register(registration);
+
         new ExpirationResourceDefinition().register(registration);
-        new LockingResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
-        new TransactionResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
+        new LockingResourceDefinition().register(registration);
+        new TransactionResourceDefinition().register(registration);
 
         new NoStoreResourceDefinition().register(registration);
-        new CustomStoreResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
-        new FileStoreResourceDefinition(this.pathManager, this.allowRuntimeOnlyRegistration).register(registration);
-        new BinaryKeyedJDBCStoreResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
-        new MixedKeyedJDBCStoreResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
-        new StringKeyedJDBCStoreResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
-        new RemoteStoreResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
+        new CustomStoreResourceDefinition().register(registration);
+        new FileStoreResourceDefinition().register(registration);
+        new BinaryKeyedJDBCStoreResourceDefinition().register(registration);
+        new MixedKeyedJDBCStoreResourceDefinition().register(registration);
+        new StringKeyedJDBCStoreResourceDefinition().register(registration);
+        new RemoteStoreResourceDefinition().register(registration);
+        new HotRodStoreResourceDefinition().register(registration);
+
+        return registration;
     }
 }

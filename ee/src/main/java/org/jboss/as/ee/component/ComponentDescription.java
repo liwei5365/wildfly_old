@@ -46,9 +46,10 @@ import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.value.InjectedValue;
 
 /**
- * A description of a generic Java EE component.  The description is pre-classloading so it references everything by name.
+ * A description of a generic Jakarta EE component.  The description is pre-classloading so it references everything by name.
  *
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class ComponentDescription implements ResourceInjectionTarget {
 
@@ -77,7 +78,7 @@ public class ComponentDescription implements ResourceInjectionTarget {
     private boolean excludeDefaultInterceptors = false;
     private boolean ignoreLifecycleInterceptors = false;
 
-    private final Map<ServiceName, ServiceBuilder.DependencyType> dependencies = new HashMap<ServiceName, ServiceBuilder.DependencyType>();
+    private final Set<ServiceName> dependencies = new HashSet<ServiceName>();
 
     private ComponentNamingMode namingMode = ComponentNamingMode.USE_MODULE;
 
@@ -108,16 +109,16 @@ public class ComponentDescription implements ResourceInjectionTarget {
     public ComponentDescription(final String componentName, final String componentClassName, final EEModuleDescription moduleDescription, final ServiceName deploymentUnitServiceName) {
         this.moduleDescription = moduleDescription;
         if (componentName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("name");
+            throw EeLogger.ROOT_LOGGER.nullName("component");
         }
         if (componentClassName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("componentClassName");
+            throw EeLogger.ROOT_LOGGER.nullVar("componentClassName", "component", componentName);
         }
         if (moduleDescription == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("moduleDescription");
+            throw EeLogger.ROOT_LOGGER.nullVar("moduleDescription", "component", componentName);
         }
         if (deploymentUnitServiceName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("deploymentUnitServiceName");
+            throw EeLogger.ROOT_LOGGER.nullVar("deploymentUnitServiceName", "component", componentName);
         }
         serviceName = BasicComponent.serviceNameOf(deploymentUnitServiceName, componentName);
         this.componentName = componentName;
@@ -411,7 +412,7 @@ public class ComponentDescription implements ResourceInjectionTarget {
      */
     public void setNamingMode(final ComponentNamingMode namingMode) {
         if (namingMode == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("namingMode");
+            throw EeLogger.ROOT_LOGGER.nullVar("namingMode", "component", componentName);
         }
         this.namingMode = namingMode;
     }
@@ -428,30 +429,20 @@ public class ComponentDescription implements ResourceInjectionTarget {
      * take effect.
      *
      * @param serviceName the service name of the dependency
-     * @param type        the type of the dependency (required or optional)
      */
-    public void addDependency(ServiceName serviceName, ServiceBuilder.DependencyType type) {
+    public void addDependency(ServiceName serviceName) {
         if (serviceName == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("serviceName");
+            throw EeLogger.ROOT_LOGGER.nullVar("serviceName", "component", componentName);
         }
-        if (type == null) {
-            throw EeLogger.ROOT_LOGGER.nullVar("type");
-        }
-        final Map<ServiceName, ServiceBuilder.DependencyType> dependencies = this.dependencies;
-        final ServiceBuilder.DependencyType dependencyType = dependencies.get(serviceName);
-        if (dependencyType == ServiceBuilder.DependencyType.REQUIRED) {
-            dependencies.put(serviceName, ServiceBuilder.DependencyType.REQUIRED);
-        } else {
-            dependencies.put(serviceName, type);
-        }
+        dependencies.add(serviceName);
     }
 
     /**
-     * Get the dependency map.
+     * Get the dependency set.
      *
-     * @return the dependency map
+     * @return the dependency set
      */
-    public Map<ServiceName, ServiceBuilder.DependencyType> getDependencies() {
+    public Set<ServiceName> getDependencies() {
         return dependencies;
     }
 
@@ -590,8 +581,8 @@ public class ComponentDescription implements ResourceInjectionTarget {
      *
      * For most components this is not necessary.
      *
-     * Also not that even though EJB's are intercepted, their interceptor is done through
-     * a different method that integrates with the existing EJB interceptor chain
+     * Also not that even though Jakarta Enterprise Beans's are intercepted, their interceptor is done through
+     * a different method that integrates with the existing Jakarta Enterprise Beans interceptor chain
      *
      */
     public boolean isCDIInterceptorEnabled() {

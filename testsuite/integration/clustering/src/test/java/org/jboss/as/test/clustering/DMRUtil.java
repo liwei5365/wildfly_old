@@ -2,9 +2,9 @@ package org.jboss.as.test.clustering;
 
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.*;
 
+import org.jboss.logging.Logger;
 import org.junit.Assert;
 
-import org.apache.log4j.Logger;
 import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.test.integration.management.ManagementOperations;
 import org.jboss.dmr.ModelNode;
@@ -61,7 +61,7 @@ public class DMRUtil {
         operation.get("name").set(attrName);
         ModelNode result = client.execute(operation);
         Assert.assertEquals("Unset of attribute " + attrName + " on server was not successful", SUCCESS, result.get(OUTCOME).asString());
-        log.info("unset modelnode operation " + UNDEFINE_ATTRIBUTE_OPERATION + " on " + attrName + ": " + result);
+        log.trace("unset modelnode operation " + UNDEFINE_ATTRIBUTE_OPERATION + " on " + attrName + ": " + result);
     }
 
     public static void unsetMaxSizeAttribute(ModelControllerClient client) throws Exception {

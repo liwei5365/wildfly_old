@@ -23,7 +23,6 @@
 package org.jboss.as.test.integration.hibernate;
 
 import java.util.Properties;
-
 import javax.ejb.Stateful;
 import javax.ejb.TransactionManagement;
 import javax.ejb.TransactionManagementType;
@@ -37,7 +36,7 @@ import org.hibernate.internal.util.config.ConfigurationHelper;
 
 /**
  * Test that a Hibernate sessionfactory can be inititated from hibernate.cfg.xml and properties added to Hibernate Configuration
- * in AS7 container without any JPA assistance
+ * in AS7 container without any Jakarta Persistence assistance
  *
  * @author Madhumita Sadhukhan
  */
@@ -46,10 +45,6 @@ import org.hibernate.internal.util.config.ConfigurationHelper;
 public class SFSBHibernateSessionFactory {
 
     private static SessionFactory sessionFactory;
-
-    protected static final Class[] NO_CLASSES = new Class[0];
-    protected static final String NO_MAPPINGS = new String();
-
 
     public void cleanup() {
         sessionFactory.close();
@@ -65,6 +60,12 @@ public class SFSBHibernateSessionFactory {
             configuration.setProperty(Environment.HBM2DDL_AUTO, "create-drop");
             configuration.setProperty(Environment.DATASOURCE, "java:jboss/datasources/ExampleDS");
             configuration.setProperty("hibernate.listeners.envers.autoRegister", "false");
+            /* Hibernate 5.2+ (see https://hibernate.atlassian.net/browse/HHH-10877 +
+                 https://hibernate.atlassian.net/browse/HHH-12665) no longer defaults
+                 to allowing a DML operation outside of a started transaction.
+                 The application workaround is to configure new property hibernate.allow_update_outside_transaction=true.
+            */
+            configuration.setProperty("hibernate.allow_update_outside_transaction","true");
 
             // fetch the properties
             Properties properties = new Properties();
@@ -76,9 +77,7 @@ public class SFSBHibernateSessionFactory {
 
             sessionFactory = configuration.buildSessionFactory();
         } catch (Throwable ex) { // Make sure you log the exception, as it might be swallowed
-            System.err.println("Initial SessionFactory creation failed." + ex);
-            // ex.printStackTrace();
-            throw new ExceptionInInitializerError(ex);
+            throw new RuntimeException("Could not setup config", ex);
         }
 
     }
@@ -93,17 +92,14 @@ public class SFSBHibernateSessionFactory {
         student.setLastName(lastName);
 
         try {
-            // We are not explicitly initializing a Transaction as Hibernate is expected to invoke the JTA TransactionManager
+            // We are not explicitly initializing a Transaction as Hibernate is expected to invoke the Jakarta Transactions TransactionManager
             // implicitly
             Session session = sessionFactory.openSession();
             session.save(student);
             session.flush();
             session.close();
         } catch (Exception e) {
-
-            e.printStackTrace();
             throw new RuntimeException("transactional failure while persisting student entity", e);
-
         }
 
         return student;
@@ -111,7 +107,7 @@ public class SFSBHibernateSessionFactory {
 
     // fetch student
     public Student getStudent(int id) {
-        Student emp = (Student) sessionFactory.openSession().load(Student.class, id);
+        Student emp = sessionFactory.openSession().load(Student.class, id);
         return emp;
     }
 

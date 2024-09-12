@@ -27,7 +27,6 @@ import org.jboss.dmr.ModelNode;
 
 /**
  * Convert the 1.4 SEGMENTS value to VIRTUAL_NODES in model and operations, if defined and not an expression
- * Remove the 1.4 attributes INDEXING_PROPERTIES and SEGMENTS from model and operations
  *
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a>
  * @author Richard Achmatowicz (c) RedHat 2013
@@ -37,7 +36,7 @@ public class SegmentsAndVirtualNodeConverter  {
     // ratio of segments to virtual nodes to convert between the two
     public static final int SEGMENTS_PER_VIRTUAL_NODE = 6;
     public static final int VIRTUAL_NODES_DEFAULT = 1;
-    public static final int SEGMENTS_DEFAULT = DistributedCacheResourceDefinition.Attribute.SEGMENTS.getDefinition().getDefaultValue().asInt();
+    public static final int SEGMENTS_DEFAULT = SegmentedCacheResourceDefinition.Attribute.SEGMENTS.getDefinition().getDefaultValue().asInt();
 
     /*
      * Convert a 1.3 virtual nodes value to a 1.4 segments value

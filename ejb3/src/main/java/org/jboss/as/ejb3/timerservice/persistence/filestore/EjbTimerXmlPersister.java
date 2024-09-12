@@ -100,30 +100,26 @@ public class EjbTimerXmlPersister implements XMLElementWriter<List<TimerImpl>> {
         String info = null;
         String primaryKey = null;
         if (timer.getInfo() != null) {
-            try {
-                Marshaller marshaller = factory.createMarshaller(configuration);
+            try (final Marshaller marshaller = factory.createMarshaller(configuration)) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 marshaller.start(new OutputStreamByteOutput(out));
                 marshaller.writeObject(timer.getInfo());
-                marshaller.finish();
                 marshaller.flush();
                 info = Base64.getEncoder().encodeToString(out.toByteArray());
             } catch (Exception e) {
-                EjbLogger.ROOT_LOGGER.failedToPersistTimer(timer, e);
+                EjbLogger.EJB3_TIMER_LOGGER.failedToPersistTimer(timer, e);
                 return;
             }
         }
         if (timer.getPrimaryKey() != null) {
-            try {
-                Marshaller marshaller = factory.createMarshaller(configuration);
+            try (final Marshaller marshaller = factory.createMarshaller(configuration)) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 marshaller.start(new OutputStreamByteOutput(out));
                 marshaller.writeObject(timer.getPrimaryKey());
-                marshaller.finish();
                 marshaller.flush();
                 primaryKey = Base64.getEncoder().encodeToString(out.toByteArray());
             } catch (Exception e) {
-                EjbLogger.ROOT_LOGGER.failedToPersistTimer(timer, e);
+                EjbLogger.EJB3_TIMER_LOGGER.failedToPersistTimer(timer, e);
                 return;
             }
         }
@@ -183,30 +179,26 @@ public class EjbTimerXmlPersister implements XMLElementWriter<List<TimerImpl>> {
         String info = null;
         String primaryKey = null;
         if (timer.getInfo() != null) {
-            try {
-                Marshaller marshaller = factory.createMarshaller(configuration);
+            try (final Marshaller marshaller = factory.createMarshaller(configuration)) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 marshaller.start(new OutputStreamByteOutput(out));
                 marshaller.writeObject(timer.getInfo());
-                marshaller.finish();
                 marshaller.flush();
                 info = Base64.getEncoder().encodeToString(out.toByteArray());
             } catch (Exception e) {
-                EjbLogger.ROOT_LOGGER.failedToPersistTimer(timer, e);
+                EjbLogger.EJB3_TIMER_LOGGER.failedToPersistTimer(timer, e);
                 return;
             }
         }
         if (timer.getPrimaryKey() != null) {
-            try {
-                Marshaller marshaller = factory.createMarshaller(configuration);
+            try (final Marshaller marshaller = factory.createMarshaller(configuration)) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 marshaller.start(new OutputStreamByteOutput(out));
                 marshaller.writeObject(timer.getPrimaryKey());
-                marshaller.finish();
                 marshaller.flush();
                 primaryKey = Base64.getEncoder().encodeToString(out.toByteArray());
             } catch (Exception e) {
-                EjbLogger.ROOT_LOGGER.failedToPersistTimer(timer, e);
+                EjbLogger.EJB3_TIMER_LOGGER.failedToPersistTimer(timer, e);
                 return;
             }
         }

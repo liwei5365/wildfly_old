@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2010, Red Hat, Inc., and individual contributors
+ * Copyright 2020, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -32,6 +32,7 @@ interface CommonAttributes {
     String CORE_ENVIRONMENT = "core-environment";
     String COORDINATOR_ENVIRONMENT = "coordinator-environment";
     String DEFAULT_TIMEOUT = "default-timeout";
+    String MAXIMUM_TIMEOUT = "maximum-timeout";
     String ENABLE_STATISTICS = "enable-statistics";
     /** transaction status manager (TSM) service, needed for out of process recovery, should be provided or not */
     String ENABLE_TSM_STATUS = "enable-tsm-status";
@@ -74,6 +75,7 @@ interface CommonAttributes {
     /** The process-id/uuid element */
     String UUID = "uuid";
     // TxStats
+    String STATISTICS = "statistics";
     String NUMBER_OF_TRANSACTIONS = "number-of-transactions";
     String NUMBER_OF_NESTED_TRANSACTIONS = "number-of-nested-transactions";
     String NUMBER_OF_HEURISTICS = "number-of-heuristics";
@@ -83,6 +85,8 @@ interface CommonAttributes {
     String NUMBER_OF_TIMED_OUT_TRANSACTIONS = "number-of-timed-out-transactions";
     String NUMBER_OF_APPLICATION_ROLLBACKS = "number-of-application-rollbacks";
     String NUMBER_OF_RESOURCE_ROLLBACKS = "number-of-resource-rollbacks";
+    String NUMBER_OF_SYSTEM_ROLLBACKS = "number-of-system-rollbacks";
+    String AVERAGE_COMMIT_TIME = "average-commit-time";
 
 
     String PARTICIPANT = "participant";
@@ -102,4 +106,7 @@ interface CommonAttributes {
     Integer CM_BATCH_SIZE_DEF_VAL = 100;
     Boolean CM_IMMEDIATE_CLEANUP_DEF_VAL = true;
     String CM_LOCATION_NAME_DEF_VAL = "xids";
+
+    String CLIENT = "client";
+    String STALE_TRANSACTION_TIME = "stale-transaction-time";
 }

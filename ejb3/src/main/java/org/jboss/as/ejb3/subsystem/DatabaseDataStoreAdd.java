@@ -24,16 +24,13 @@ package org.jboss.as.ejb3.subsystem;
 
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
-import java.util.List;
-
 import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.CapabilityServiceBuilder;
+import org.jboss.as.controller.CapabilityServiceTarget;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.ServiceVerificationHandler;
-import org.jboss.as.ejb3.deployment.processors.TimerServiceDeploymentProcessor;
-import org.jboss.as.ejb3.timerservice.persistence.TimerPersistence;
 import org.jboss.as.ejb3.timerservice.persistence.database.DatabaseTimerPersistence;
 import org.jboss.as.naming.ManagedReferenceFactory;
 import org.jboss.as.naming.deployment.ContextNames;
@@ -41,9 +38,6 @@ import org.jboss.as.server.ServerEnvironment;
 import org.jboss.as.server.Services;
 import org.jboss.dmr.ModelNode;
 import org.jboss.modules.ModuleLoader;
-import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceController;
-import org.jboss.msc.service.ServiceName;
 import org.wildfly.security.manager.WildFlySecurityManager;
 
 /**
@@ -53,26 +47,15 @@ import org.wildfly.security.manager.WildFlySecurityManager;
  */
 public class DatabaseDataStoreAdd extends AbstractAddStepHandler {
 
-    public static final DatabaseDataStoreAdd INSTANCE = new DatabaseDataStoreAdd();
+    private static final String TIMER_SERVICE_CAPABILITY_NAME = "org.wildfly.ejb3.timer-service";
 
-    protected void populateModel(ModelNode operation, ModelNode timerServiceModel) throws OperationFailedException {
-
-        for (AttributeDefinition attr : DatabaseDataStoreResourceDefinition.ATTRIBUTES.values()) {
-            attr.validateAndSet(operation, timerServiceModel);
-        }
+    DatabaseDataStoreAdd(AttributeDefinition... attributes) {
+        super(attributes);
     }
 
     @Override
-    protected void performRuntime(final OperationContext context, final ModelNode operation, final ModelNode model, final ServiceVerificationHandler verificationHandler, final List<ServiceController<?>> newControllers) throws OperationFailedException {
+    protected void performRuntime(final OperationContext context, final ModelNode operation, final ModelNode model) throws OperationFailedException {
 
-        final ServiceController<DatabaseTimerPersistence> controller = installRuntimeServices(context, operation, model, verificationHandler);
-
-        if (newControllers != null) {
-            newControllers.add(controller);
-        }
-    }
-
-    public ServiceController<DatabaseTimerPersistence> installRuntimeServices(final OperationContext context, final ModelNode operation, final ModelNode model, final ServiceVerificationHandler verificationHandler) throws OperationFailedException {
         final String jndiName = DatabaseDataStoreResourceDefinition.DATASOURCE_JNDI_NAME.resolveModelAttribute(context, model).asString();
 
         final ModelNode dataBaseValue = DatabaseDataStoreResourceDefinition.DATABASE.resolveModelAttribute(context, model);
@@ -91,18 +74,14 @@ public class DatabaseDataStoreAdd extends AbstractAddStepHandler {
 
         final String nodeName = WildFlySecurityManager.getPropertyPrivileged(ServerEnvironment.NODE_NAME, null);
         final DatabaseTimerPersistence databaseTimerPersistence = new DatabaseTimerPersistence(database, partition, nodeName, refreshInterval, allowExecution);
-        final ServiceName serviceName = TimerPersistence.SERVICE_NAME.append(name);
-        final ServiceBuilder<DatabaseTimerPersistence> builder = context.getServiceTarget().addService(serviceName, databaseTimerPersistence);
 
-        if (verificationHandler != null) {
-            builder.addListener(verificationHandler);
-        }
-
-        return builder
-                .addDependency(Services.JBOSS_SERVICE_MODULE_LOADER, ModuleLoader.class, databaseTimerPersistence.getModuleLoader())
-                .addDependency(ContextNames.bindInfoFor(jndiName).getBinderServiceName(), ManagedReferenceFactory.class, databaseTimerPersistence.getDataSourceInjectedValue())
-                .addDependency(TimerServiceDeploymentProcessor.TIMER_SERVICE_NAME, java.util.Timer.class, databaseTimerPersistence.getTimerInjectedValue())
-                .install();
+        // add the TimerPersistence instance
+        final CapabilityServiceTarget serviceTarget = context.getCapabilityServiceTarget();
+        final CapabilityServiceBuilder<DatabaseTimerPersistence> builder = serviceTarget.addCapability(DatabaseDataStoreResourceDefinition.TIMER_PERSISTENCE_CAPABILITY, databaseTimerPersistence);
+        builder.addDependency(Services.JBOSS_SERVICE_MODULE_LOADER, ModuleLoader.class, databaseTimerPersistence.getModuleLoader());
+        builder.addDependency(ContextNames.bindInfoFor(jndiName).getBinderServiceName(), ManagedReferenceFactory.class, databaseTimerPersistence.getDataSourceInjectedValue());
+        builder.addCapabilityRequirement(TIMER_SERVICE_CAPABILITY_NAME, java.util.Timer.class, databaseTimerPersistence.getTimerInjectedValue());
+        builder.install();
     }
 
 }

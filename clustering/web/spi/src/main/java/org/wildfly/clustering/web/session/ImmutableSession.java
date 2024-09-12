@@ -33,17 +33,17 @@ public interface ImmutableSession {
     String getId();
 
     /**
+     * Indicates whether or not this session is valid.
+     * @return true, if this session is valid, false otherwise
+     */
+    boolean isValid();
+
+    /**
      * Returns this session's meta data.
      * @return this session's meta data
      * @throws IllegalStateException if this session is invalid
      */
     ImmutableSessionMetaData getMetaData();
-
-    /**
-     * Indicates whether or not this session was invalidated.
-     * @return true if this session is still valid, false otherwise.
-     */
-    boolean isValid();
 
     /**
      * Returns this session's attributes.

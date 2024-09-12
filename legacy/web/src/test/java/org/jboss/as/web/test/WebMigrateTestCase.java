@@ -37,33 +37,33 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.jboss.as.controller.Extension;
-import org.jboss.as.controller.ExtensionContext;
+import javax.security.auth.x500.X500Principal;
+
+import io.undertow.predicate.PredicateParser;
+import io.undertow.server.handlers.builder.PredicatedHandlersParser;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationDefinition;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.OperationStepHandler;
-import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.ProcessType;
 import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
-import org.jboss.as.controller.ResourceDefinition;
 import org.jboss.as.controller.RunningMode;
 import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.access.management.DelegatingConfigurableAuthorizer;
+import org.jboss.as.controller.access.management.ManagementSecurityIdentitySupplier;
 import org.jboss.as.controller.capability.registry.RuntimeCapabilityRegistry;
-import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
 import org.jboss.as.controller.descriptions.StandardResourceDescriptionResolver;
 import org.jboss.as.controller.descriptions.common.ControllerResolver;
 import org.jboss.as.controller.extension.ExtensionRegistry;
 import org.jboss.as.controller.extension.ExtensionRegistryType;
-import org.jboss.as.controller.extension.ExtensionResourceDefinition;
-import org.jboss.as.controller.extension.MutableRootResourceRegistrationProvider;
-import org.jboss.as.controller.parsing.ExtensionParsingContext;
-import org.jboss.as.controller.registry.AbstractModelResource;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.Resource;
 import org.jboss.as.domain.management.CoreManagementResourceDefinition;
@@ -72,21 +72,117 @@ import org.jboss.as.domain.management.security.KeystoreAttributes;
 import org.jboss.as.network.SocketBinding;
 import org.jboss.as.subsystem.test.AbstractSubsystemTest;
 import org.jboss.as.subsystem.test.AdditionalInitialization;
+import org.jboss.as.subsystem.test.ControllerInitializer;
 import org.jboss.as.subsystem.test.KernelServices;
 import org.jboss.as.web.WebExtension;
 import org.jboss.dmr.ModelNode;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.wildfly.extension.io.IOExtension;
 import org.wildfly.extension.undertow.Constants;
 import org.wildfly.extension.undertow.UndertowExtension;
+import org.wildfly.security.x500.cert.SelfSignedX509CertificateAndSigningKey;
 
 /**
- *
  * @author Stuart Douglas
  */
 public class WebMigrateTestCase extends AbstractSubsystemTest {
 
     public static final String UNDERTOW_SUBSYSTEM_NAME = "undertow";
+
+    private static final char[] GENERATED_KEYSTORE_PASSWORD = "changeit".toCharArray();
+
+    private static final String CLIENT_ALIAS = "client";
+    private static final String CLIENT_2_ALIAS = "client2";
+    private static final String TEST_ALIAS = "test";
+
+    private static final String WORKING_DIRECTORY_LOCATION = "./target/test-classes";
+
+    private static final File KEY_STORE_FILE = new File(WORKING_DIRECTORY_LOCATION, "server.keystore");
+    private static final File TRUST_STORE_FILE = new File(WORKING_DIRECTORY_LOCATION, "jsse.keystore");
+
+    private static final String TEST_CLIENT_DN = "CN=Test Client, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+    private static final String TEST_CLIENT_2_DN = "CN=Test Client 2, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+    private static final String AS_7_DN = "CN=AS7, OU=JBoss, O=Red Hat, L=Raleigh, ST=North Carolina, C=US";
+
+    private static final String SHA_1_RSA = "SHA1withRSA";
+
+    private static KeyStore loadKeyStore() throws Exception{
+        KeyStore ks = KeyStore.getInstance("JKS");
+        ks.load(null, null);
+        return ks;
+    }
+
+    private static SelfSignedX509CertificateAndSigningKey createSelfSigned(String DN) {
+        return SelfSignedX509CertificateAndSigningKey.builder()
+                .setDn(new X500Principal(DN))
+                .setKeyAlgorithmName("RSA")
+                .setSignatureAlgorithmName(SHA_1_RSA)
+                .build();
+    }
+
+    private static void addKeyEntry(SelfSignedX509CertificateAndSigningKey selfSignedX509CertificateAndSigningKey, KeyStore keyStore) throws Exception {
+        X509Certificate certificate = selfSignedX509CertificateAndSigningKey.getSelfSignedCertificate();
+        keyStore.setKeyEntry(TEST_ALIAS, selfSignedX509CertificateAndSigningKey.getSigningKey(), GENERATED_KEYSTORE_PASSWORD, new X509Certificate[]{certificate});
+    }
+
+    private static void addCertEntry(SelfSignedX509CertificateAndSigningKey selfSignedX509CertificateAndSigningKey, String alias, KeyStore keyStore) throws Exception {
+        X509Certificate certificate = selfSignedX509CertificateAndSigningKey.getSelfSignedCertificate();
+        keyStore.setCertificateEntry(alias, certificate);
+    }
+
+    private static void createTemporaryKeyStoreFile(KeyStore keyStore, File outputFile) throws Exception {
+        try (FileOutputStream fos = new FileOutputStream(outputFile)){
+            keyStore.store(fos, GENERATED_KEYSTORE_PASSWORD);
+        }
+    }
+
+    private static void setUpKeyStores() throws Exception {
+        File workingDir = new File(WORKING_DIRECTORY_LOCATION);
+        if (workingDir.exists() == false) {
+            workingDir.mkdirs();
+        }
+
+        KeyStore keyStore = loadKeyStore();
+        KeyStore trustStore = loadKeyStore();
+
+        SelfSignedX509CertificateAndSigningKey testClientSelfSignedX509CertificateAndSigningKey = createSelfSigned(TEST_CLIENT_DN);
+        SelfSignedX509CertificateAndSigningKey testClient2SelfSignedX509CertificateAndSigningKey = createSelfSigned(TEST_CLIENT_2_DN);
+        SelfSignedX509CertificateAndSigningKey aS7SelfSignedX509CertificateAndSigningKey = createSelfSigned(AS_7_DN);
+
+        addCertEntry(testClient2SelfSignedX509CertificateAndSigningKey, CLIENT_2_ALIAS, keyStore);
+        addCertEntry(testClientSelfSignedX509CertificateAndSigningKey, CLIENT_ALIAS, keyStore);
+        addKeyEntry(aS7SelfSignedX509CertificateAndSigningKey, keyStore);
+
+        addCertEntry(testClient2SelfSignedX509CertificateAndSigningKey, CLIENT_2_ALIAS, trustStore);
+        addCertEntry(testClientSelfSignedX509CertificateAndSigningKey, CLIENT_ALIAS, trustStore);
+
+        createTemporaryKeyStoreFile(keyStore, KEY_STORE_FILE);
+        createTemporaryKeyStoreFile(trustStore, TRUST_STORE_FILE);
+    }
+
+    private static void deleteKeyStoreFiles() {
+        File[] testFiles = {
+                KEY_STORE_FILE,
+                TRUST_STORE_FILE
+        };
+        for (File file : testFiles) {
+            if (file.exists()) {
+                file.delete();
+            }
+        }
+    }
+
+    @BeforeClass
+    public static void beforeTests() throws Exception {
+        setUpKeyStores();
+    }
+
+    @AfterClass
+    public static void afterTests() {
+        deleteKeyStoreFiles();
+    }
 
     public WebMigrateTestCase() {
         super(WebExtension.SUBSYSTEM_NAME, new WebExtension());
@@ -135,7 +231,7 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
         assertEquals("${prop.default-session-timeout:30}", servletContainer.get(Constants.DEFAULT_SESSION_TIMEOUT).asString());
         assertEquals("${prop.listings:true}", servletContainer.get(Constants.DIRECTORY_LISTING).asString());
 
-        //jsp settings
+        //Jakarta Server Pages settings
         ModelNode jsp = servletContainer.get(Constants.SETTING, Constants.JSP);
         assertNotNull(jsp);
         assertEquals("${prop.recompile-on-fail:true}", jsp.get(Constants.RECOMPILE_ON_FAIL).asString());
@@ -158,6 +254,11 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
         assertEquals("${prop.max-post-size:2097153}", connector.get(Constants.MAX_POST_SIZE).asString());
         assertEquals("https", connector.get(Constants.REDIRECT_SOCKET).asString());
 
+        //http-proxy connector
+        ModelNode httpProxyConnector = newServer.get(Constants.HTTP_LISTENER, "http-proxy");
+        assertTrue(connector.isDefined());
+        assertEquals("http", httpProxyConnector.get(Constants.SOCKET_BINDING).asString());
+
         //https connector
         ModelNode httpsConnector = newServer.get(Constants.HTTPS_LISTENER, "https");
         String realmName = httpsConnector.get(Constants.SECURITY_REALM).asString();
@@ -171,6 +272,28 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
         //trust store
         ModelNode trustStore = realm.get(AUTHENTICATION, TRUSTSTORE);
         assertEquals("${file-base}/jsse.keystore", trustStore.get(KeystoreAttributes.KEYSTORE_PATH.getName()).asString());
+        //Valves
+        ModelNode filters = newSubsystem.get(Constants.CONFIGURATION, Constants.FILTER);
+        ModelNode dumpFilter = filters.get("expression-filter", "request-dumper");
+        assertEquals("dump-request", dumpFilter.get("expression").asString());
+        validateExpressionFilter(dumpFilter);
+
+        ModelNode remoteAddrFilter = filters.get("expression-filter", "remote-addr");
+        assertEquals("access-control(acl={'192.168.1.20 deny', '127.0.0.1 allow', '127.0.0.2 allow'} , attribute=%a)", remoteAddrFilter.get("expression").asString());
+        validateExpressionFilter(remoteAddrFilter);
+
+        ModelNode stuckFilter = filters.get("expression-filter", "stuck");
+        assertEquals("stuck-thread-detector(threshhold='1000')", stuckFilter.get("expression").asString());
+        validateExpressionFilter(stuckFilter);
+
+        ModelNode proxyFilter = filters.get("expression-filter", "proxy");
+        assertEquals("regex(pattern=\"proxy1|proxy2\", value=%{i,x-forwarded-for}, full-match=true) and regex(pattern=\"192\\.168\\.0\\.10|192\\.168\\.0\\.11\", value=%{i,x-forwarded-for}, full-match=true) -> proxy-peer-address", proxyFilter.get("expression").asString());
+        validateExpressionFilter(proxyFilter);
+
+        ModelNode crawler = servletContainer.get(Constants.SETTING, Constants.CRAWLER_SESSION_MANAGEMENT);
+        assertTrue(crawler.isDefined());
+        assertEquals(1, crawler.get(Constants.SESSION_TIMEOUT).asInt());
+        assertEquals("Google", crawler.get(Constants.USER_AGENTS).asString());
 
 
         //virtual host
@@ -179,6 +302,11 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
         assertEquals("welcome-content", virtualHost.get("location", "/").get(Constants.HANDLER).asString());
 
         assertEquals("localhost", virtualHost.get("alias").asList().get(0).asString());
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "request-dumper"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "remote-addr"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "proxy"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "stuck"));
+        assertFalse(virtualHost.hasDefined(Constants.FILTER_REF, "myvalve"));
 
         ModelNode accessLog = virtualHost.get(Constants.SETTING, Constants.ACCESS_LOG);
 
@@ -193,9 +321,41 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
         assertEquals("${prop.domain:myDomain}", sso.get(Constants.DOMAIN).asString());
         assertEquals("${prop.http-only:true}", sso.get(Constants.HTTP_ONLY).asString());
 
+        //global access log valve
+        virtualHost = newServer.get(Constants.HOST, "vs1");
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "request-dumper"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "remote-addr"));
+        assertFalse(virtualHost.hasDefined(Constants.FILTER_REF, "myvalve"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "proxy"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "stuck"));
+        accessLog = virtualHost.get(Constants.SETTING, Constants.ACCESS_LOG);
 
+        assertEquals("myapp_access_log.", accessLog.get(Constants.PREFIX).asString());
+        assertEquals(".log", accessLog.get(Constants.SUFFIX).asString());
+        assertEquals("true", accessLog.get(Constants.ROTATE).asString());
+        assertEquals("common", accessLog.get(Constants.PATTERN).asString());
+        assertEquals("${jboss.server.log.dir}", accessLog.get(Constants.DIRECTORY).asString());
+        assertEquals("exists(%{r,log-enabled})", accessLog.get(Constants.PREDICATE).asString());
 
+        //proxy valve
+        virtualHost = newServer.get(Constants.HOST, "vs1");
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "request-dumper"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "remote-addr"));
+        assertFalse(virtualHost.hasDefined(Constants.FILTER_REF, "myvalve"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "proxy"));
+        assertTrue(virtualHost.hasDefined(Constants.FILTER_REF, "stuck"));
 
+        assertEquals("myapp_access_log.", accessLog.get(Constants.PREFIX).asString());
+        assertEquals(".log", accessLog.get(Constants.SUFFIX).asString());
+        assertEquals("true", accessLog.get(Constants.ROTATE).asString());
+        assertEquals("common", accessLog.get(Constants.PATTERN).asString());
+        assertEquals("${jboss.server.log.dir}", accessLog.get(Constants.DIRECTORY).asString());
+        assertEquals("exists(%{r,log-enabled})", accessLog.get(Constants.PREDICATE).asString());
+
+    }
+
+    private void validateExpressionFilter(ModelNode filter) {
+        PredicatedHandlersParser.parse(filter.get("expression").asString(), PredicateParser.class.getClassLoader());
     }
 
     private static class NewSubsystemAdditionalInitialization extends AdditionalInitialization {
@@ -213,7 +373,7 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
 
             PathElement webExtension = PathElement.pathElement(EXTENSION, "org.jboss.as.web");
             rootRegistration.registerSubModel(new SimpleResourceDefinition(webExtension, ControllerResolver.getResolver(EXTENSION)))
-                .registerOperationHandler(removeExtension, new ReloadRequiredRemoveStepHandler());
+                    .registerOperationHandler(removeExtension, new ReloadRequiredRemoveStepHandler());
             rootResource.registerChild(webExtension, Resource.Factory.create());
 
 
@@ -221,7 +381,7 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
                     ControllerResolver.getResolver(EXTENSION), new OperationStepHandler() {
                 @Override
                 public void execute(OperationContext context, ModelNode operation) throws OperationFailedException {
-                    if(!extensionAdded) {
+                    if (!extensionAdded) {
                         extensionAdded = true;
                         undertow.initialize(extensionRegistry.getExtensionContext("org.wildfly.extension.undertow",
                                 rootRegistration, ExtensionRegistryType.SERVER));
@@ -230,7 +390,8 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
                     }
                 }
             }, null));
-            rootRegistration.registerSubModel(CoreManagementResourceDefinition.forStandaloneServer(new DelegatingConfigurableAuthorizer(), null, null, new EnvironmentNameReader() {
+            rootRegistration.registerSubModel(CoreManagementResourceDefinition.forStandaloneServer(new DelegatingConfigurableAuthorizer(), new ManagementSecurityIdentitySupplier(),
+                    null, null, new EnvironmentNameReader() {
                 public boolean isServer() {
                     return true;
                 }
@@ -264,6 +425,15 @@ public class WebMigrateTestCase extends AbstractSubsystemTest {
             return RunningMode.ADMIN_ONLY;
         }
 
+        @Override
+        protected ProcessType getProcessType() {
+            return ProcessType.SELF_CONTAINED;
+        }
+
+        @Override
+        protected void setupController(ControllerInitializer controllerInitializer) {
+            controllerInitializer.addPath("jboss.controller.temp.dir", System.getProperty("java.io.tmpdir"), null);
+        }
 
     }
 }

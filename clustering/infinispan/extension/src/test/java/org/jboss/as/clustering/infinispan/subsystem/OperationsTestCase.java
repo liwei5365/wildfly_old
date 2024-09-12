@@ -87,7 +87,7 @@ public class OperationsTestCase extends OperationTestCaseBase {
      */
     @SuppressWarnings("deprecation")
     @Test
-    public void testDistributedCacheMixedJDBCStoreReadWriteOperation() throws Exception {
+    public void testDistributedCacheJDBCStoreReadWriteOperation() throws Exception {
 
         ModelNode stringKeyedTable = createStringKeyedTable();
 
@@ -96,48 +96,55 @@ public class OperationsTestCase extends OperationTestCaseBase {
         KernelServices servicesA = this.createKernelServicesBuilder().setSubsystemXml(subsystemXml).build();
 
         // read the distributed cache mixed-keyed-jdbc-store datasource attribute
-        ModelNode result = servicesA.executeOperation(getMixedKeyedJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE));
+        ModelNode result = servicesA.executeOperation(getJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE));
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertEquals("ExampleDS", result.get(RESULT).asString());
 
         // write the batching attribute
-        result = servicesA.executeOperation(getMixedKeyedJDBCCacheStoreWriteOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE, "new-datasource"));
+        result = servicesA.executeOperation(getJDBCCacheStoreWriteOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE, "new-datasource"));
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
 
         // re-read the batching attribute
-        result = servicesA.executeOperation(getMixedKeyedJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE));
+        result = servicesA.executeOperation(getJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", JDBCStoreResourceDefinition.Attribute.DATA_SOURCE));
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertEquals("new-datasource", result.get(RESULT).asString());
 
          // read the string-keyed-table attribute
-        result = servicesA.executeOperation(getMixedKeyedJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", MixedKeyedJDBCStoreResourceDefinition.DeprecatedAttribute.STRING_TABLE));
+        result = servicesA.executeOperation(getJDBCCacheStoreReadOperation("maximal", DistributedCacheResourceDefinition.WILDCARD_PATH.getKey(), "dist", MixedKeyedJDBCStoreResourceDefinition.DeprecatedAttribute.STRING_TABLE));
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertEquals(stringKeyedTable.asPropertyList().size(), result.get(RESULT).asPropertyList().size());
         for (Property property : stringKeyedTable.asPropertyList()) {
-            Assert.assertTrue(result.get(RESULT).hasDefined(property.getName()));
+            Assert.assertTrue(property.getName(), result.get(RESULT).hasDefined(property.getName()));
             Assert.assertEquals(property.getValue(), result.get(RESULT).get(property.getName()));
         }
     }
 
+    @SuppressWarnings("deprecation")
     private static ModelNode createStringKeyedTable() {
 
         // create a string-keyed-table complex attribute
         ModelNode stringKeyedTable = new ModelNode().setEmptyObject();
-        stringKeyedTable.get(StringTableResourceDefinition.Attribute.PREFIX.getDefinition().getName()).set("ispn_bucket");
-        stringKeyedTable.get(TableResourceDefinition.Attribute.BATCH_SIZE.getDefinition().getName()).set(100);
-        stringKeyedTable.get(TableResourceDefinition.Attribute.FETCH_SIZE.getDefinition().getName()).set(100);
+        stringKeyedTable.get(StringTableResourceDefinition.Attribute.PREFIX.getName()).set("ispn_bucket");
+        stringKeyedTable.get(TableResourceDefinition.DeprecatedAttribute.BATCH_SIZE.getName()).set(100);
+        stringKeyedTable.get(TableResourceDefinition.Attribute.FETCH_SIZE.getName()).set(100);
+        stringKeyedTable.get(TableResourceDefinition.Attribute.CREATE_ON_START.getName()).set(false);
+        stringKeyedTable.get(TableResourceDefinition.Attribute.DROP_ON_STOP.getName()).set(true);
 
-        ModelNode idColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.ID.getDefinition().getName()).setEmptyObject();
-        idColumn.get(TableResourceDefinition.ColumnAttribute.ID.getColumnName().getDefinition().getName()).set("id");
-        idColumn.get(TableResourceDefinition.ColumnAttribute.ID.getColumnType().getDefinition().getName()).set("VARCHAR");
+        ModelNode idColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.ID.getName()).setEmptyObject();
+        idColumn.get(TableResourceDefinition.ColumnAttribute.ID.getColumnName().getName()).set("id");
+        idColumn.get(TableResourceDefinition.ColumnAttribute.ID.getColumnType().getName()).set("VARCHAR");
 
-        ModelNode dataColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.DATA.getDefinition().getName()).setEmptyObject();
-        dataColumn.get(TableResourceDefinition.ColumnAttribute.DATA.getColumnName().getDefinition().getName()).set("datum");
-        dataColumn.get(TableResourceDefinition.ColumnAttribute.DATA.getColumnType().getDefinition().getName()).set("BINARY");
+        ModelNode dataColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.DATA.getName()).setEmptyObject();
+        dataColumn.get(TableResourceDefinition.ColumnAttribute.DATA.getColumnName().getName()).set("datum");
+        dataColumn.get(TableResourceDefinition.ColumnAttribute.DATA.getColumnType().getName()).set("BINARY");
 
-        ModelNode timestampColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getDefinition().getName()).setEmptyObject();
-        timestampColumn.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getColumnName().getDefinition().getName()).set("version");
-        timestampColumn.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getColumnType().getDefinition().getName()).set("BIGINT");
+        ModelNode segmentColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.SEGMENT.getName()).setEmptyObject();
+        segmentColumn.get(TableResourceDefinition.ColumnAttribute.SEGMENT.getColumnName().getName()).set("segment");
+        segmentColumn.get(TableResourceDefinition.ColumnAttribute.SEGMENT.getColumnType().getName()).set("INTEGER");
+
+        ModelNode timestampColumn = stringKeyedTable.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getName()).setEmptyObject();
+        timestampColumn.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getColumnName().getName()).set("version");
+        timestampColumn.get(TableResourceDefinition.ColumnAttribute.TIMESTAMP.getColumnType().getName()).set("BIGINT");
 
         return stringKeyedTable;
     }
@@ -217,22 +224,22 @@ public class OperationsTestCase extends OperationTestCaseBase {
         PathAddress address = getCacheContainerAddress("minimal");
         String alias = "alias0";
 
-        ModelNode operation = Operations.createListAddOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, alias);
+        ModelNode operation = Operations.createListAddOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, alias);
         ModelNode result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());
 
-        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, 0);
+        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, 0);
         result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertEquals(new ModelNode(alias), result.get(RESULT));
 
-        operation = Operations.createListRemoveOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, 0);
+        operation = Operations.createListRemoveOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, 0);
         result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());
 
-        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, 0);
+        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, 0);
         result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());
@@ -244,7 +251,7 @@ public class OperationsTestCase extends OperationTestCaseBase {
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());
 
-        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, 0);
+        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, 0);
         result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         /* This currently fails due to WFCORE-626, requires wildfly-core-1.0.0.Beta4
@@ -256,7 +263,7 @@ public class OperationsTestCase extends OperationTestCaseBase {
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());
 
-        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.Attribute.ALIASES, 0);
+        operation = Operations.createListGetOperation(address, CacheContainerResourceDefinition.ListAttribute.ALIASES, 0);
         result = services.executeOperation(operation);
         Assert.assertEquals(result.toString(), SUCCESS, result.get(OUTCOME).asString());
         Assert.assertFalse(result.get(RESULT).isDefined());

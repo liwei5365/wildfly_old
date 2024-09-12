@@ -21,23 +21,37 @@
  */
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.Locale;
+
+import org.jboss.as.clustering.controller.Schema;
+
 /**
  * Enumeration of the supported subsystem xml schemas.
  * @author Paul Ferraro
  */
-public enum InfinispanSchema {
+public enum InfinispanSchema implements Schema<InfinispanSchema> {
 
-    VERSION_1_0(1, 0),
-    VERSION_1_1(1, 1),
-    VERSION_1_2(1, 2),
-    VERSION_1_3(1, 3),
-    VERSION_1_4(1, 4),
-    VERSION_1_5(1, 5),
-    VERSION_2_0(2, 0),
-    VERSION_3_0(3, 0),
-    VERSION_4_0(4, 0),
+    VERSION_1_0(1, 0), // AS 7.0
+    VERSION_1_1(1, 1), // AS 7.1.0
+    VERSION_1_2(1, 2), // AS 7.1.1
+    VERSION_1_3(1, 3), // AS 7.1.2
+    VERSION_1_4(1, 4), // AS 7.2.0
+    VERSION_1_5(1, 5), // EAP 6.3
+    VERSION_2_0(2, 0), // WildFly 8
+    VERSION_3_0(3, 0), // WildFly 9
+    VERSION_4_0(4, 0), // WildFly 10/11
+    VERSION_5_0(5, 0), // WildFly 12
+    VERSION_6_0(6, 0), // WildFly 13
+    VERSION_7_0(7, 0), // WildFly 14-15
+    VERSION_8_0(8, 0), // WildFly 16
+    VERSION_9_0(9, 0), // WildFly 17-19
+    VERSION_9_1(9, 1), // EAP 7.3.4
+    VERSION_10_0(10, 0), // WildFly 20
+    VERSION_11_0(11, 0), // WildFly 21
+    VERSION_12_0(12, 0), // WildFly 23, EAP 7.4
+    VERSION_13_0(13, 0), // WildFly 24
     ;
-    static final InfinispanSchema CURRENT = VERSION_4_0;
+    static final InfinispanSchema CURRENT = VERSION_13_0;
 
     private final int major;
     private final int minor;
@@ -47,29 +61,18 @@ public enum InfinispanSchema {
         this.minor = minor;
     }
 
-    /**
-     * Indicates whether this version of the schema is greater than or equal to the version of the specified schema.
-     * @param schema a schema version with which to compare
-     * @return true, if this version of the schema is greater than or equal to the version of the specified schema, false otherwise.
-     */
-    public boolean since(InfinispanSchema schema) {
-        return (this.major > schema.major) || ((this.major == schema.major) && (this.minor >= schema.minor));
+    @Override
+    public int major() {
+        return this.major;
     }
 
-    /**
-     * Get the namespace URI of this schema.
-     * @return the namespace URI
-     */
+    @Override
+    public int minor() {
+        return this.minor;
+    }
+
+    @Override
     public String getNamespaceUri() {
-        return this.format("urn:jboss:domain:infinispan:%d.%d");
-    }
-
-    /**
-     * Formats a string using the specified pattern.
-     * @param pattern a formatter pattern
-     * @return a formatted string
-     */
-    String format(String pattern) {
-        return String.format(pattern, this.major, this.minor);
+        return String.format(Locale.ROOT, "urn:jboss:domain:infinispan:%d.%d", this.major, this.minor);
     }
 }

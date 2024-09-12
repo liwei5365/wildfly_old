@@ -21,21 +21,26 @@
  */
 package org.jboss.as.clustering.jgroups.subsystem;
 
+import org.jboss.as.clustering.controller.Model;
 import org.jboss.as.controller.ModelVersion;
 
 /**
  * Enumerates the supported model versions.
  * @author Paul Ferraro
  */
-public enum JGroupsModel {
+public enum JGroupsModel implements Model {
 
-    VERSION_1_2_0(1, 2, 0),
-    VERSION_1_3_0(1, 3, 0),
-    VERSION_2_0_0(2, 0, 0),
-    VERSION_3_0_0(3, 0, 0),
-    VERSION_4_0_0(4, 0, 0),
+    VERSION_1_3_0(1, 3, 0), // EAP 6.4
+    VERSION_2_0_0(2, 0, 0), // WildFly 8
+    VERSION_3_0_0(3, 0, 0), // WildFly 9
+    VERSION_4_0_0(4, 0, 0), // WildFly 10, EAP 7.0
+    VERSION_4_1_0(4, 1, 0), // WildFly 10.1
+    VERSION_5_0_0(5, 0, 0), // WildFly 11, EAP 7.1
+    VERSION_6_0_0(6, 0, 0), // WildFly 12-16, EAP 7.2
+    VERSION_7_0_0(7, 0, 0), // WildFly 17, EAP 7.3
+    VERSION_8_0_0(8, 0, 0), // WildFly 20
     ;
-    static final JGroupsModel CURRENT = VERSION_4_0_0;
+    static final JGroupsModel CURRENT = VERSION_8_0_0;
 
     private final ModelVersion version;
 
@@ -43,16 +48,8 @@ public enum JGroupsModel {
         this.version = ModelVersion.create(major, minor, micro);
     }
 
+    @Override
     public ModelVersion getVersion() {
         return this.version;
-    }
-
-    /**
-     * Indicates whether this model is more recent than the specified version and thus requires transformation
-     * @param version a model version
-     * @return true this this model is more recent than the specified version, false otherwise
-     */
-    public boolean requiresTransformation(ModelVersion version) {
-        return ModelVersion.compare(this.version, version) < 0;
     }
 }

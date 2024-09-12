@@ -22,41 +22,35 @@
 package org.jboss.as.txn.service.internal.tsr;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
+import javax.transaction.Status;
 import javax.transaction.Synchronization;
 import javax.transaction.SystemException;
-import javax.transaction.Transaction;
 
 import org.jboss.as.txn.logging.TransactionLogger;
+import org.wildfly.transaction.client.ContextTransactionManager;
+import org.wildfly.transaction.client.ContextTransactionSynchronizationRegistry;
 
 /**
  * This class was added to:
  *
- * 1. workaround an issue discussed in https://java.net/jira/browse/JTA_SPEC-4 whereby the JCA Synchronization(s) need to be
- * called after the JPA Synchronization(s). Currently the implementation orders JCA relative to all interposed Synchronizations,
- * if this is not desirable it would be possible to modify this class to store just the JPA and JCA syncs and the other syncs
+ * 1. workaround an issue discussed in https://java.net/jira/browse/JTA_SPEC-4 whereby the Jakarta Connectors Synchronization(s) need to be
+ * called after the Jakarta Persistence Synchronization(s). Currently the implementation orders Jakarta Connectors relative to all interposed Synchronizations,
+ * if this is not desirable it would be possible to modify this class to store just the Jakarta Persistence and Jakarta Connectors syncs and the other syncs
  * can simply be passed to a delegate (would need the reference to this in the constructor).
  *
- * 2. During afterCompletion the JCA synchronizations should be called last as that allows JCA to detect connection leaks from
- * frameworks that have not closed the JCA managed resources. This is described in (for example)
+ * 2. During afterCompletion the Jakarta Connectors synchronizations should be called last as that allows Jakarta Connectors to detect connection leaks from
+ * frameworks that have not closed the Jakarta Connectors managed resources. This is described in (for example)
  * http://docs.oracle.com/javaee/5/api/javax/transaction/TransactionSynchronizationRegistry
  * .html#registerInterposedSynchronization(javax.transaction.Synchronization) where it says that during afterCompletion
  * "Resources can be closed but no transactional work can be performed with them"
  */
 public class JCAOrderedLastSynchronizationList implements Synchronization {
-    private final com.arjuna.ats.jta.transaction.Transaction tx;
-    private final Map<Transaction, JCAOrderedLastSynchronizationList> jcaOrderedLastSynchronizations;
     private final List<Synchronization> preJcaSyncs = new ArrayList<Synchronization>();
     private final List<Synchronization> jcaSyncs = new ArrayList<Synchronization>();
 
-    public JCAOrderedLastSynchronizationList(com.arjuna.ats.jta.transaction.Transaction tx,
-        Map<Transaction, JCAOrderedLastSynchronizationList> jcaOrderedLastSynchronizations) {
-        this.tx = tx;
-        this.jcaOrderedLastSynchronizations = jcaOrderedLastSynchronizations;
+    public JCAOrderedLastSynchronizationList() {
     }
 
     /**
@@ -67,11 +61,14 @@ public class JCAOrderedLastSynchronizationList implements Synchronization {
      * @throws SystemException In case the transaction status was not known
      */
     public void registerInterposedSynchronization(Synchronization synchronization) throws IllegalStateException, SystemException {
-        int status = tx.getStatus();
+        int status = ContextTransactionSynchronizationRegistry.getInstance().getTransactionStatus();
         switch (status) {
             case javax.transaction.Status.STATUS_ACTIVE:
             case javax.transaction.Status.STATUS_PREPARING:
                 break;
+            case Status.STATUS_MARKED_ROLLBACK:
+                // do nothing; we can pretend like it was registered, but it'll never be run anyway.
+                return;
             default:
                 throw TransactionLogger.ROOT_LOGGER.syncsnotallowed(status);
         }
@@ -134,7 +131,7 @@ public class JCAOrderedLastSynchronizationList implements Synchronization {
 
     @Override
     public void afterCompletion(int status) {
-        // The list should be iterated in reverse order - has issues with EJB3 if not
+        // The list should be iterated in reverse order - has issues with Enterprise Beans 3 if not
         // https://github.com/jbosstm/narayana/blob/master/ArjunaCore/arjuna/classes/com/arjuna/ats/arjuna/coordinator/TwoPhaseCoordinator.java#L509
         for (int i = preJcaSyncs.size() - 1; i>= 0; --i) {
             Synchronization preJcaSync = preJcaSyncs.get(i);
@@ -148,7 +145,7 @@ public class JCAOrderedLastSynchronizationList implements Synchronization {
             } catch (Exception e) {
                 // Trap these exceptions so the rest of the synchronizations get the chance to complete
                 // https://github.com/jbosstm/narayana/blob/5.0.4.Final/ArjunaJTA/jta/classes/com/arjuna/ats/internal/jta/resources/arjunacore/SynchronizationImple.java#L102
-                TransactionLogger.ROOT_LOGGER.preJcaSyncAfterCompletionFailed(preJcaSync, tx, e);
+                TransactionLogger.ROOT_LOGGER.preJcaSyncAfterCompletionFailed(preJcaSync, ContextTransactionManager.getInstance().getTransaction(), e);
             }
         }
         for (int i = jcaSyncs.size() - 1; i>= 0; --i) {
@@ -164,29 +161,7 @@ public class JCAOrderedLastSynchronizationList implements Synchronization {
             } catch (Exception e) {
                 // Trap these exceptions so the rest of the synchronizations get the chance to complete
                 // https://github.com/jbosstm/narayana/blob/5.0.4.Final/ArjunaJTA/jta/classes/com/arjuna/ats/internal/jta/resources/arjunacore/SynchronizationImple.java#L102
-                TransactionLogger.ROOT_LOGGER.jcaSyncAfterCompletionFailed(jcaSync, tx, e);
-            }
-        }
-
-        if (jcaOrderedLastSynchronizations.remove(tx) == null) {
-            // The identifier wasn't stable - scan for it - this can happen in JTS propagation when the UID needs retrieving
-            // from the parent and the parent has been deactivated
-            Transaction altKey = null;
-            Iterator<Entry<Transaction, JCAOrderedLastSynchronizationList>> iterator = jcaOrderedLastSynchronizations.entrySet().iterator();
-            while (altKey == null && iterator.hasNext()) {
-                Map.Entry<Transaction, JCAOrderedLastSynchronizationList> next = iterator.next();
-                if (next.getValue().equals(this)) {
-                    altKey = next.getKey();
-                    iterator.remove();
-                    if (TransactionLogger.ROOT_LOGGER.isTraceEnabled()) {
-                        TransactionLogger.ROOT_LOGGER.tracef("Removed: %s [%s]", System.identityHashCode(tx), tx.toString());
-                    }
-                    break;
-                }
-            }
-
-            if (altKey == null) {
-                TransactionLogger.ROOT_LOGGER.transactionNotFound(tx);
+                TransactionLogger.ROOT_LOGGER.jcaSyncAfterCompletionFailed(jcaSync, ContextTransactionManager.getInstance().getTransaction(), e);
             }
         }
     }

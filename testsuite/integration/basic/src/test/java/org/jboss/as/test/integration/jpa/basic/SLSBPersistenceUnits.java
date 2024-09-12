@@ -23,16 +23,11 @@
 package org.jboss.as.test.integration.jpa.basic;
 
 import java.util.Map;
-
 import javax.annotation.Resource;
 import javax.ejb.EJBContext;
 import javax.ejb.Stateless;
-import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
-import javax.persistence.PersistenceContext;
-import javax.persistence.PersistenceContexts;
 import javax.persistence.PersistenceUnit;
-import javax.persistence.PersistenceUnits;
 
 /**
  * stateless session bean
@@ -40,22 +35,21 @@ import javax.persistence.PersistenceUnits;
  * @author Scott Marlow
  */
 @Stateless
-@PersistenceUnits({
-	@PersistenceUnit(name="pu1", unitName="pu1"),
-	@PersistenceUnit(name="pu2", unitName="pu2")
-	})
+@PersistenceUnit(name = "pu1", unitName = "pu1")
+@PersistenceUnit(name = "pu2", unitName = "pu2")
+
 public class SLSBPersistenceUnits {
 
     @Resource
     EJBContext ctx;
 
-    public Map<String, Object> getPU1Info(){
-        EntityManagerFactory emf = (EntityManagerFactory)ctx.lookup("pu1");
+    public Map<String, Object> getPU1Info() {
+        EntityManagerFactory emf = (EntityManagerFactory) ctx.lookup("pu1");
         return emf.getProperties();
     }
 
-    public Map<String, Object> getPU2Info(){
-        EntityManagerFactory emf = (EntityManagerFactory)ctx.lookup("pu2");
+    public Map<String, Object> getPU2Info() {
+        EntityManagerFactory emf = (EntityManagerFactory) ctx.lookup("pu2");
         return emf.getProperties();
     }
 

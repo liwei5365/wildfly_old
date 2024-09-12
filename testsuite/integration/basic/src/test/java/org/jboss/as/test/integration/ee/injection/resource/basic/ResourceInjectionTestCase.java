@@ -22,7 +22,7 @@
 
 package org.jboss.as.test.integration.ee.injection.resource.basic;
 
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 import javax.naming.Context;
 import javax.naming.InitialContext;
@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests that the Resource injection as specified by Java EE spec works as expected
+ * Tests that the Resource injection as specified by Jakarta EE spec works as expected
  * <p/>
  * User: Jaikiran Pai
  */

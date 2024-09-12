@@ -21,9 +21,13 @@
  */
 package org.jboss.as.test.manualmode.web.ssl;
 
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ALLOW_RESOURCE_SERVICE_RESTART;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OPERATION_HEADERS;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.PORT;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.PROTOCOL;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ROLLBACK_ON_RUNTIME_FAILURE;
 import static org.jboss.as.test.integration.management.util.ModelUtil.createOpNode;
-import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT;
 import static org.jboss.as.test.integration.security.common.Utils.makeCallWithHttpClient;
 import static org.junit.Assert.assertEquals;
 import static org.jboss.as.test.shared.ServerReload.executeReloadAndWaitForCompletion;
@@ -74,7 +78,7 @@ public abstract class AbstractCertificateLoginModuleTestCase {
     private static Logger LOGGER = Logger.getLogger(AbstractCertificateLoginModuleTestCase.class);
     protected static SecurityTraceLoggingServerSetupTask TRACE_SECURITY = new SecurityTraceLoggingServerSetupTask();
 
-    protected static final File WORK_DIR = new File("keystores-workdir");
+    protected static final File WORK_DIR = new File("target" + File.separatorChar + "test-classes" + File.separatorChar + "keystores-workdir");
     protected static final File SERVER_KEYSTORE_FILE = new File(WORK_DIR, SecurityTestConstants.SERVER_KEYSTORE);
     protected static final File SERVER_TRUSTSTORE_FILE = new File(WORK_DIR, SecurityTestConstants.SERVER_TRUSTSTORE);
     protected static final File CLIENT_KEYSTORE_FILE = new File(WORK_DIR, SecurityTestConstants.CLIENT_KEYSTORE);
@@ -85,6 +89,8 @@ public abstract class AbstractCertificateLoginModuleTestCase {
     protected static final String CONTAINER = "default-jbossas";
     protected static final String SECURED_SERVLET_WITH_SESSION = SimpleSecuredServlet.SERVLET_PATH + "?"
             + SimpleSecuredServlet.CREATE_SESSION_PARAM + "=true";
+
+    private static final int HTTPS_PORT = 8444;
 
     /**
      * Testing access to HTTPS connector which have configured truststore with
@@ -144,7 +150,7 @@ public abstract class AbstractCertificateLoginModuleTestCase {
         HttpGet httpGet = new HttpGet(url.toURI());
         HttpResponse response = httpClient.execute(httpGet);
         int statusCode = response.getStatusLine().getStatusCode();
-        LOGGER.info("Request to: " + url + " responds: " + statusCode);
+        LOGGER.trace("Request to: " + url + " responds: " + statusCode);
 
         assertEquals("Unexpected status code", expectedStatusCode, statusCode);
 
@@ -169,11 +175,12 @@ public abstract class AbstractCertificateLoginModuleTestCase {
         @Override
         public void setup(ManagementClient managementClient, String containerId) throws Exception {
 
-            FileUtils.deleteDirectory(WORK_DIR);
+            deleteWorkDir();
             WORK_DIR.mkdirs();
             Utils.createKeyMaterial(WORK_DIR);
 
-            TRACE_SECURITY.setup(managementClient, null);
+            // Uncomment if TRACE logging is necessary. Don't leave it on all the time; CI resources aren't free.
+            //TRACE_SECURITY.setup(managementClient, null);
 
             final ModelControllerClient client = managementClient.getControllerClient();
 
@@ -194,10 +201,16 @@ public abstract class AbstractCertificateLoginModuleTestCase {
             operation.get("keystore-password").set(SecurityTestConstants.KEYSTORE_PASSWORD);
             Utils.applyUpdate(operation, client);
 
-            executeReloadAndWaitForCompletion(client, 100000);
+            executeReloadAndWaitForCompletion(managementClient, 100000);
 
-            operation = createOpNode("subsystem=undertow/server=default-server/https-listener=https", ModelDescriptionConstants.ADD);
-            operation.get("socket-binding").set("https");
+            operation = createOpNode("socket-binding-group=standard-sockets/socket-binding=https2" , ADD);
+            operation.get(PORT).set(Integer.toString(HTTPS_PORT));
+            operation.get(OPERATION_HEADERS, ROLLBACK_ON_RUNTIME_FAILURE).set(false);
+            operation.get(OPERATION_HEADERS, ALLOW_RESOURCE_SERVICE_RESTART).set(true);
+            Utils.applyUpdate(operation, client);
+
+            operation = createOpNode("subsystem=undertow/server=default-server/https-listener=https2", ModelDescriptionConstants.ADD);
+            operation.get("socket-binding").set("https2");
             operation.get("security-realm").set(HTTPS_REALM);
             Utils.applyUpdate(operation, client);
         }
@@ -205,17 +218,28 @@ public abstract class AbstractCertificateLoginModuleTestCase {
         @Override
         public void tearDown(ManagementClient managementClient, String containerId) throws Exception {
 
-            ModelNode operation = createOpNode("subsystem=undertow/server=default-server/https-listener=https",
+            ModelNode operation = createOpNode("subsystem=undertow/server=default-server/https-listener=https2",
+                    ModelDescriptionConstants.REMOVE);
+            operation.get(OPERATION_HEADERS, ALLOW_RESOURCE_SERVICE_RESTART).set(false);
+            Utils.applyUpdate(operation, managementClient.getControllerClient());
+
+            operation = createOpNode("socket-binding-group=standard-sockets/socket-binding=https2",
                     ModelDescriptionConstants.REMOVE);
             Utils.applyUpdate(operation, managementClient.getControllerClient());
 
             operation = createOpNode("core-service=management/security-realm=" + HTTPS_REALM, ModelDescriptionConstants.REMOVE);
             Utils.applyUpdate(operation, managementClient.getControllerClient());
 
-            FileUtils.deleteDirectory(WORK_DIR);
-            TRACE_SECURITY.tearDown(managementClient, null);
+            deleteWorkDir();
+            return;
+            // Uncomment if TRACE logging is necessary. Don't leave it on all the time; CI resources aren't free.
+            //TRACE_SECURITY.tearDown(managementClient, null);
 
         }
+    }
+
+    protected static void deleteWorkDir() throws IOException {
+        FileUtils.deleteDirectory(WORK_DIR);
     }
 
 }

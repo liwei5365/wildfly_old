@@ -52,9 +52,9 @@ import org.wildfly.iiop.openjdk.Constants;
  */
 class JacORBSubsystemDefinitions {
 
-    static final ModelNode DEFAULT_DISABLED_PROPERTY = new ModelNode().set("off");
+    static final ModelNode DEFAULT_DISABLED_PROPERTY = new ModelNode("off");
 
-    static final ModelNode DEFAULT_ENABLED_PROPERTY = new ModelNode().set("on");
+    static final ModelNode DEFAULT_ENABLED_PROPERTY = new ModelNode("on");
 
     private static final ParameterValidator SSL_CONFIG_VALIDATOR =
             new EnumValidator<SSLConfigValue>(SSLConfigValue.class, true, false);
@@ -156,7 +156,7 @@ class JacORBSubsystemDefinitions {
 
     public static final SimpleAttributeDefinition ORB_CONN_CLIENT_TIMEOUT = new SimpleAttributeDefinitionBuilder(
             JacORBSubsystemConstants.ORB_CONN_CLIENT_TIMEOUT, ModelType.INT, true)
-            .setDefaultValue(new ModelNode().set(0))
+            .setDefaultValue(ModelNode.ZERO)
             .setValidator(new IntRangeValidator(0, Integer.MAX_VALUE, true, false))
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
             .setAllowExpression(true)
@@ -164,7 +164,7 @@ class JacORBSubsystemDefinitions {
 
     public static final SimpleAttributeDefinition ORB_CONN_SERVER_TIMEOUT = new SimpleAttributeDefinitionBuilder(
             JacORBSubsystemConstants.ORB_CONN_SERVER_TIMEOUT, ModelType.INT, true)
-            .setDefaultValue(new ModelNode().set(0))
+            .setDefaultValue(ModelNode.ZERO)
             .setValidator(new IntRangeValidator(0, Integer.MAX_VALUE, true, false))
             .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
             .setAllowExpression(true)
@@ -450,7 +450,7 @@ class JacORBSubsystemDefinitions {
             SECURITY_CLIENT_REQUIRES, SECURITY_SERVER_SUPPORTS, SECURITY_SERVER_REQUIRES);
 
     static final List<SimpleAttributeDefinition> ON_OFF_ATTRIBUTES_TO_REJECT = Arrays.asList(ORB_CACHE_POA_NAMES, ORB_CACHE_TYPECODES,
-            INTEROP_CHUNK_RMI_VALUETYPES, INTEROP_COMET, INTEROP_INDIRECT_ENCODING_DISABLE, INTEROP_IONA,
+            INTEROP_CHUNK_RMI_VALUETYPES, INTEROP_COMET, INTEROP_INDIRECT_ENCODING_DISABLE,
             INTEROP_LAX_BOOLEAN_ENCODING, POA_MONITORING, ORB_PRINT_VERSION, POA_QUEUE_WAIT,
             INTEROP_STRICT_CHECK_ON_TC_CREATION, ORB_USE_BOM, ORB_USE_IMR);
 

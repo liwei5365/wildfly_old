@@ -22,17 +22,18 @@
 
 package org.jboss.as.test.integration.security.auditing;
 
-import static org.junit.Assert.assertTrue;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.REMOVE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.WRITE_ATTRIBUTE_OPERATION;
+import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -50,6 +51,9 @@ import org.jboss.as.test.integration.security.common.AbstractSecurityDomainsServ
 import org.jboss.as.test.integration.security.common.Utils;
 import org.jboss.as.test.integration.security.common.config.SecurityDomain;
 import org.jboss.as.test.integration.security.common.config.SecurityModule;
+import org.jboss.as.test.shared.ServerReload;
+import org.jboss.as.test.shared.ServerSnapshot;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.Archive;
@@ -81,8 +85,11 @@ public class SecurityAuditingTestCase extends AnnSBTest {
          */
         private static final String LOGGING = "logging";
 
+        private AutoCloseable snapshot;
+
         @Override
         protected void doSetup(final ManagementClient managementClient) throws Exception {
+            snapshot = ServerSnapshot.takeSnapshot(managementClient);
             final List<ModelNode> updates = new ArrayList<ModelNode>();
 
             ModelNode op = new ModelNode();
@@ -107,28 +114,28 @@ public class SecurityAuditingTestCase extends AnnSBTest {
             ModelNode list = op.get("handlers");
             list.add("AUDIT");
             updates.add(op);
+
+            if (System.getProperty("elytron") != null) {
+                // /subsystem=elytron/security-domain=ApplicationDomain:write-attribute(name=security-event-listener, value=local-audit)
+                op = new ModelNode();
+                op.get(OP).set(WRITE_ATTRIBUTE_OPERATION);
+                op.get(OP_ADDR).add(SUBSYSTEM, "elytron");
+                op.get(OP_ADDR).add("security-domain", "ApplicationDomain");
+                op.get("name").set("security-event-listener");
+                op.get("value").set("local-audit");
+                updates.add(op);
+            }
+
             executeOperations(updates);
+
+            if (System.getProperty("elytron") != null) {
+                ServerReload.executeReloadAndWaitForCompletion(managementClient, 50000);
+            }
         }
 
         @Override
         public void tearDown(final ManagementClient managementClient, final String containerId) throws Exception {
-            final List<ModelNode> updates = new ArrayList<ModelNode>();
-
-            // /subsystem=logging/logger=org.jboss.security.audit:remove
-            ModelNode op = new ModelNode();
-            op.get(OP).set(REMOVE);
-            op.get(OP_ADDR).add(SUBSYSTEM, LOGGING);
-            op.get(OP_ADDR).add("logger", "org.jboss.security.audit");
-            updates.add(op);
-
-            // /subsystem=logging/periodic-rotating-file-handler=AUDIT:remove            
-            op = new ModelNode();
-            op.get(OP).set(REMOVE);
-            op.get(OP_ADDR).add(SUBSYSTEM, LOGGING);
-            op.get(OP_ADDR).add("periodic-rotating-file-handler", "AUDIT");
-            updates.add(op);
-            executeOperations(updates);
-
+            snapshot.close();
         }
     }
 
@@ -172,7 +179,7 @@ public class SecurityAuditingTestCase extends AnnSBTest {
         assertTrue("Audit log file has not been created (" + auditLog.getAbsolutePath() + ")", auditLog.exists());
         assertTrue("Audit log file is closed for reading (" + auditLog.getAbsolutePath() + ")", auditLog.canRead());
 
-        BufferedReader reader = new BufferedReader(new FileReader(auditLog));
+        BufferedReader reader = Files.newBufferedReader(auditLog.toPath(), StandardCharsets.UTF_8);
 
         while (reader.readLine() != null) {
             // we need to get trough all old records (if any)
@@ -180,7 +187,7 @@ public class SecurityAuditingTestCase extends AnnSBTest {
 
         testSingleMethodAnnotationsUser1Template(MODULE, log, beanClass());
 
-        checkAuditLog(reader, "TRACE.+org.jboss.security.audit.+Success.+user1");
+        checkAuditLog(reader, "(TRACE.+org.jboss.security.audit.+Success.+user1|SecurityAuthenticationSuccessfulEvent.*\"name\":\"user1\")");
 
     }
 
@@ -196,7 +203,7 @@ public class SecurityAuditingTestCase extends AnnSBTest {
         assertTrue("Audit log file has not been created (" + auditLog.getAbsolutePath() + ")", auditLog.exists());
         assertTrue("Audit log file is closed for reading (" + auditLog.getAbsolutePath() + ")", auditLog.canRead());
 
-        BufferedReader reader = new BufferedReader(new FileReader(auditLog));
+        BufferedReader reader = Files.newBufferedReader(auditLog.toPath(), StandardCharsets.UTF_8);
 
         while (reader.readLine() != null) {
             // we need to get trough all old records (if any)
@@ -212,7 +219,7 @@ public class SecurityAuditingTestCase extends AnnSBTest {
         Pattern successPattern = Pattern.compile(regex);
 
         // we'll be actively waiting for a given INTERVAL for the record to appear
-        final long INTERVAL = 5000;
+        final long INTERVAL = TimeoutUtil.adjust(5000);
         long startTime = System.currentTimeMillis();
         String line;
         search_for_log:
@@ -235,14 +242,14 @@ public class SecurityAuditingTestCase extends AnnSBTest {
 
     /*
      * A {@link ServerSetupTask} instance which creates security domains for this test case.
-     * 
+     *
      * @author Josef Cacek
      */
     static class SecurityDomainsSetup extends AbstractSecurityDomainsServerSetupTask {
 
         /*
          * Returns SecurityDomains configuration for this testcase.
-         * 
+         *
          * @see org.jboss.as.test.integration.security.common.AbstractSecurityDomainsServerSetupTask#getSecurityDomains()
          */
         @Override

@@ -21,6 +21,7 @@
  */
 package org.jboss.as.test.integration.jpa.beanvalidation.cdi;
 
+import static org.jboss.as.test.shared.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -28,12 +29,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.validation.ConstraintViolation;
 import javax.validation.ConstraintViolationException;
 
+import org.hibernate.validator.HibernateValidatorPermission;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
@@ -45,7 +46,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests for the integration of JPA, CDI, and Bean Validation.
+ * Tests for the integration of Jakarta Persistence, Jakarta Contexts and Dependency Injection, and Jakarta Bean Validation.
  *
  * @author Farah Juma
  */
@@ -60,6 +61,9 @@ public class BeanValidationCdiIntegrationTestCase {
         jar.addPackage(BeanValidationCdiIntegrationTestCase.class.getPackage());
         jar.addAsManifestResource(EmptyAsset.INSTANCE, "beans.xml");
         jar.addAsManifestResource(BeanValidationCdiIntegrationTestCase.class.getPackage(), "persistence.xml", "persistence.xml");
+        jar.addAsManifestResource(createPermissionsXmlAsset(
+                HibernateValidatorPermission.ACCESS_PRIVATE_MEMBERS
+        ), "permissions.xml");
         return jar;
     }
 
@@ -86,11 +90,11 @@ public class BeanValidationCdiIntegrationTestCase {
             ConstraintViolationException constraintViolationException = null;
 
             // Find the ConstraintViolationException
-            while(throwable != null && !(throwable instanceof ConstraintViolationException)) {
+            while (throwable != null && !(throwable instanceof ConstraintViolationException)) {
                 throwable = throwable.getCause();
             }
 
-            constraintViolationException = (ConstraintViolationException)throwable;
+            constraintViolationException = (ConstraintViolationException) throwable;
 
             Set<ConstraintViolation<?>> violations = constraintViolationException.getConstraintViolations();
             List<String> actualViolations = new ArrayList<String>();

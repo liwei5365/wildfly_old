@@ -24,31 +24,21 @@ package org.jboss.as.clustering.infinispan.subsystem;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
-import org.jboss.as.clustering.controller.Operation;
-import org.jboss.as.clustering.controller.OperationExecutor;
-import org.jboss.as.clustering.msc.ServiceContainerHelper;
-import org.jboss.as.controller.OperationContext;
-import org.jboss.as.controller.OperationFailedException;
-import org.jboss.as.controller.PathAddress;
-import org.jboss.dmr.ModelNode;
-import org.wildfly.clustering.infinispan.spi.service.CacheServiceName;
+import org.jboss.as.clustering.controller.BinaryCapabilityNameResolver;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
 
 /**
  * Executor for partition handling operations.
  * @author Paul Ferraro
  */
-public class PartitionHandlingOperationExecutor implements OperationExecutor<AdvancedCache<?, ?>> {
+public class PartitionHandlingOperationExecutor extends CacheOperationExecutor<AdvancedCache<?, ?>> {
+
+    public PartitionHandlingOperationExecutor(FunctionExecutorRegistry<Cache<?, ?>> executors) {
+        super(executors, BinaryCapabilityNameResolver.GRANDPARENT_PARENT);
+    }
 
     @Override
-    public ModelNode execute(OperationContext context, Operation<AdvancedCache<?, ?>> operation) throws OperationFailedException {
-        PathAddress address = context.getCurrentAddress();
-        PathAddress cacheAddress = address.getParent();
-
-        String cacheName = cacheAddress.getLastElement().getValue();
-        String containerName = cacheAddress.getParent().getLastElement().getValue();
-
-        Cache<?, ?> cache = ServiceContainerHelper.findValue(context.getServiceRegistry(true), CacheServiceName.CACHE.getServiceName(containerName, cacheName));
-
-        return (cache != null) ? operation.execute(cache.getAdvancedCache()) : null;
+    public AdvancedCache<?, ?> apply(Cache<?, ?> cache) {
+        return cache.getAdvancedCache();
     }
 }

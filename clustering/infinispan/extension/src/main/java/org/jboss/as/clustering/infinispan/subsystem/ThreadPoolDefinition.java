@@ -23,18 +23,15 @@
 package org.jboss.as.clustering.infinispan.subsystem;
 
 import org.jboss.as.clustering.controller.Attribute;
-import org.wildfly.clustering.service.GroupServiceNameFactory;
 
 /**
  * @author Paul Ferraro
  */
-public interface ThreadPoolDefinition extends GroupServiceNameFactory {
-
-    Attribute getMinThreads();
+public interface ThreadPoolDefinition extends ScheduledThreadPoolDefinition {
 
     Attribute getMaxThreads();
 
     Attribute getQueueLength();
 
-    Attribute getKeepAliveTime();
+    boolean isNonBlocking();
 }

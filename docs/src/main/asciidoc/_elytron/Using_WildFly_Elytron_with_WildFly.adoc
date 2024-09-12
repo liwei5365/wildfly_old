@@ -1,0 +1,240 @@
+[[Using_WildFly_Elytron_with_WildFly]]
+= Using Elytron within WildFly
+
+[[using-the-out-of-the-box-elytron-components]]
+== Using the Out of the Box Elytron Components
+
+[[securing-management-interfaces]]
+=== Securing Management Interfaces
+
+You can find more details on the enabling WildFly to use the out of the
+box Elytron components for securing the management interfaces in the
+<<default-management-authentication-configuration,Default
+Management Authentication Configuration>> section.
+
+[[securing-applications]]
+=== Securing Applications
+
+The _elytron_ subsystem provides _application-security-domain_ by
+default which can be used to secure applications. For more details on
+how _application-security-domain_ is configured, see the
+<<default-application-authentication-configuration,Default
+Application Authentication Configuration>> section.
+
+To configure applications to use _application-security-domain_, see
+<<set-up-and-configure-authentication-for-applications,Set Up and Configure Authentication for Applications>>. You
+can also override the default behavior of all applications using the
+steps in
+<<override-an-applications-authentication-configuration,
+Override an Application's Authentication Configuration>>.
+
+[[using-ssltls]]
+=== Using SSL/TLS
+
+WildFly does provide a default one-way SSL/TLS configuration using the
+legacy core management authentication but does not provide one in the
+_elytron_ subsystem. You can find more details on configuring SSL/TLS
+using the _elytron_ subsystem for both the management interfaces as well
+as for applications in
+<<configure-ssltls,Configure
+SSL/TLS>>
+
+[[using-elytron-with-other-subsystems]]
+=== Using Elytron with Other Subsystems
+
+In addition to securing applications and management interfaces, Elytron
+also integrates with other subsystems in WildFly.
+
+[cols=",",options="header"]
+|=======================================================================
+|Subsystem |Details
+
+|batch-jberet |You can configure the batch-jberet to run batch jobs
+using an Elytron security domain.
+
+|datasources |You can use a credential store or an Elytron security
+domain to provide authentication information in a datasource definition.
+
+|messaging-activemq |You can secure remote connections to the remote
+connections used by the messaging-activemq subsystem.
+
+|iiop-openjdk |You can use the elytron subsystem to configure SSL/TLS
+between clients and servers using the iiop-openjdk subsystem.
+
+|mail |You can use a credential store to provide authentication
+information in a server definition in the mail subsystem.
+
+|undertow |You can use the elytron subsystem to configure both SSL/TLS
+and application authentication.
+|=======================================================================
+
+[[undertow-subsystem]]
+== Undertow Subsystem
+
+As a web application is deployed the name of the security domain required by that application will be identified, this will either be from within the deployment or if the deployment does not have a security domain the `default-security-domain` as defined on the Undertow subsystem will be assumed.  By default it is assumed that the security domain maps to a PicketBox domain defined in the legacy security subsystem, however an `application-security-domain` resource can be added to the Undertow subsystem which maps from the name of the security domain required by the application to the appropriate WildFly Elytron configuration.
+
+As an example in it's simplest form a mapping can be added as: -
+
+[source,options="nowrap"]
+----
+/subsystem=undertow/application-security-domain=MyAppSecurity:add(security-domain=ApplicationDomain)
+----
+
+Which results in: -
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:jboss:domain:undertow:7.0" ... default-security-domain="other">
+...
+    <application-security-domains>
+        <application-security-domain name="MyAppSecurity" security-domain="ApplicationDomain"/>
+    </application-security-domains>
+...
+</subsystem>
+----
+
+_Note: If the deployment was already deployed at this point the
+application server should be reloaded or the deployment redeployed for
+the application security domain mapping to take effect._
+
+Here we are mapping from the applications security domain `MyAppSecurity` to the WildFly Elytron defined domain `ApplicationDomain`.
+
+This simple form is suitable where a deployment is using the standard HTTP mechanisms as defined within the Servlet specification i.e. `BASIC`, `CLIENT_CERT`, `DIGEST`, `FORM` and authentication will be performed against the `ApplicationDomain` security domain.  This form is also suitable where an application is not using any authentication mechanisms and instead is using programatic authentication or even wishes to obtain the SecurityDomain associated with the deployment and use it directly.
+
+An advanced form of the mapping can be added as: -
+
+[source,options="nowrap"]
+----
+/subsystem=undertow/application-security-domain=MyAppSecurity:add(http-authentication-factory=application-http-authentication)
+----
+
+Which results in: -
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:jboss:domain:undertow:7.0" ... default-security-domain="other">
+...
+    <application-security-domains>
+        <application-security-domain name="MyAppSecurity" http-authentication-factory="application-http-authentication"/>
+    </application-security-domains>
+...
+</subsystem>
+----
+
+In this form of the configuration instead of referencing a security domain a `http-authentication-factory` is referenced instead, this is the factory that will be used to obtain the instances of the authentication mechansisms and is in turn associated with the security domain.  The standard mechanisms as defined in the Servlet specification can be used in this way but this approach also allows for other mechanisms to be used such as `SPNEGO` which requires additional configuration or even plug-in custom mechanism implementations.
+
+When the advanced form of the mapping is used a further configuration option is available: -
+
+* override-deployment-config
+
+The referenced `http-authentication-factory` can return a complete set of authentication mechanisms, by default these are filtered to just match the mechanisms requested by the application - if this option is set to `true` then the mechanisms offered by the factory will override the mechanisms requested by the application.  One example of where this could be useful is say an application has been developed to support `FORM` authentication, by overriding the mechanisms the application could be updated to support `SPNEGO`, and `FORM` authentication without any modifications to the deployment.
+
+The `application-security-domain` resource also has one additional option `enable-jacc`, if this is set to true JACC will be enabled for any deployments matching against this mapping.
+
+=== Runtime Information 
+
+Where an `application-security-domain` mapping is in use it can be useful to double check that deployments did match against it as expected, if the resource is read with `include-runtime=true` the deployments that are associated with the mapping will also be shown: -
+
+----
+[standalone@localhost:9990 /] /subsystem=undertow/application-security-domain=MyAppSecurity:read-resource(include-runtime=true)
+{
+    "outcome" => "success",
+    "result" => {
+        "enable-jacc" => false,
+        "http-authentication-factory" => undefined,
+        "override-deployment-config" => false,
+        "referencing-deployments" => ["simple-webapp.war"],
+        "security-domain" => "ApplicationDomain",
+        "setting" => undefined
+    }
+}
+----
+
+In this output the `referencing-deployments` attribute shows that the deployment `simple-webapp.war` has been deployed using this mapping.
+
+[[Jakarta-Enterprise-Beans-subsystem]]
+== Jakarta Enterprise Beans Subsystem
+
+Configuration can be added to the Jakarta Enterprise Beans subsystem to map a security domain
+name referenced in a deployment to an Elytron security domain:
+
+[source,options="nowrap"]
+----
+/subsystem=ejb3/application-security-domain=MyAppSecurity:add(security-domain=ApplicationDomain)
+----
+
+Which results in:
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:jboss:domain:ejb3:5.0">
+...
+    <application-security-domains>
+        <application-security-domain name="MyAppSecurity" security-domain="ApplicationDomain"/>
+    </application-security-domains>
+...
+</subsystem>
+----
+
+_Note: If the deployment was already deployed at this point the
+application server should be reloaded or the deployment redeployed for
+the application security domain mapping to take effect._
+
+An `application-security-domain` has two main attributes:
+
+* name - the name of the security domain as specified in a deployment
+* security-domain - a reference to the Elytron security domain that
+should be used
+
+There is another attribute called `legacy-compliant-principal-propagation`.
+If it is set to true and there is no incoming run-as identity,
+then the principal of the local unsecured bean is the current authenticated identity. This was the case
+for legacy PicketBox security. If this attribute is set to false, the behaviour will comply with the Elytron's previous
+behaviour and if there is no incoming run-as identity then the principal of the local unsecured bean is anonymous.
+This attribute is optional and the default value is true.
+
+When an application security domain mapping is configured for a bean in
+a deployment, this indicates that security should be handled by Elytron.
+
+[[webservices-subsystem]]
+== WebServices Subsystem
+
+There is adapter in webservices subsystem to make authentication works
+for elytron security domain automatically. Like configure with legacy
+security domain, you can configure elytron security domain in deployment
+descriptor or annotation to secure webservice endpoint.
+
+When Elytron security is enabled, JAAS subject or principal can be pushed
+to jbossws-cxf endpoint’s SecurityContext to propagate authenticated
+identity to Jakarta Enterprise Beans container. Here is a CXF interceptor example to
+propagate authenticated information to Jakarta Enterprise Beans container :
+[source,java,options="nowrap"]
+----
+public class PropagateSecurityInterceptor extends WSS4JInInterceptor {
+
+   public PropagateSecurityInterceptor() {
+      super();
+      getAfter().add(PolicyBasedWSS4JInInterceptor.class.getName());
+   }
+
+   @Override
+   public void handleMessage(SoapMessage message) throws Fault {
+      ...
+      final Endpoint endpoint = message.getExchange().get(Endpoint.class);
+      final SecurityDomainContext securityDomainContext = endpoint.getSecurityDomainContext();
+      //push subject principal retrieved from CXF to ElytronSecurityDomainContext
+      securityDomainContext.pushSubjectContext(subject, principal, null)
+   }
+
+}
+
+----
+[[legacy-security-subsystem]]
+== Legacy Security Subsystem
+
+As previously described, Elytron based security is configured by
+chaining together different capability references to form a complete
+security policy. To allow an incremental migration from the legacy
+Security subsystem some of the major components of this subsystem can be
+mapped to Elytron capabilities and used within an Elytron based set up.
+

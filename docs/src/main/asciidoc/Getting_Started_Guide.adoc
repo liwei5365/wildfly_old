@@ -1,0 +1,670 @@
+[[Getting_Started_Guide]]
+= Getting Started Guide
+WildFly team;
+:revnumber: {version}
+:revdate: {localdate}
+:toc: macro
+:toclevels: 3
+:toc-title: Getting Started Guide
+:doctype: book
+:icons: font
+:source-highlighter: coderay
+ifdef::env-github[:imagesdir: images/]
+
+// ifndef::ebook-format[:leveloffset: 1]
+
+(C) 2017 The original authors.
+
+ifdef::basebackend-html[toc::[]]
+:numbered:
+
+[[getting-started-with-wildfly]]
+== Getting Started with WildFly {wildflyVersion}
+
+WildFly {wildflyVersion} is the latest release in a series of JBoss open-source
+application server offerings. WildFly {wildflyVersion} is an exceptionally fast,
+lightweight and powerful implementation of the Jakarta
+Platform specifications. The state-of-the-art architecture built on the
+Modular Service Container enables services on-demand when your
+application requires them. The table below lists the technologies available in WildFly {wildflyVersion}
+server configuration profiles.
+
+[cols=",,,,",options="header"]
+|=======================================================================
+|Jakarta EE Platform Technology |Jakarta EE Full Platform |Jakarta EE Web
+Profile |WildFly {wildflyVersion} Full Platform |WildFly {wildflyVersion} Web Profile
+
+|Jakarta WebSocket |X |X |X |X
+
+|Jakarta JSON Processing 1.1 |X |X |X |X
+
+|Jakarta JSON Binding Specification 1.0 |X |X |X |X
+
+|Jakarta Servlet 4.0 |X |X |X |X
+
+|Jakarta Server Faces 2.3 |X |X |X |X
+
+|Jakarta Expression Language 3.0 |X |X |X |X
+
+|Jakarta Server Pages 2.3 |X |X |X |X
+
+|Jakarta Standard Tag Library 1.2 |X |X |X
+|X
+
+|Jakarta Batch 1.0 |X |-- |X |--
+
+|Jakarta Concurrency |X |X |X |X
+
+|Jakarta Contexts and Dependency Injection 2.0 |X |X |X |X
+
+|Jakarta Dependency Injection |X |X |X |X
+
+|Jakarta Bean Validation 2.0 |X |X |X |X
+
+|Jakarta Enterprise Beans 3.2 |XCMP 2.0Optional |X(Lite) |XCMP
+2.0Not Available |X(Lite)
+
+|Jakarta Interceptors 1.2 |X |X |X |X
+
+|Jakarta Connectors 1.7 |X |-- |X |X
+
+|Jakarta Persistence 2.2 |X |X |X |X
+
+|Jakarta Annotations 1.3 |X |X |X |X
+
+|Jakarta Messaging 2.0 |X |-- |X |--
+
+|Jakarta Transactions 1.3 |X |X |X |X
+
+|Jakarta Mail 1.6 |X |-- |X |X
+
+|Jakarta RESTful Web Services 2.1 |X |X |X |X
+
+|Jakarta Enterprise Web Services 1.3 |X |-- |X |--
+
+|Jakarta XML Web Services Specification 2.3 |X |X |X |X
+
+|Jakarta Web Services Metadata |X |-- |X |--
+
+|Jakarta XML RPC 1.1 |Optional |-- |-- |--
+
+|Jakarta SOAP with Attachments 1.3 |X |-- |X |--
+
+|Jakarta XML Registries |Optional |-- |-- |--
+
+|Jakarta XML Binding Specification 2.3 |X |X |X |X
+
+|Jakarta Authentication 1.1 |X |-- |X |--
+
+|Jakarta Authorization 1.5 |X |-- |X |--
+
+|Jakarta EE Application Deployment 1.2 |Optional |-- |-- |--
+
+|Jakarta Management 1.1 |X |  |X | 
+
+|Jakarta Debugging Support for Other Languages 1.0 |X |X |X |X
+
+|Jakarta Security 1.0 |X |X |X |X
+|=======================================================================
+
+Missing ActiveMQ Artemis and Jakarta Messaging?
+
+[WARNING]
+
+WildFly's default configuration provides Jakarta EE Web Profile support and thus
+doesn't include Jakarta Messaging (provided by ActiveMQ Artemis). As noted in the 
+link:#wildfly-configurations[WildFly Configurations] section, other configuration
+profiles do provide all features required by the Jakarta EE Full Platform. If you 
+want to use messaging, make sure you 
+link:#starting-wildfly-with-an-alternate-configuration[start the server using an alternate configuration]
+that provides the Jakarta EE Full Platform.
+
+This document provides a quick overview on how to download and get
+started using WildFly {wildflyVersion} for your application development. For in-depth
+content on administrative features, refer to the WildFly {wildflyVersion} link:Admin_Guide{outfilesuffix}[Admin Guide].
+
+[[requirements]]
+== Requirements
+
+* Java SE 8 or later. We recommend that you use the latest available update
+of the current long-term support Java release.
+
+
+[[installation-options]]
+== Installation Options
+
+There are a number of ways you can install WildFly, including unzipping our traditional download zip, provisioning a
+custom installation using Galleon, or building a bootable jar. The link:Installation_Guide{outfilesuffix}[Installation Guide]
+helps you identify the kind of WildFly installation that best fits your application's deployment needs. In this guide
+we'll focus on the common approach of installing the download zip.
+
+[[download]]
+=== Download
+
+WildFly {wildflyVersion} distributions can be obtained from:
+
+http://www.wildfly.org/downloads/[wildfly.org/downloads]
+
+WildFly {wildflyVersion} provides a single distribution available in zip or tar file
+formats.
+
+* *wildfly-{wildflyVersion}.0.0.Final.zip*
+* *wildfly-{wildflyVersion}.0.0.Final.tar.gz*
+
+[[installation]]
+=== Installation
+
+Simply extract your chosen download to the directory of your choice. You
+can install WildFly {wildflyVersion} on any operating system that supports the zip or
+tar formats. Refer to the Release Notes for additional information
+related to the release.
+
+[[wildfly---a-quick-tour]]
+== WildFly - A Quick Tour
+
+Now that you've downloaded WildFly {wildflyVersion}, the next thing to discuss is the
+layout of the distribution and explore the server directory structure,
+key configuration files, log files, user deployments and so on. It's
+worth familiarizing yourself with the layout so that you'll be able to
+find your way around when it comes to deploying your own applications.
+
+[[wildfly-directory-structure]]
+=== WildFly Directory Structure
+
+[cols=",",options="header"]
+|=======================================================================
+|DIRECTORY |DESCRIPTION
+
+|appclient |Configuration files, deployment content, and writable areas
+used by the application client container run from this installation.
+
+|bin |Start up scripts, start up configuration files and various command
+line utilities like Vault, add-user and Java diagnostic reportavailable
+for Unix and Windows environments
+
+|bin/client |Contains a client jar for use by non-maven based clients.
+
+|docs/schema |XML schema definition files
+
+|docs/examples/configs |Example configuration files representing
+specific use cases
+
+|domain |Configuration files, deployment content, and writable areas
+used by the domain mode processes run from this installation.
+
+|modules |WildFly is based on a modular classloading architecture.
+The various modules used in the server are stored here.
+
+|standalone |Configuration files, deployment content, and writable areas
+used by the single standalone server run from this installation.
+
+|welcome-content |Default Welcome Page content
+|=======================================================================
+
+[[standalone-directory-structure]]
+==== Standalone Directory Structure
+
+In " *_standalone_* " mode each WildFly {wildflyVersion} server instance is an
+independent process (similar to previous JBoss AS versions; e.g., 3, 4,
+5, or 6). The configuration files, deployment content and writable areas
+used by the single standalone server run from a WildFly installation are
+found in the following subdirectories under the top level "standalone"
+directory:
+
+[cols=",",options="header"]
+|=======================================================================
+|DIRECTORY |DESCRIPTION
+
+|configuration |Configuration files for the standalone server that runs
+off of this installation. All configuration information for the running
+server is located here and is the single place for configuration
+modifications for the standalone server.
+
+|data |Persistent information written by the server to survive a restart
+of the server
+
+|deployments |End user deployment content can be placed in this
+directory for automatic detection and deployment of that content into
+the server's runtime.NOTE: The server's management API is recommended
+for installing deployment content. File system based deployment scanning
+capabilities remain for developer convenience.
+
+|lib/ext |Location for installed library jars referenced by applications
+using the Extension-List mechanism
+
+|log |standalone server log files
+
+|tmp |location for temporary files written by the server
+
+|tmp/auth |Special location used to exchange authentication tokens with
+local clients so they can confirm that they are local to the running AS
+process.
+|=======================================================================
+
+[[domain-directory-structure]]
+==== Domain Directory Structure
+
+A key feature of WildFly {wildflyVersion} is the managing multiple servers from a
+single control point. A collection of multiple servers are referred to
+as a " *_domain_* ". Domains can span multiple physical (or virtual)
+machines with all WildFly instances on a given host under the control of
+a Host Controller process. The Host Controllers interact with the Domain
+Controller to control the lifecycle of the WildFly instances running on
+that host and to assist the Domain Controller in managing them. The
+configuration files, deployment content and writeable areas used by
+domain mode processes run from a WildFly installation are found in the
+following subdirectories under the top level "domain" directory:
+
+[cols=",",options="header"]
+|=======================================================================
+|DIRECTORY |DESCRIPTION
+
+|configuration |Configuration files for the domain and for the Host
+Controller and any servers running off of this installation. All
+configuration information for the servers managed wtihin the domain is
+located here and is the single place for configuration information.
+
+|content |an internal working area for the Host Controller that controls
+this installation. This is where it internally stores deployment
+content. This directory is not meant to be manipulated by end users.Note
+that "domain" mode does not support deploying content based on scanning
+a file system.
+
+|lib/ext |Location for installed library jars referenced by applications
+using the Extension-List mechanism
+
+|log |Location where the Host Controller process writes its logs. The
+Process Controller, a small lightweight process that actually spawns the
+other Host Controller process and any Application Server processes also
+writes a log here.
+
+|servers |Writable area used by each Application Server instance that
+runs from this installation. Each Application Server instance will have
+its own subdirectory, created when the server is first started. In each
+server's subdirectory there will be the following subdirectories:data --
+information written by the server that needs to survive a restart of the
+serverlog -- the server's log filestmp -- location for temporary files
+written by the server
+
+|tmp |location for temporary files written by the server
+
+|tmp/auth |Special location used to exchange authentication tokens with
+local clients so they can confirm that they are local to the running AS
+process.
+|=======================================================================
+
+[[wildfly-configurations]]
+=== WildFly {wildflyVersion} Configurations
+
+[[standalone-server-configurations]]
+==== Standalone Server Configurations
+
+* standalone.xml (_default_)
+** Jakarta web profile certified configuration with
+the required technologies plus those noted in the table above.
+
+* standalone-ha.xml
+** Jakarta web profile certified configuration with
+high availability
+
+* standalone-full.xml
+** Jakarta Full Platform certified configuration
+including all the required technologies
+
+* standalone-full-ha.xml
+** Jakarta Full Platform certified configuration with
+high availability
+
+* standalone-microprofile.xml
+** A configuration oriented toward microservices, providing our
+MicroProfile platform implementations combined with Jakarta RESTful Web Services and
+technologies Jakarta RESTful Web Services applications commonly use to integrate with
+external services.
+
+* standalone-microprofile-ha.xml
+** A configuration oriented toward microservices, similar to
+_standalone-microprofile.xml_ but with support for high availability
+web sessions and distributed Hibernate second level caching.
+
+[[domain-server-configurations]]
+==== Domain Server Configurations
+
+* domain.xml
+** Jakarta full and web profiles available with or
+without high availability
+
+Important to note is that the *_domain_* and *_standalone_* modes
+determine how the servers are managed not what capabilities they
+provide.
+
+[[starting-wildfly-10]]
+== Starting WildFly {wildflyVersion}
+
+To start WildFly {wildflyVersion} using the default web profile configuration in "
+_standalone_" mode, change directory to $JBOSS_HOME/bin.
+
+[source,options="nowrap"]
+----
+./standalone.sh
+----
+
+To start the default web profile configuration using domain management
+capabilities,
+
+[source,options="nowrap"]
+----
+./domain.sh
+----
+
+[[starting-wildfly-with-an-alternate-configuration]]
+=== Starting WildFly with an Alternate Configuration
+
+If you choose to start your server with one of the other provided
+configurations, they can be accessed by passing the --server-config
+argument with the server-config file to be used.
+
+To use the Full Platform with clustering capabilities, use the following
+syntax from $JBOSS_HOME/bin:
+
+[source,options="nowrap"]
+----
+./standalone.sh --server-config=standalone-full-ha.xml
+----
+
+Similarly to start an alternate configuration in _domain_ mode:
+
+[source,options="nowrap"]
+----
+./domain.sh --domain-config=my-domain-configuration.xml
+----
+
+Alternatively, you can create your own selecting the additional
+subsystems you want to add, remove, or modify.
+
+[[test-your-installation]]
+=== Test Your Installation
+
+After executing one of the above commands, you should see output similar
+to what's shown below.
+
+[source,options="nowrap"]
+----
+=========================================================================
+ 
+  JBoss Bootstrap Environment
+ 
+  JBOSS_HOME: /opt/wildfly-10.0.0.Final
+ 
+  JAVA: java
+ 
+  JAVA_OPTS:  -server -Xms64m -Xmx512m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m -Djava.net.preferIPv4Stack=true -Djboss.modules.system.pkgs=com.yourkit,org.jboss.byteman -Djava.awt.headless=true
+ 
+=========================================================================
+ 
+11:46:11,161 INFO  [org.jboss.modules] (main) JBoss Modules version 1.5.1.Final
+11:46:11,331 INFO  [org.jboss.msc] (main) JBoss MSC version 1.2.6.Final
+11:46:11,391 INFO  [org.jboss.as] (MSC service thread 1-6) WFLYSRV0049: WildFly Full 10.0.0.Final (WildFly Core 2.0.10.Final) starting
+<snip>
+11:46:14,300 INFO  [org.jboss.as] (Controller Boot Thread) WFLYSRV0025: WildFly Full 10.0.0.Final (WildFly Core 2.0.10.Final) started in 1909ms - Started 267 of 553 services (371 services are lazy, passive or on-demand)
+----
+
+As with previous WildFly releases, you can point your browser to
+*_http://localhost:8080_* (if using the default configured http port)
+which brings you to the Welcome Screen:
+
+image:wildfly.png[images/wildfly.png]
+
+From here you can access links to the WildFly community documentation
+set, stay up-to-date on the latest project information, have a
+discussion in the user forum and access the enhanced web-based
+Administration Console. Or, if you uncover a defect while using WildFly,
+report an issue to inform us (attached patches will be reviewed). This
+landing page is recommended for convenient access to information about
+WildFly {wildflyVersion} but can easily be replaced with your own if desired.
+
+[[managing-your-wildfly-10]]
+== Managing your WildFly {wildflyVersion}
+
+WildFly {wildflyVersion} offers two administrative mechanisms for managing your
+running instance:
+
+* a web-based Administration Console
+* a command-line interface
+
+The link:Admin_Guide{outfilesuffix}[Admin Guide] covers the details on managing your WildFly
+installation. Here we'll just touch on some of the basics.
+
+=== Authentication
+
+By default WildFly {wildflyVersion} is distributed with security enabled for the
+management interfaces. This means that before you connect using the
+administration console or remotely using the CLI you will need to add a
+new user. This can be achieved simply by using the _add-user.sh_ script
+in the bin folder.
+
+After starting the script you will be guided through the process to add
+a new user: -
+
+[source,options="nowrap"]
+----
+./add-user.sh
+What type of user do you wish to add?
+ a) Management User (mgmt-users.properties)
+ b) Application User (application-users.properties)
+(a):
+----
+
+In this case a new user is being added for the purpose of managing the
+servers so select option a.
+
+You will then be prompted to enter the details of the new user being
+added: -
+
+[source,options="nowrap"]
+----
+Enter the details of the new user to add.
+Realm (ManagementRealm) :
+Username :
+Password :
+Re-enter Password :
+----
+
+It is important to leave the name of the realm as 'ManagementRealm' as
+this needs to match the name used in the server's configuration. For the
+remaining fields enter the new username, password and password
+confirmation.
+
+Users can be associated with arbitrary groups of your choosing, so you will be prompted if you would like 
+to do this.
+
+[source,options="nowrap"]
+----
+What groups do you want this user to belong to? (Please enter a comma separated list, or leave blank for none)[  ]:
+----
+
+Groups can be useful for simplified administration of things like access permissions, but for simply getting
+started, leaving this blank is fine.
+
+Provided there are no errors in the values entered you will then be
+asked to confirm that you want to add the user, the user will be written
+to the properties files used for authentication and a confirmation
+message will be displayed.
+
+The modified time of the properties files are inspected at the time of
+authentication and the files reloaded if they have changed. For this
+reason you do not need to re-start the server after adding a new user.
+
+Finally, you will be asked whether the account you've added is going to be to used
+to identify one WildFly process to another, typically in a WildFly managed domain:
+
+[source,options="nowrap"]
+----
+Is this new user going to be used for one AS process to connect to another AS process? 
+e.g. for a slave host controller connecting to the master or for a Remoting connection for server to server Jakarta Enterprise Beans calls.
+yes/no?
+----
+
+The answer for this should be `no`; the account you are adding here is for use by a human administrator.
+
+[[administration-console]]
+=== Administration Console
+
+To access the web-based Administration Console, simply follow the link
+from the Welcome Screen. To directly access the Management Console,
+point your browser at:
+
+*_http://localhost:9990/console_*
+
+NOTE: port 9990 is the default port configured.
+
+[source,xml,options="nowrap"]
+----
+<management-interfaces>
+   <native-interface security-realm="ManagementRealm">
+      <socket-binding native="management-native"/>
+   </native-interface>
+   <http-interface security-realm="ManagementRealm">
+      <socket-binding http="management-http"/>
+   </http-interface>
+</management-interfaces>
+----
+
+If you modify the _management-http_ socket binding in your running
+configuration: adjust the above command accordingly. If such
+modifications are made, then the link from the Welcome Screen will also
+be inaccessible.
+
+If you have not yet added at least one management user an error page
+will be displayed asking you to add a new user, after a user has been
+added you can click on the 'Try Again' link at the bottom of the error
+page to try connecting to the administration console again.
+
+[[command-line-interface]]
+=== Command-Line Interface
+
+If you prefer to manage your server from the command line (or batching),
+the _jboss-cli.sh_ script provides the same capabilities available via
+the web-based UI. This script is accessed from $JBOSS_HOME/bin
+directory; e.g.,
+
+[source,options="nowrap"]
+----
+$JBOSS_HOME/bin/jboss-cli.sh --connect
+Connected to standalone controller at localhost:9990
+----
+
+Notice if no host or port information provided, it will default to
+localhost:9990.
+
+When running locally to the WildFly process the CLI will silently
+authenticate against the server by exchanging tokens on the file system,
+the purpose of this exchange is to verify that the client does have
+access to the local file system. If the CLI is connecting to a remote
+WildFly installation then you will be prompted to enter the username and
+password of a user already added to the realm.
+
+Once connected you can add, modify, remove resources and deploy or
+undeploy applications. For a complete list of commands and command
+syntax, type *_help_* once connected.
+
+[[deploying-an-application]]
+=== Deploying an Application
+
+WildFly provides a number of ways you can deploy your application into the server.
+These are covered in detail in the link:Admin_Guide{outfilesuffix}#application-deployment[Admin Guide].
+
+If you are running a standalone WildFly server, the simplest way to deploy
+your application is to copy the application archive (war/ear/jar) into the `$JBOSS_HOME/standalone/deployments`
+directory in the server installation. The server's `deployment-scanner` subsystem will detect
+the new file and deploy it.
+
+[NOTE]
+
+If you are running a WildFly managed domain, the `deployment-scanner` subsystem is not
+available so you will need to use the CLI or web console to deploy your application. For more, 
+see the link:Admin_Guide{outfilesuffix}#application-deployment[Admin Guide].
+
+[[modifying-the-example-datasource]]
+=== Modifying the Example DataSource
+
+As with previous JBoss application server releases, a default data
+source, *_ExampleDS_* , is configured using the embedded H2 database for
+developer convenience. There are two ways to define datasource
+configurations:
+
+1.  as a module
+2.  as a deployment
+
+In the provided configurations, H2 is configured as a module. The module
+is located in the $JBOSS_HOME/modules/com/h2database/h2 directory. The
+H2 datasource configuration is shown below.
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:jboss:domain:datasources:1.0">
+    <datasources>
+        <datasource jndi-name="java:jboss/datasources/ExampleDS" pool-name="ExampleDS">
+            <connection-url>jdbc:h2:mem:test;DB_CLOSE_DELAY=-1</connection-url>
+            <driver>h2</driver>
+            <pool>
+                <min-pool-size>10</min-pool-size>
+                <max-pool-size>20</max-pool-size>
+                <prefill>true</prefill>
+            </pool>
+            <security>
+                <user-name>sa</user-name>
+                <password>sa</password>
+            </security>
+        </datasource>
+        <xa-datasource jndi-name="java:jboss/datasources/ExampleXADS" pool-name="ExampleXADS">
+           <driver>h2</driver>
+           <xa-datasource-property name="URL">jdbc:h2:mem:test</xa-datasource-property>
+           <xa-pool>
+                <min-pool-size>10</min-pool-size>
+                <max-pool-size>20</max-pool-size>
+                <prefill>true</prefill>
+           </xa-pool>
+           <security>
+                <user-name>sa</user-name>
+                <password>sa</password>
+           </security>
+        </xa-datasource>
+        <drivers>
+            <driver name="h2" module="com.h2database.h2">
+                <xa-datasource-class>org.h2.jdbcx.JdbcDataSource</xa-datasource-class>
+            </driver>
+        </drivers>
+  </datasources>
+</subsystem>
+----
+
+The datasource subsystem is provided by the
+http://www.jboss.org/ironjacamar[IronJacamar] project. For a detailed
+description of the available configuration properties, please consult
+the project documentation.
+
+* IronJacamar homepage: http://www.jboss.org/ironjacamar
+* Project Documentation: http://www.jboss.org/ironjacamar/docs
+* Schema description:
+http://docs.jboss.org/ironjacamar/userguide/1.0/en-US/html/deployment.html#deployingds_descriptor
+
+[[configure-logging-in-wildfly]]
+=== Configure Logging in WildFly
+
+WildFly logging can be configured with the web console or the command
+line interface. You can get more detail on the link:Admin_Guide{outfilesuffix}#Logging[Logging
+Configuration] page.
+
+Turn on debugging for a specific category with the CLI:
+
+[source,options="nowrap"]
+----
+/subsystem=logging/logger=org.jboss.as:add(level=DEBUG)
+----
+
+In the example above the `org.jboss.as` log category was configured. Use a different value
+for the `logger` key to configure a different log category.
+
+By default the `server.log` is configured to include all levels in its
+log output. In the above example we changed the console to also display
+debug messages.

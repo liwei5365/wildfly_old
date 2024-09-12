@@ -23,7 +23,6 @@
 package org.jboss.as.test.integration.jpa.transaction;
 
 import java.util.HashSet;
-
 import javax.annotation.Resource;
 import javax.ejb.SessionContext;
 import javax.ejb.Stateful;
@@ -45,10 +44,10 @@ import javax.transaction.UserTransaction;
 @TransactionManagement(TransactionManagementType.BEAN)
 public class SFSB1 {
     @PersistenceContext(unitName = "mypc")
-        EntityManager em;
+    EntityManager em;
 
     @PersistenceContext(unitName = "deferdetachpc")
-        EntityManager deferDetachEm;
+    EntityManager deferDetachEm;
 
     @Resource
     SessionContext sessionContext;
@@ -68,9 +67,8 @@ public class SFSB1 {
             em.joinTransaction();
             em.persist(emp);
             tx1.commit();
-        }
-        catch (Exception e) {
-            throw new RuntimeException("couldn't start tx" , e);
+        } catch (Exception e) {
+            throw new RuntimeException("couldn't start tx", e);
         }
 
         em.flush();         // should throw TransactionRequiredException
@@ -96,9 +94,8 @@ public class SFSB1 {
             em.persist(emp);
             em.persist(theCompany);
             tx1.commit();
-        }
-        catch (Exception e) {
-            throw new RuntimeException("couldn't start tx" , e);
+        } catch (Exception e) {
+            throw new RuntimeException("couldn't start tx", e);
         }
 
     }
@@ -129,7 +126,7 @@ public class SFSB1 {
     }
 
     // return true if the queried Employee is detached as required by JPA 2.0 section 3.8.6
-    // For a transaction scoped persistence context non jta-tx invocation, entities returned from Query
+    // For a transaction scoped persistence context non Jakarta Transactions tx invocation, entities returned from Query
     // must be detached.
     public boolean isQueryEmployeeDetached(int id) {
         TypedQuery<Employee> q = em.createQuery("SELECT e FROM Employee e where e.id=:id", Employee.class);

@@ -28,7 +28,7 @@ import org.jboss.as.arquillian.api.ServerSetup;
 import org.junit.runner.RunWith;
 
 /**
- * Integration test for JCA capacity policies JBJCA-986 using xa-datasource
+ * Integration test for Jakarta Connectors capacity policies JBJCA-986 using xa-datasource
  *
  * @author <a href="mailto:msimka@redhat.com">Martin Simka</a>
  */
@@ -43,7 +43,7 @@ public class XADatasourceCapacityPoliciesTestCase extends AbstractDatasourceCapa
 
     static class DatasourceServerSetupTask extends AbstractDatasourceCapacityPoliciesServerSetup {
 
-        public DatasourceServerSetupTask() {
+        DatasourceServerSetupTask() {
             // add xa datasource
             super(true);
         }

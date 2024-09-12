@@ -21,14 +21,20 @@
  */
 package org.wildfly.clustering.ejb.infinispan.bean;
 
+import java.time.Duration;
+
+import javax.ejb.ConcurrentAccessTimeoutException;
+
 import org.infinispan.Cache;
 import org.infinispan.context.Flag;
-import org.wildfly.clustering.ee.infinispan.CacheEntryMutator;
-import org.wildfly.clustering.ee.infinispan.Mutator;
+import org.infinispan.util.concurrent.TimeoutException;
+import org.wildfly.clustering.ee.Mutator;
+import org.wildfly.clustering.ee.MutatorFactory;
+import org.wildfly.clustering.ee.cache.CacheProperties;
+import org.wildfly.clustering.ee.infinispan.InfinispanMutatorFactory;
 import org.wildfly.clustering.ejb.Bean;
 import org.wildfly.clustering.ejb.PassivationListener;
 import org.wildfly.clustering.ejb.RemoveListener;
-import org.wildfly.clustering.ejb.Time;
 import org.wildfly.clustering.ejb.infinispan.BeanEntry;
 import org.wildfly.clustering.ejb.infinispan.BeanFactory;
 import org.wildfly.clustering.ejb.infinispan.BeanGroup;
@@ -42,79 +48,85 @@ import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
  *
  * @author Paul Ferraro
  *
- * @param <G> the group identifier type
  * @param <I> the bean identifier type
  * @param <T> the bean type
+ * @param <C> the marshalling context type
  */
-public class InfinispanBeanFactory<G, I, T> implements BeanFactory<G, I, T> {
+public class InfinispanBeanFactory<I, T, C> implements BeanFactory<I, T> {
     private final String beanName;
-    private final BeanGroupFactory<G, I, T> groupFactory;
-    private final Cache<BeanKey<I>, BeanEntry<G>> cache;
-    private final Time timeout;
+    private final BeanGroupFactory<I, T, C> groupFactory;
+    private final Cache<BeanKey<I>, BeanEntry<I>> cache;
+    private final Cache<BeanKey<I>, BeanEntry<I>> findCache;
+    private final Duration timeout;
     private final PassivationListener<T> listener;
+    private final MutatorFactory<BeanKey<I>, BeanEntry<I>> mutatorFactory;
 
-    public InfinispanBeanFactory(String beanName, BeanGroupFactory<G, I, T> groupFactory, Cache<BeanKey<I>, BeanEntry<G>> beanCache, Time timeout, PassivationListener<T> listener) {
+    public InfinispanBeanFactory(String beanName, BeanGroupFactory<I, T, C> groupFactory, Cache<BeanKey<I>, BeanEntry<I>> cache, CacheProperties properties, Duration timeout, PassivationListener<T> listener) {
         this.beanName = beanName;
         this.groupFactory = groupFactory;
-        this.cache = beanCache;
+        this.cache = cache;
+        this.findCache = properties.isLockOnRead() ? this.cache.getAdvancedCache().withFlags(Flag.FORCE_WRITE_LOCK) : this.cache;
         this.timeout = timeout;
         this.listener = listener;
+        this.mutatorFactory = new InfinispanMutatorFactory<>(cache, properties);
     }
 
     @Override
     public BeanKey<I> createKey(I id) {
-        return new InfinispanBeanKey<>(this.beanName, id);
+        return new InfinispanBeanKey<>(id);
     }
 
     @Override
-    public Bean<G, I, T> createBean(I id, BeanEntry<G> entry) {
-        G groupId = entry.getGroupId();
-        BeanGroupEntry<I, T> groupEntry = this.groupFactory.findValue(groupId);
+    public Bean<I, T> createBean(I id, BeanEntry<I> entry) {
+        I groupId = entry.getGroupId();
+        BeanGroupEntry<I, T, C> groupEntry = this.groupFactory.findValue(groupId);
         if (groupEntry == null) {
-             throw InfinispanEjbLogger.ROOT_LOGGER.invalidBeanGroup(id, groupId);
+            InfinispanEjbLogger.ROOT_LOGGER.invalidBeanGroup(id, groupId);
+            this.cache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES).remove(this.createKey(id));
+            return null;
         }
-        BeanGroup<G, I, T> group = this.groupFactory.createGroup(groupId, groupEntry);
-        Mutator mutator = (entry.getLastAccessedTime() == null) ? Mutator.PASSIVE : new CacheEntryMutator<>(this.cache, this.createKey(id), entry);
+        BeanGroup<I, T> group = this.groupFactory.createGroup(groupId, groupEntry);
+        Mutator mutator = (entry.getLastAccessedTime() == null) ? Mutator.PASSIVE : this.mutatorFactory.createMutator(this.createKey(id), entry);
         return new InfinispanBean<>(id, entry, group, mutator, this, this.timeout, this.listener);
     }
 
     @Override
-    public BeanEntry<G> findValue(I id) {
-        return this.cache.get(this.createKey(id));
+    public BeanEntry<I> findValue(I id) {
+        // TODO WFLY-14167 Cache lookup timeout should reflect @AccessTimeout of associated bean/invocation
+        try {
+            return this.findCache.get(this.createKey(id));
+        } catch (TimeoutException e) {
+            throw new ConcurrentAccessTimeoutException(e.getLocalizedMessage());
+        }
     }
 
     @Override
-    public BeanEntry<G> createValue(I id, G groupId) {
-        return this.cache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).computeIfAbsent(this.createKey(id), key -> new InfinispanBeanEntry<>(groupId));
+    public BeanEntry<I> tryValue(I id) {
+        return this.findCache.getAdvancedCache().withFlags(Flag.ZERO_LOCK_ACQUISITION_TIMEOUT, Flag.FAIL_SILENTLY).get(this.createKey(id));
     }
 
     @Override
-    public void remove(I id, RemoveListener<T> listener) {
-        BeanEntry<G> entry = this.cache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).remove(this.createKey(id));
+    public BeanEntry<I> createValue(I id, I groupId) {
+        BeanEntry<I> entry = new InfinispanBeanEntry<>(this.beanName, groupId);
+        this.cache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES).put(this.createKey(id), entry);
+        return entry;
+    }
+
+    @Override
+    public boolean remove(I id, RemoveListener<T> listener) {
+        BeanEntry<I> entry = this.cache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).remove(this.createKey(id));
         if (entry != null) {
-            G groupId = entry.getGroupId();
-            try (BeanGroup<G, I, T> group = this.groupFactory.createGroup(groupId, this.groupFactory.findValue(groupId))) {
-                T bean = group.removeBean(id);
-                if (listener != null) {
-                    listener.removed(bean);
+            I groupId = entry.getGroupId();
+            BeanGroupEntry<I, T, C> groupEntry = this.groupFactory.findValue(groupId);
+            if (groupEntry != null) {
+                try (BeanGroup<I, T> group = this.groupFactory.createGroup(groupId, groupEntry)) {
+                    T bean = group.removeBean(id, this.listener);
+                    if (listener != null) {
+                        listener.removed(bean);
+                    }
                 }
             }
         }
-    }
-
-    @Override
-    public void evict(I id) {
-        BeanKey<I> key = this.createKey(id);
-        BeanEntry<G> entry = this.cache.get(key);
-        if (entry != null) {
-            try {
-                // This will trigger the @CacheEntryEvicted event in InfinispanBeanManager
-                this.cache.evict(key);
-            } catch (Throwable e) {
-                InfinispanEjbLogger.ROOT_LOGGER.failedToPassivateBean(e, id);
-            }
-            // The actual bean instance is stored in the group, so this is the important entry to evict.
-            this.groupFactory.evict(entry.getGroupId());
-        }
+        return true;
     }
 }

@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNotNull;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,6 +40,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.text.StrSubstitutor;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.as.test.shared.util.AssumeTestGroupUtil;
 import org.jboss.logging.Logger;
 import org.jboss.security.xacml.core.JBossPDP;
 import org.jboss.security.xacml.core.model.context.ActionType;
@@ -62,12 +64,13 @@ import org.jboss.shrinkwrap.api.ArchivePaths;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
  * Testcases which test JBossPDP initialization a validates XACML Interoperability Use Cases. .
- * 
+ *
  * @author Josef Cacek
  */
 @RunWith(Arquillian.class)
@@ -82,7 +85,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Creates {@link JavaArchive} for the deployment.
-     * 
+     *
      * @return
      */
     @Deployment
@@ -101,13 +104,17 @@ public class JBossPDPInteroperabilityTestCase {
         jar.addAsResource(JBossPDPServletInitializationTestCase.class.getPackage(), XACMLTestUtils.TESTOBJECTS_REQUESTS
                 + "/med-example-request.xml");
 
-        LOGGER.info(jar.toString(true));
         return jar;
+    }
+
+    @BeforeClass
+    public static void skipSecurityManager() {
+        AssumeTestGroupUtil.assumeSecurityManagerDisabled();
     }
 
     /**
      * Validates the 7 Oasis XACML Interoperability Use Cases.
-     * 
+     *
      * @throws Exception
      */
     @Test
@@ -129,7 +136,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Tests PDP evaluation of XACML requests provided as the objects (Oasis XACML Interoperability Use Cases).
-     * 
+     *
      * @throws Exception
      */
     @Test
@@ -155,7 +162,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Tests loading XACML policies from a filesystem folder.
-     * 
+     *
      * @throws Exception
      */
     @Test
@@ -167,8 +174,8 @@ public class JBossPDPInteroperabilityTestCase {
         try {
             policyDir.mkdirs();
             final JBossPDP pdp = createPDPForMed(policyDir);
-            final String requestTemplate = IOUtils.toString(requestIS, "UTF-8");
-            LOGGER.info("REQUEST template: " + requestTemplate);
+            final String requestTemplate = IOUtils.toString(requestIS, StandardCharsets.UTF_8);
+            LOGGER.trace("REQUEST template: " + requestTemplate);
             final Map<String, Object> substitutionMap = new HashMap<String, Object>();
 
             substitutionMap.put(XACMLTestUtils.SUBST_SUBJECT_ID, "josef@med.example.com");
@@ -204,7 +211,7 @@ public class JBossPDPInteroperabilityTestCase {
     /**
      * Creates a {@link JBossPDP} instance filled with policies from Medical example (loaded from a directory in the
      * filesystem).
-     * 
+     *
      * @param policyDir
      * @return
      * @throws IOException
@@ -242,7 +249,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Get the decision from the given PDP for the given request string (XML as a String).
-     * 
+     *
      * @param pdp
      * @param requestStr
      * @return
@@ -250,13 +257,13 @@ public class JBossPDPInteroperabilityTestCase {
      */
     private int getDecisionForStr(PolicyDecisionPoint pdp, String requestStr) throws Exception {
         final RequestContext request = RequestResponseContextFactory.createRequestCtx();
-        request.readRequest(IOUtils.toInputStream(requestStr));
+        request.readRequest(IOUtils.toInputStream(requestStr, StandardCharsets.UTF_8));
         return getDecision(pdp, request);
     }
 
     /**
      * Get the decision from the PDP.
-     * 
+     *
      * @param pdp
      * @param requestFileLoc a file where the xacml request is stored
      * @return
@@ -264,7 +271,7 @@ public class JBossPDPInteroperabilityTestCase {
      */
     private int getDecision(PolicyDecisionPoint pdp, String requestFileLoc) throws Exception {
         final RequestContext request = RequestResponseContextFactory.createRequestCtx();
-        LOGGER.info("Creating request from " + requestFileLoc);
+        LOGGER.trace("Creating request from " + requestFileLoc);
         final InputStream requestStream = JBossPDPInteroperabilityTestCase.class
                 .getResourceAsStream(XACMLTestUtils.TESTOBJECTS_REQUESTS + "/" + requestFileLoc);
         if (requestStream == null) {
@@ -276,7 +283,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Gets the decision from the PDP.
-     * 
+     *
      * @param pdp
      * @param request
      * @return
@@ -287,7 +294,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Creates a single XACML request (instance of {@link RequestType}) with given parameters (subject's attribute values).
-     * 
+     *
      * @param reqTradeAppr
      * @param reqCreditAppr
      * @param buyPrice
@@ -310,7 +317,7 @@ public class JBossPDPInteroperabilityTestCase {
     /**
      * Creates a {@link SubjectType} with given attribute values. Some of the attribute values (as "subject-id" for instance)
      * are fixed.
-     * 
+     *
      * @param reqTradeAppr
      * @param reqCreditAppr
      * @param buyPrice
@@ -350,7 +357,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Creates a {@link ResourceType} with several attributes.
-     * 
+     *
      * @return
      */
     private ResourceType createResource() {
@@ -388,7 +395,7 @@ public class JBossPDPInteroperabilityTestCase {
 
     /**
      * Creates a simple {@link ActionType} with a single attribute - action-id=Buy.
-     * 
+     *
      * @return
      */
     private ActionType createAction() {

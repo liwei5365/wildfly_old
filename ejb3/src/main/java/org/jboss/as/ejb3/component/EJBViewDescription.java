@@ -30,6 +30,7 @@ import org.jboss.as.ee.component.ViewConfiguration;
 import org.jboss.as.ee.component.ViewConfigurator;
 import org.jboss.as.ee.component.ViewDescription;
 import org.jboss.as.ejb3.remote.RemoteViewInjectionSource;
+import org.jboss.as.ejb3.validator.EjbProxy;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.invocation.proxy.ProxyFactory;
@@ -37,7 +38,7 @@ import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.value.Value;
 
 /**
- * EJB specific view description.
+ * Jakarta Enterprise Beans specific view description.
  *
  * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
@@ -54,7 +55,7 @@ public class EJBViewDescription extends ViewDescription {
 
     public EJBViewDescription(final ComponentDescription componentDescription, final String viewClassName, final MethodIntf methodIntf, final boolean ejb2xView) {
         //only add the default configurator if an ejb 3.x business view
-        super(componentDescription, viewClassName, !ejb2xView && methodIntf != MethodIntf.HOME && methodIntf != MethodIntf.LOCAL_HOME );
+        super(componentDescription, viewClassName, !ejb2xView && methodIntf != MethodIntf.HOME && methodIntf != MethodIntf.LOCAL_HOME, EjbProxy.class.getName());
         this.methodIntf = methodIntf;
         this.ejb2xView = ejb2xView;
         hasJNDIBindings = initHasJNDIBindings(methodIntf);
@@ -68,6 +69,8 @@ public class EJBViewDescription extends ViewDescription {
         });
         // add a view configurator for setting up application specific container interceptors for the EJB view
         getConfigurators().add(EJBContainerInterceptorsViewConfigurator.INSTANCE);
+        // add server interceptors configurator
+        getConfigurators().add(ServerInterceptorsViewConfigurator.INSTANCE);
     }
 
     public MethodIntf getMethodIntf() {
@@ -98,14 +101,14 @@ public class EJBViewDescription extends ViewDescription {
     }
 
     @Override
-    protected InjectionSource createInjectionSource(final ServiceName serviceName, Value<ClassLoader> viewClassLoader) {
+    protected InjectionSource createInjectionSource(final ServiceName serviceName, Value<ClassLoader> viewClassLoader, boolean appclient) {
         if(methodIntf != MethodIntf.REMOTE && methodIntf != MethodIntf.HOME) {
-            return super.createInjectionSource(serviceName, viewClassLoader);
+            return super.createInjectionSource(serviceName, viewClassLoader, appclient);
         } else {
             final EJBComponentDescription componentDescription = getComponentDescription();
             final EEModuleDescription desc = componentDescription.getModuleDescription();
             final String earApplicationName = desc.getEarApplicationName();
-            return new RemoteViewInjectionSource(serviceName, earApplicationName, desc.getModuleName(), desc.getDistinctName(), componentDescription.getComponentName(), getViewClassName() , componentDescription.isStateful(),viewClassLoader);
+            return new RemoteViewInjectionSource(serviceName, earApplicationName, desc.getModuleName(), desc.getDistinctName(), componentDescription.getComponentName(), getViewClassName() , componentDescription.isStateful(),viewClassLoader, appclient);
         }
     }
 

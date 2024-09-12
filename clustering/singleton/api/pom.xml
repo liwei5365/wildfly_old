@@ -29,21 +29,28 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-clustering-singleton</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <artifactId>wildfly-clustering-singleton-api</artifactId>
     <packaging>jar</packaging>
 
     <name>WildFly: Singleton API</name>
+    <description>
+        Public API for installing singleton MSC services.
+    </description>
 
     <dependencies>
         <dependency>
-            <groupId>org.wildfly</groupId>
+            <groupId>${project.groupId}</groupId>
             <artifactId>wildfly-clustering-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.wildfly</groupId>
+            <groupId>${project.groupId}</groupId>
             <artifactId>wildfly-clustering-service</artifactId>
         </dependency>
     </dependencies>

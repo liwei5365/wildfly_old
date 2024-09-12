@@ -39,7 +39,7 @@ import org.jboss.modules.ModuleLoader;
 import org.wildfly.iiop.openjdk.deployment.IIOPDeploymentMarker;
 
 /**
- * Responsible for adding appropriate Java EE {@link org.jboss.as.server.deployment.module.ModuleDependency module dependencies}
+ * Responsible for adding appropriate Jakarta EE {@link org.jboss.as.server.deployment.module.ModuleDependency module dependencies}
  * <p/>
  * Author : Jaikiran Pai
  */
@@ -51,13 +51,18 @@ public class EjbDependencyDeploymentUnitProcessor implements DeploymentUnitProce
      */
     private static final ModuleIdentifier EJB_SUBSYSTEM = ModuleIdentifier.create("org.jboss.as.ejb3");
     private static final ModuleIdentifier EJB_CLIENT = ModuleIdentifier.create("org.jboss.ejb-client");
+    private static final ModuleIdentifier EJB_NAMING_CLIENT = ModuleIdentifier.create("org.wildfly.naming-client");
     private static final ModuleIdentifier EJB_IIOP_CLIENT = ModuleIdentifier.create("org.jboss.iiop-client");
     private static final ModuleIdentifier IIOP_OPENJDK = ModuleIdentifier.create("org.wildfly.iiop-openjdk");
     private static final ModuleIdentifier EJB_API = ModuleIdentifier.create("javax.ejb.api");
+    private static final ModuleIdentifier JAX_RPC_API = ModuleIdentifier.create("javax.xml.rpc.api");
+    private static final ModuleIdentifier HTTP_EJB = ModuleIdentifier.create("org.wildfly.http-client.ejb");
+    private static final ModuleIdentifier HTTP_TRANSACTION = ModuleIdentifier.create("org.wildfly.http-client.transaction");
+    private static final ModuleIdentifier HTTP_NAMING = ModuleIdentifier.create("org.wildfly.http-client.naming");
 
 
     /**
-     * Adds Java EE module as a dependency to any deployment unit which is an EJB deployment
+     * Adds Jakarta EE module as a dependency to any deployment unit which is an Jakarta Enterprise Beans deployment
      *
      * @param phaseContext the deployment unit context
      * @throws DeploymentUnitProcessingException
@@ -75,12 +80,18 @@ public class EjbDependencyDeploymentUnitProcessor implements DeploymentUnitProce
 
         //always add EE API
         moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, EJB_API, false, false, true, false));
-        //we always give them the EJB client
+        // previously exported by Jakarta Enterprise Beans_API prior to WFLY-5922 TODO WFLY-5967 look into moving this to WS subsystem
+        moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, JAX_RPC_API, true, false, true, false));
+        //we always give them the Jakarta Enterprise Beans client
         moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, EJB_CLIENT, false, false, true, false));
+        moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, EJB_NAMING_CLIENT, false, false, true, false));
         moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, EJB_IIOP_CLIENT, false, false, false, false));
 
         //we always have to add this, as even non-ejb deployments may still lookup IIOP ejb's
         moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, EJB_SUBSYSTEM, false, false, true, false));
+        moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, HTTP_EJB, false, false, true, false));
+        moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, HTTP_NAMING, false, false, true, false));
+        moduleSpecification.addSystemDependency(new ModuleDependency(moduleLoader, HTTP_TRANSACTION, false, false, true, false));
 
         if (IIOPDeploymentMarker.isIIOPDeployment(deploymentUnit)) {
             //needed for dynamic IIOP stubs
@@ -88,7 +99,7 @@ public class EjbDependencyDeploymentUnitProcessor implements DeploymentUnitProce
         }
 
         // fetch the EjbJarMetaData
-        //TODO: remove the app client bit after the next EJB release
+        //TODO: remove the app client bit after the next Jakarta Enterprise Beans release
         if (!isEjbDeployment(deploymentUnit) && !DeploymentTypeMarker.isType(DeploymentType.APPLICATION_CLIENT, deploymentUnit)) {
             // nothing to do
             return;

@@ -26,37 +26,50 @@ import static java.lang.Thread.currentThread;
 import static java.security.AccessController.doPrivileged;
 import static org.jboss.as.connector.logging.ConnectorLogger.DEPLOYMENT_CONNECTOR_LOGGER;
 
+import javax.naming.InitialContext;
+import javax.naming.Reference;
+import javax.resource.spi.ResourceAdapter;
+import javax.transaction.TransactionManager;
 import java.io.File;
 import java.io.PrintWriter;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.PrivilegedAction;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 
-import javax.naming.Reference;
-import javax.resource.spi.ResourceAdapter;
-import javax.transaction.TransactionManager;
-
 import org.jboss.as.connector.logging.ConnectorLogger;
+import org.jboss.as.connector.metadata.api.resourceadapter.WorkManagerSecurity;
 import org.jboss.as.connector.metadata.deployment.ResourceAdapterDeployment;
+import org.jboss.as.connector.security.CallbackImpl;
+import org.jboss.as.connector.security.ElytronSubjectFactory;
 import org.jboss.as.connector.services.mdr.AS7MetadataRepository;
 import org.jboss.as.connector.services.resourceadapters.AdminObjectReferenceFactoryService;
 import org.jboss.as.connector.services.resourceadapters.AdminObjectService;
 import org.jboss.as.connector.services.resourceadapters.ConnectionFactoryReferenceFactoryService;
 import org.jboss.as.connector.services.resourceadapters.ConnectionFactoryService;
 import org.jboss.as.connector.services.resourceadapters.deployment.registry.ResourceAdapterDeploymentRegistry;
+import org.jboss.as.connector.services.workmanager.NamedWorkManager;
 import org.jboss.as.connector.subsystems.jca.JcaSubsystemConfiguration;
 import org.jboss.as.connector.util.ConnectorServices;
 import org.jboss.as.connector.util.Injection;
 import org.jboss.as.connector.util.JCAValidatorFactory;
+import org.jboss.as.core.security.ServerSecurityManager;
+import org.jboss.as.naming.ContextListAndJndiViewManagedReferenceFactory;
+import org.jboss.as.naming.ContextListManagedReferenceFactory;
+import org.jboss.as.naming.ManagedReference;
 import org.jboss.as.naming.ManagedReferenceFactory;
 import org.jboss.as.naming.ServiceBasedNamingStore;
+import org.jboss.as.naming.ValueManagedReference;
 import org.jboss.as.naming.WritableServiceBasedNamingStore;
 import org.jboss.as.naming.deployment.ContextNames;
 import org.jboss.as.naming.service.BinderService;
+import org.jboss.jca.common.api.metadata.common.SecurityMetadata;
 import org.jboss.jca.common.api.metadata.resourceadapter.Activation;
 import org.jboss.jca.common.api.metadata.spec.ConfigProperty;
 import org.jboss.jca.common.api.metadata.spec.Connector;
@@ -68,6 +81,7 @@ import org.jboss.jca.core.connectionmanager.ConnectionManager;
 import org.jboss.jca.core.security.picketbox.PicketBoxSubjectFactory;
 import org.jboss.jca.core.spi.mdr.AlreadyExistsException;
 import org.jboss.jca.core.spi.rar.ResourceAdapterRepository;
+import org.jboss.jca.core.spi.security.Callback;
 import org.jboss.jca.core.spi.transaction.TransactionIntegration;
 import org.jboss.jca.core.spi.transaction.recovery.XAResourceRecovery;
 import org.jboss.jca.core.spi.transaction.recovery.XAResourceRecoveryRegistry;
@@ -77,13 +91,15 @@ import org.jboss.jca.deployers.common.CommonDeployment;
 import org.jboss.jca.deployers.common.DeployException;
 import org.jboss.logging.BasicLogger;
 import org.jboss.msc.inject.Injector;
-import org.jboss.msc.service.AbstractServiceListener;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
 import org.jboss.msc.service.StartContext;
 import org.jboss.msc.service.StopContext;
+import org.jboss.msc.value.ImmediateValue;
 import org.jboss.msc.value.InjectedValue;
 import org.jboss.security.SubjectFactory;
 import org.jboss.threads.JBossThreadFactory;
@@ -114,6 +130,7 @@ public abstract class AbstractResourceAdapterDeploymentService {
     protected final InjectedValue<SubjectFactory> subjectFactory = new InjectedValue<SubjectFactory>();
     protected final InjectedValue<CachedConnectionManager> ccmValue = new InjectedValue<CachedConnectionManager>();
     protected final InjectedValue<ExecutorService> executorServiceInjector = new InjectedValue<ExecutorService>();
+    private final InjectedValue<ServerSecurityManager> secManager = new InjectedValue<ServerSecurityManager>();
 
     protected String raRepositoryRegistrationId;
     protected String connectorServicesRegistrationName;
@@ -265,6 +282,10 @@ public abstract class AbstractResourceAdapterDeploymentService {
         return subjectFactory;
     }
 
+    public Injector<ServerSecurityManager> getServerSecurityManager() {
+        return secManager;
+    }
+
     public Injector<CachedConnectionManager> getCcmInjector() {
         return ccmValue;
     }
@@ -294,6 +315,7 @@ public abstract class AbstractResourceAdapterDeploymentService {
         return ContextNames.bindInfoFor(jndi);
     }
 
+    public abstract Collection<String> getJndiAliases();
     /**
      * @return {@code true} if the binder service must be created to bind the connection factory
      */
@@ -394,7 +416,7 @@ public abstract class AbstractResourceAdapterDeploymentService {
 
             ServiceBuilder connectionFactoryBuilder = serviceTarget.addService(connectionFactoryServiceName, connectionFactoryService);
             if (deploymentServiceName != null)
-                connectionFactoryBuilder.addDependency(deploymentServiceName);
+                connectionFactoryBuilder.requires(deploymentServiceName);
 
             connectionFactoryBuilder.setInitialMode(ServiceController.Mode.ACTIVE).install();
 
@@ -403,7 +425,7 @@ public abstract class AbstractResourceAdapterDeploymentService {
             // to distinguish CFs with same name in different application (or module).
             final ContextNames.BindInfo bindInfo = getBindInfo(jndi);
 
-            final ConnectionFactoryReferenceFactoryService referenceFactoryService = new ConnectionFactoryReferenceFactoryService();
+            final ConnectionFactoryReferenceFactoryService referenceFactoryService = new ConnectionFactoryReferenceFactoryService(deployment);
             final ServiceName referenceFactoryServiceName = ConnectionFactoryReferenceFactoryService.SERVICE_NAME_BASE
                     .append(bindInfo.getBinderServiceName());
             serviceTarget.addService(referenceFactoryServiceName, referenceFactoryService)
@@ -418,19 +440,23 @@ public abstract class AbstractResourceAdapterDeploymentService {
                                 binderService.getManagedObjectInjector())
                         .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class,
                                 binderService.getNamingStoreInjector())
-                        .addListener(new AbstractServiceListener<Object>() {
-                            public void transition(final ServiceController<? extends Object> controller, final ServiceController.Transition transition) {
-                                switch (transition) {
-                                    case STARTING_to_UP: {
+                        .addListener(new LifecycleListener() {
+                            private volatile boolean bound;
+                            public void handleEvent(final ServiceController<? extends Object> controller, final LifecycleEvent event) {
+                                switch (event) {
+                                    case UP: {
                                         DEPLOYMENT_CONNECTOR_LOGGER.boundJca("ConnectionFactory", jndi);
+                                        bound = true;
                                         break;
                                     }
-                                    case STOPPING_to_DOWN: {
-                                        DEPLOYMENT_CONNECTOR_LOGGER.unboundJca("ConnectionFactory", jndi);
+                                    case DOWN: {
+                                        if (bound) {
+                                            DEPLOYMENT_CONNECTOR_LOGGER.unboundJca("ConnectionFactory", jndi);
+                                        }
                                         break;
                                     }
-                                    case REMOVING_to_REMOVED: {
-                                        DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed JCA ConnectionFactory [%s]", jndi);
+                                    case REMOVED: {
+                                        DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed Jakarta Connectors ConnectionFactory [%s]", jndi);
                                     }
                                 }
                             }
@@ -438,13 +464,48 @@ public abstract class AbstractResourceAdapterDeploymentService {
                         .setInitialMode(ServiceController.Mode.ACTIVE)
                         .install();
             }
-
+            installJNDIAliases(bindInfo, serviceTarget);
             // AS7-2222: Just hack it
             if (cf instanceof javax.resource.Referenceable) {
                 ((javax.resource.Referenceable)cf).setReference(new Reference(jndi));
             }
 
             return new String[] { jndi };
+        }
+
+        private void installJNDIAliases(final ContextNames.BindInfo bindInfo, final ServiceTarget serviceTarget) {
+            for (String alias : getJndiAliases()) {
+                final ContextNames.BindInfo aliasBindInfo = ContextNames.bindInfoFor(alias);
+                final BinderService aliasBinderService = new BinderService(alias);
+                aliasBinderService.getManagedObjectInjector().inject(new AliasManagedReferenceFactory(bindInfo.getAbsoluteJndiName()));
+                final ServiceBuilder sb = serviceTarget.addService(aliasBindInfo.getBinderServiceName(), aliasBinderService);
+                sb.addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class, aliasBinderService.getNamingStoreInjector());
+                sb.requires(bindInfo.getBinderServiceName());
+                sb.addListener(new LifecycleListener() {
+                            private volatile boolean bound;
+                            @Override
+                            public void handleEvent(ServiceController<?> controller, LifecycleEvent event) {
+                                switch (event) {
+                                    case UP: {
+                                        DEPLOYMENT_CONNECTOR_LOGGER.bindingAlias(bindInfo.getAbsoluteJndiName(), alias);
+                                        bound = true;
+                                        break;
+                                    }
+                                    case DOWN: {
+                                        if (bound) {
+                                            DEPLOYMENT_CONNECTOR_LOGGER.unbindingAlias(bindInfo.getAbsoluteJndiName(), alias);
+                                        }
+                                        break;
+                                    }
+                                    case REMOVED: {
+                                        DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed messaging object [%s]", alias);
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                sb.install();
+            }
         }
 
         @Override
@@ -484,20 +545,23 @@ public abstract class AbstractResourceAdapterDeploymentService {
                         .addDependency(referenceFactoryServiceName, ManagedReferenceFactory.class,
                                 binderService.getManagedObjectInjector())
                         .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class,
-                                binderService.getNamingStoreInjector()).addListener(new AbstractServiceListener<Object>() {
-
-                    public void transition(final ServiceController<? extends Object> controller, final ServiceController.Transition transition) {
-                        switch (transition) {
-                            case STARTING_to_UP: {
+                                binderService.getNamingStoreInjector()).addListener(new LifecycleListener() {
+                    private volatile boolean bound;
+                    public void handleEvent(final ServiceController<?> controller, final LifecycleEvent event) {
+                        switch (event) {
+                            case UP: {
                                 DEPLOYMENT_CONNECTOR_LOGGER.boundJca("AdminObject", jndi);
+                                bound = true;
                                 break;
                             }
-                            case STOPPING_to_DOWN: {
-                                DEPLOYMENT_CONNECTOR_LOGGER.unboundJca("AdminObject", jndi);
+                            case DOWN: {
+                                if (bound) {
+                                    DEPLOYMENT_CONNECTOR_LOGGER.unboundJca("AdminObject", jndi);
+                                }
                                 break;
                             }
-                            case REMOVING_to_REMOVED: {
-                                DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed JCA AdminObject [%s]", jndi);
+                            case REMOVED: {
+                                DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed Jakarta Connectors AdminObject [%s]", jndi);
                             }
                         }
                     }
@@ -603,11 +667,52 @@ public abstract class AbstractResourceAdapterDeploymentService {
         }
 
         @Override
-        protected org.jboss.jca.core.spi.security.SubjectFactory getSubjectFactory(String securityDomain) throws DeployException {
-            if (securityDomain == null || securityDomain.trim().equals("")) {
+        protected org.jboss.jca.core.spi.security.SubjectFactory getSubjectFactory(
+                SecurityMetadata securityMetadata, final String jndiName) throws DeployException {
+            if (securityMetadata == null)
+                return null;
+            final String securityDomain = securityMetadata.resolveSecurityDomain();
+            if (securityMetadata instanceof org.jboss.as.connector.metadata.api.common.SecurityMetadata &&
+                    ((org.jboss.as.connector.metadata.api.common.SecurityMetadata)securityMetadata).isElytronEnabled()) {
+                try {
+                    return new ElytronSubjectFactory(null, new URI(jndiName));
+                } catch (URISyntaxException e) {
+                    throw ConnectorLogger.ROOT_LOGGER.cannotDeploy(e);
+                }
+            } else if (securityDomain == null || securityDomain.trim().equals("")) {
                 return null;
             } else {
                 return new PicketBoxSubjectFactory(subjectFactory.getValue());
+            }
+        }
+
+        @Override
+        protected Callback createCallback(org.jboss.jca.common.api.metadata.resourceadapter.WorkManagerSecurity workManagerSecurity) {
+            if (workManagerSecurity != null) {
+                if (workManagerSecurity instanceof WorkManagerSecurity){
+                    WorkManagerSecurity wms = (WorkManagerSecurity) workManagerSecurity;
+                    String[] defaultGroups = wms.getDefaultGroups() != null ?
+                            wms.getDefaultGroups().toArray(new String[workManagerSecurity.getDefaultGroups().size()]) : null;
+
+                    return new CallbackImpl(wms.isMappingRequired(), wms.getDomain(), wms.isElytronEnabled(),
+                            wms.getDefaultPrincipal(), defaultGroups, wms.getUserMappings(), wms.getGroupMappings());
+                } else {
+                    return super.createCallback(workManagerSecurity);
+
+                }
+            }
+            return null;
+        }
+
+        @Override
+        protected void setCallbackSecurity(org.jboss.jca.core.api.workmanager.WorkManager workManager, Callback cb) {
+            if (cb instanceof  CallbackImpl) {
+                if (((CallbackImpl) cb).isElytronEnabled() != ((NamedWorkManager) workManager).isElytronEnabled())
+                    throw ConnectorLogger.ROOT_LOGGER.invalidElytronWorkManagerSetting();
+                workManager.setCallbackSecurity(cb);
+
+            } else {
+                super.setCallbackSecurity(workManager, cb);
             }
         }
 
@@ -642,6 +747,39 @@ public abstract class AbstractResourceAdapterDeploymentService {
         @Override
         protected BeanValidation getBeanValidation() {
             return new BeanValidation(new JCAValidatorFactory(cl));
+        }
+    }
+
+    private static final class AliasManagedReferenceFactory implements ContextListAndJndiViewManagedReferenceFactory {
+
+        private final String name;
+
+        /**
+         * @param name original JNDI name
+         */
+        public AliasManagedReferenceFactory(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public ManagedReference getReference() {
+            try {
+                final Object value = new InitialContext().lookup(name);
+                return new ValueManagedReference(new ImmediateValue<Object>(value));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public String getInstanceClassName() {
+            final Object value = getReference().getInstance();
+            return value != null ? value.getClass().getName() : ContextListManagedReferenceFactory.DEFAULT_INSTANCE_CLASS_NAME;
+        }
+
+        @Override
+        public String getJndiViewInstanceValue() {
+            return String.valueOf(getReference().getInstance());
         }
     }
 }

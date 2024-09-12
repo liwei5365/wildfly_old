@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -34,6 +34,8 @@ import org.jboss.as.controller.PersistentResourceDefinition;
 import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
+import org.jboss.as.controller.SimpleResourceDefinition;
+import org.jboss.as.controller.capability.RuntimeCapability;
 import org.jboss.as.controller.client.helpers.MeasurementUnit;
 import org.jboss.as.controller.operations.validation.EnumValidator;
 import org.jboss.as.controller.operations.validation.IntRangeValidator;
@@ -45,10 +47,15 @@ import org.jboss.dmr.ModelType;
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2013 Red Hat Inc.
  */
 class ServletContainerDefinition extends PersistentResourceDefinition {
+    static final RuntimeCapability<Void> SERVLET_CONTAINER_CAPABILITY = RuntimeCapability.Builder.of(Capabilities.CAPABILITY_SERVLET_CONTAINER, true, ServletContainerService.class)
+                .addRequirements(Capabilities.CAPABILITY_UNDERTOW)
+                .build();
+
+
     protected static final SimpleAttributeDefinition ALLOW_NON_STANDARD_WRAPPERS =
             new SimpleAttributeDefinitionBuilder(Constants.ALLOW_NON_STANDARD_WRAPPERS, ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(new ModelNode(false))
+                    .setDefaultValue(ModelNode.FALSE)
                     .setAllowExpression(true)
                     .build();
 
@@ -77,7 +84,7 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
             new SimpleAttributeDefinitionBuilder(Constants.USE_LISTENER_ENCODING, ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(false))
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
 
@@ -85,14 +92,14 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
             new SimpleAttributeDefinitionBuilder(Constants.IGNORE_FLUSH, ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(false))
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
     protected static final AttributeDefinition EAGER_FILTER_INIT =
             new SimpleAttributeDefinitionBuilder("eager-filter-initialization", ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(false))
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
     protected static final AttributeDefinition DEFAULT_SESSION_TIMEOUT =
@@ -108,7 +115,7 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
             new SimpleAttributeDefinitionBuilder("disable-caching-for-secured-pages", ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(true))
+                    .setDefaultValue(ModelNode.TRUE)
                     .build();
 
     protected static final AttributeDefinition DIRECTORY_LISTING =
@@ -120,7 +127,7 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
     protected static final AttributeDefinition PROACTIVE_AUTHENTICATION =
             new SimpleAttributeDefinitionBuilder(Constants.PROACTIVE_AUTHENTICATION, ModelType.BOOLEAN, true)
                     .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setDefaultValue(new ModelNode(true))
+                    .setDefaultValue(ModelNode.TRUE)
                     .setAllowExpression(true)
                     .build();
 
@@ -139,6 +146,57 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
                     .setAllowExpression(true)
                     .build();
 
+
+    protected static final AttributeDefinition DISABLE_FILE_WATCH_SERVICE =
+            new SimpleAttributeDefinitionBuilder(Constants.DISABLE_FILE_WATCH_SERVICE, ModelType.BOOLEAN, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setDefaultValue(ModelNode.FALSE)
+                    .setAllowExpression(true)
+                    .build();
+
+    protected static final AttributeDefinition DISABLE_SESSION_ID_REUSE =
+            new SimpleAttributeDefinitionBuilder(Constants.DISABLE_SESSION_ID_REUSE, ModelType.BOOLEAN, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setDefaultValue(ModelNode.FALSE)
+                    .setAllowExpression(true)
+                    .build();
+
+    protected static final AttributeDefinition FILE_CACHE_METADATA_SIZE =
+            new SimpleAttributeDefinitionBuilder(Constants.FILE_CACHE_METADATA_SIZE, ModelType.INT, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setDefaultValue(new ModelNode(100))
+                    .setAllowExpression(true)
+                    .build();
+
+    protected static final AttributeDefinition FILE_CACHE_MAX_FILE_SIZE =
+            new SimpleAttributeDefinitionBuilder(Constants.FILE_CACHE_MAX_FILE_SIZE, ModelType.INT, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setDefaultValue(new ModelNode(10 * 1024 * 1024))
+                    .setAllowExpression(true)
+                    .build();
+
+    protected static final AttributeDefinition FILE_CACHE_TIME_TO_LIVE =
+            new SimpleAttributeDefinitionBuilder(Constants.FILE_CACHE_TIME_TO_LIVE, ModelType.INT, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setAllowExpression(true)
+                    .build();
+
+
+    protected static final AttributeDefinition DEFAULT_COOKIE_VERSION =
+            new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_COOKIE_VERSION, ModelType.INT, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setAllowExpression(true)
+                    .setDefaultValue(ModelNode.ZERO)
+                    .setValidator(new IntRangeValidator(0, 1, true,true))
+                    .build();
+
+    protected static final AttributeDefinition PRESERVE_PATH_ON_FORWARD =
+            new SimpleAttributeDefinitionBuilder("preserve-path-on-forward", ModelType.BOOLEAN, true)
+                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setAllowExpression(true)
+                    .setDefaultValue(ModelNode.FALSE)
+                    .build();
+
     private static final List<? extends PersistentResourceDefinition> CHILDREN;
     static final Collection<AttributeDefinition> ATTRIBUTES = Arrays.asList(
             ALLOW_NON_STANDARD_WRAPPERS,
@@ -153,7 +211,14 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
             DIRECTORY_LISTING,
             PROACTIVE_AUTHENTICATION,
             SESSION_ID_LENGTH,
-            MAX_SESSIONS
+            MAX_SESSIONS,
+            DISABLE_FILE_WATCH_SERVICE,
+            DISABLE_SESSION_ID_REUSE,
+            FILE_CACHE_METADATA_SIZE,
+            FILE_CACHE_MAX_FILE_SIZE,
+            FILE_CACHE_TIME_TO_LIVE,
+            DEFAULT_COOKIE_VERSION,
+            PRESERVE_PATH_ON_FORWARD
             );
 
     static final ServletContainerDefinition INSTANCE = new ServletContainerDefinition();
@@ -166,14 +231,15 @@ class ServletContainerDefinition extends PersistentResourceDefinition {
         children.add(WebsocketsDefinition.INSTANCE);
         children.add(MimeMappingDefinition.INSTANCE);
         children.add(WelcomeFileDefinition.INSTANCE);
+        children.add(CrawlerSessionManagementDefinition.INSTANCE);
         CHILDREN = Collections.unmodifiableList(children);
     }
 
     private ServletContainerDefinition() {
-        super(UndertowExtension.PATH_SERVLET_CONTAINER,
-                UndertowExtension.getResolver(Constants.SERVLET_CONTAINER),
-                ServletContainerAdd.INSTANCE,
-                ReloadRequiredRemoveStepHandler.INSTANCE);
+        super(new SimpleResourceDefinition.Parameters(UndertowExtension.PATH_SERVLET_CONTAINER, UndertowExtension.getResolver(Constants.SERVLET_CONTAINER))
+                .setAddHandler(ServletContainerAdd.INSTANCE)
+                .setRemoveHandler(ReloadRequiredRemoveStepHandler.INSTANCE)
+                .addCapabilities(SERVLET_CONTAINER_CAPABILITY));
     }
 
     @Override

@@ -22,23 +22,18 @@
 
 package org.jboss.as.test.integration.weld.multideployment;
 
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
 
 import javax.inject.Inject;
 
 import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.arquillian.container.test.api.OperateOnDeployment;
 import org.jboss.arquillian.junit.Arquillian;
-import org.jboss.as.arquillian.api.ServerSetup;
-import org.jboss.as.arquillian.container.ManagementClient;
-import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
-import org.jboss.dmr.ModelNode;
 import org.jboss.jandex.Index;
 import org.jboss.jandex.IndexWriter;
 import org.jboss.jandex.Indexer;
@@ -51,13 +46,8 @@ import org.jboss.shrinkwrap.api.exporter.ZipExporter;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.xnio.IoUtils;
-
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
 /**
  * Tests that beans definied in a static can be used by a deployment
@@ -117,7 +107,7 @@ public class WeldModuleDeploymentTestCase {
 
 
         Indexer indexer = new Indexer();
-        try (final InputStream resource = ModuleEjb.class.getResourceAsStream(ModuleEjb.class.getSimpleName() + ".class")) {
+        try (InputStream resource = ModuleEjb.class.getResourceAsStream(ModuleEjb.class.getSimpleName() + ".class")) {
             indexer.index(resource);
         }
         Index index = indexer.complete();
@@ -136,16 +126,7 @@ public class WeldModuleDeploymentTestCase {
     }
 
     private static void copyFile(File target, InputStream src) throws IOException {
-        final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(target));
-        try {
-            int i = src.read();
-            while (i != -1) {
-                out.write(i);
-                i = src.read();
-            }
-        } finally {
-            IoUtils.safeClose(out);
-        }
+        Files.copy(src, target.toPath());
     }
 
     private static File getModulePath() {

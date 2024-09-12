@@ -21,10 +21,11 @@
  */
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.infinispan.interceptors.ActivationInterceptor;
+import org.infinispan.interceptors.impl.CacheLoaderInterceptor;
 import org.jboss.as.clustering.controller.Metric;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
+import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
@@ -33,25 +34,29 @@ import org.jboss.dmr.ModelType;
  *
  * @author Paul Ferraro
  */
-public enum StoreMetric implements Metric<ActivationInterceptor> {
+@SuppressWarnings("rawtypes")
+public enum StoreMetric implements Metric<CacheLoaderInterceptor> {
 
-    CACHE_LOADER_LOADS(MetricKeys.CACHE_LOADER_LOADS, ModelType.LONG) {
+    CACHE_LOADER_LOADS("cache-loader-loads", ModelType.LONG, AttributeAccess.Flag.COUNTER_METRIC) {
         @Override
-        public ModelNode execute(ActivationInterceptor interceptor) {
+        public ModelNode execute(CacheLoaderInterceptor interceptor) {
             return new ModelNode(interceptor.getCacheLoaderLoads());
         }
     },
-    CACHE_LOADER_MISSES(MetricKeys.CACHE_LOADER_MISSES, ModelType.LONG) {
+    CACHE_LOADER_MISSES("cache-loader-misses", ModelType.LONG, AttributeAccess.Flag.COUNTER_METRIC) {
         @Override
-        public ModelNode execute(ActivationInterceptor interceptor) {
+        public ModelNode execute(CacheLoaderInterceptor interceptor) {
             return new ModelNode(interceptor.getCacheLoaderMisses());
         }
     },
     ;
     private final AttributeDefinition definition;
 
-    StoreMetric(String name, ModelType type) {
-        this.definition = new SimpleAttributeDefinitionBuilder(name, type, true).setStorageRuntime().build();
+    StoreMetric(String name, ModelType type, AttributeAccess.Flag metricType) {
+        this.definition = new SimpleAttributeDefinitionBuilder(name, type)
+                .setFlags(metricType)
+                .setStorageRuntime()
+                .build();
     }
 
     @Override

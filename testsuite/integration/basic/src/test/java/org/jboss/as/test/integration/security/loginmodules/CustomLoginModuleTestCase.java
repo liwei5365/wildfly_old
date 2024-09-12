@@ -31,13 +31,16 @@ import static org.jboss.as.security.Constants.CODE;
 import static org.jboss.as.security.Constants.FLAG;
 import static org.jboss.as.security.Constants.LOGIN_MODULE;
 import static org.jboss.as.security.Constants.SECURITY_DOMAIN;
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import javax.security.auth.AuthPermission;
 
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -49,7 +52,6 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.protocol.HTTP;
 import org.apache.http.util.EntityUtils;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
@@ -64,9 +66,7 @@ import org.jboss.as.test.categories.CommonCriteria;
 import org.jboss.as.test.integration.security.common.AbstractSecurityDomainSetup;
 import org.jboss.as.test.integration.security.loginmodules.common.CustomTestLoginModule;
 import org.jboss.as.test.integration.web.security.SecuredServlet;
-import org.jboss.as.test.integration.web.security.WebSecurityPasswordBasedBase;
 import org.jboss.dmr.ModelNode;
-import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Test;
@@ -138,13 +138,13 @@ public class CustomLoginModuleTestCase {
         war.addAsWebInfResource(CustomLoginModuleTestCase.class.getPackage(), "jboss-web.xml", "jboss-web.xml");
         war.setWebXML(CustomLoginModuleTestCase.class.getPackage(), "web.xml");
         war.addClass(CustomTestLoginModule.class);
+        war.addAsManifestResource(createPermissionsXmlAsset(new AuthPermission("modifyPrincipals")), "permissions.xml");
         return war;
     }
 
     @Deployment
     public static WebArchive deployment() throws IOException {
         WebArchive war = create("custom-login-module.war", SecuredServlet.class);
-        WebSecurityPasswordBasedBase.printWar(war);
         return war;
     }
 
@@ -190,7 +190,7 @@ public class CustomLoginModuleTestCase {
             nvps.add(new BasicNameValuePair("j_username", user));
             nvps.add(new BasicNameValuePair("j_password", pass));
 
-            httpost.setEntity(new UrlEncodedFormEntity(nvps, HTTP.UTF_8));
+            httpost.setEntity(new UrlEncodedFormEntity(nvps, StandardCharsets.UTF_8));
 
             response = httpclient.execute(httpost);
             entity = response.getEntity();

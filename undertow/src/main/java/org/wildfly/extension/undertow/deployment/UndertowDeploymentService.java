@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -24,46 +24,51 @@ package org.wildfly.extension.undertow.deployment;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import io.undertow.server.HttpHandler;
 import io.undertow.servlet.api.Deployment;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.DeploymentManager;
 
-import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 
 import org.jboss.as.web.common.StartupContext;
 import org.jboss.as.web.common.WebInjectionContainer;
-import org.jboss.as.web.host.ContextActivator;
-import org.jboss.el.cache.FactoryFinderCache;
-import org.jboss.msc.inject.Injector;
 import org.jboss.msc.service.Service;
-import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.StartContext;
 import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
-import org.jboss.msc.value.InjectedValue;
 import org.wildfly.extension.undertow.Host;
 import org.wildfly.extension.undertow.ServletContainerService;
 import org.wildfly.extension.undertow.logging.UndertowLogger;
 
 /**
  * @author Stuart Douglas
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class UndertowDeploymentService implements Service<UndertowDeploymentService> {
 
-    private final InjectedValue<ServletContainerService> container = new InjectedValue<>();
-    // used for blocking tasks in this Service's start/stop
-    private final InjectedValue<ExecutorService> serverExecutor = new InjectedValue<ExecutorService>();
+    private final Consumer<UndertowDeploymentService> serviceConsumer;
+    private final Supplier<ServletContainerService> container;
+    private final Supplier<ExecutorService> serverExecutor;
+    private final Supplier<Host> host;
+    private final Supplier<DeploymentInfo> deploymentInfo;
     private final WebInjectionContainer webInjectionContainer;
-    private final InjectedValue<Host> host = new InjectedValue<>();
-    private final InjectedValue<DeploymentInfo> deploymentInfoInjectedValue = new InjectedValue<>();
     private final boolean autostart;
 
     private volatile DeploymentManager deploymentManager;
 
-    public UndertowDeploymentService(final WebInjectionContainer webInjectionContainer, boolean autostart) {
+    UndertowDeploymentService(
+            final Consumer<UndertowDeploymentService> serviceConsumer, final Supplier<ServletContainerService> container,
+            final Supplier<ExecutorService> serverExecutor, final Supplier<Host> host, final Supplier<DeploymentInfo> deploymentInfo,
+            final WebInjectionContainer webInjectionContainer, final boolean autostart) {
+        this.serviceConsumer = serviceConsumer;
+        this.container = container;
+        this.serverExecutor = serverExecutor;
+        this.host = host;
+        this.deploymentInfo = deploymentInfo;
         this.webInjectionContainer = webInjectionContainer;
         this.autostart = autostart;
     }
@@ -75,7 +80,7 @@ public class UndertowDeploymentService implements Service<UndertowDeploymentServ
             // servlet context initialization, startup servlet initialization lifecycles and such. Hence this needs to be done asynchronously
             // to prevent the MSC threads from blocking
             startContext.asynchronous();
-            serverExecutor.getValue().submit(new Runnable() {
+            serverExecutor.get().submit(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -91,21 +96,22 @@ public class UndertowDeploymentService implements Service<UndertowDeploymentServ
 
     public void startContext() throws ServletException {
         final ClassLoader old = Thread.currentThread().getContextClassLoader();
-        DeploymentInfo deploymentInfo = deploymentInfoInjectedValue.getValue();
+        DeploymentInfo deploymentInfo = this.deploymentInfo.get();
         Thread.currentThread().setContextClassLoader(deploymentInfo.getClassLoader());
         try {
             StartupContext.setInjectionContainer(webInjectionContainer);
             try {
-                deploymentManager = container.getValue().getServletContainer().addDeployment(deploymentInfo);
+                deploymentManager = container.get().getServletContainer().addDeployment(deploymentInfo);
                 deploymentManager.deploy();
                 HttpHandler handler = deploymentManager.start();
                 Deployment deployment = deploymentManager.getDeployment();
-                host.getValue().registerDeployment(deployment, handler);
+                host.get().registerDeployment(deployment, handler);
             } finally {
                 StartupContext.setInjectionContainer(null);
             }
         } finally {
             Thread.currentThread().setContextClassLoader(old);
+            serviceConsumer.accept(this);
         }
     }
 
@@ -114,7 +120,7 @@ public class UndertowDeploymentService implements Service<UndertowDeploymentServ
         // The service stop can trigger the web app context destruction which involves blocking tasks like servlet context destruction, startup servlet
         // destruction lifecycles and such. Hence this needs to be done asynchronously to prevent the MSC threads from blocking
         stopContext.asynchronous();
-        serverExecutor.getValue().submit(new Runnable() {
+        serverExecutor.get().submit(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -128,24 +134,23 @@ public class UndertowDeploymentService implements Service<UndertowDeploymentServ
     }
 
     public void stopContext() {
-
+        serviceConsumer.accept(null);
         final ClassLoader old = Thread.currentThread().getContextClassLoader();
-        DeploymentInfo deploymentInfo = deploymentInfoInjectedValue.getValue();
+        DeploymentInfo deploymentInfo = this.deploymentInfo.get();
         Thread.currentThread().setContextClassLoader(deploymentInfo.getClassLoader());
         try {
-            FactoryFinderCache.clearClassLoader(deploymentInfo.getClassLoader());
             if (deploymentManager != null) {
                 Deployment deployment = deploymentManager.getDeployment();
                 try {
-                    host.getValue().unregisterDeployment(deployment);
+                    host.get().unregisterDeployment(deployment);
                     deploymentManager.stop();
                 } catch (ServletException e) {
                     throw new RuntimeException(e);
                 }
                 deploymentManager.undeploy();
-                container.getValue().getServletContainer().removeDeployment(deploymentInfoInjectedValue.getValue());
+                container.get().getServletContainer().removeDeployment(deploymentInfo);
             }
-            recursiveDelete(deploymentInfoInjectedValue.getValue().getTempDir());
+            recursiveDelete(deploymentInfo.getTempDir());
         } finally {
             Thread.currentThread().setContextClassLoader(old);
         }
@@ -156,72 +161,15 @@ public class UndertowDeploymentService implements Service<UndertowDeploymentServ
         return this;
     }
 
-    public InjectedValue<ServletContainerService> getContainer() {
-        return container;
-    }
-
-    public InjectedValue<Host> getHost() {
-        return host;
-    }
-
-    public InjectedValue<DeploymentInfo> getDeploymentInfoInjectedValue() {
-        return deploymentInfoInjectedValue;
+    public DeploymentInfo getDeploymentInfo() {
+        return deploymentInfo.get();
     }
 
     public Deployment getDeployment(){
-        return deploymentManager.getDeployment();
-    }
-
-    Injector<ExecutorService> getServerExecutorInjector() {
-        return this.serverExecutor;
-    }
-
-    /**
-     * Provides an API to start/stop the {@link UndertowDeploymentService}.
-     * This should register/deregister the web context.
-     */
-    protected static class ContextActivatorImpl implements ContextActivator {
-
-        private final ServiceController<UndertowDeploymentService> controller;
-
-        ContextActivatorImpl(ServiceController<UndertowDeploymentService> controller) {
-            this.controller = controller;
-        }
-
-        /**
-         * Start the web context synchronously.
-         * <p/>
-         * This would happen when the OSGi webapp gets explicitly started.
-         */
-        @Override
-        public synchronized boolean startContext() {
-            try {
-                UndertowDeploymentService service = controller.getValue();
-                service.startContext();
-            } catch (Exception ex) {
-                throw UndertowLogger.ROOT_LOGGER.cannotActivateContext(ex, controller.getName());
-            }
-            return true;
-        }
-
-        /**
-         * Stop the web context synchronously.
-         * <p/>
-         * This would happen when the OSGi webapp gets explicitly stops.
-         */
-        @Override
-        public synchronized boolean stopContext() {
-            UndertowDeploymentService service = controller.getValue();
-            service.stopContext();
-            return true;
-        }
-
-        @Override
-        public ServletContext getServletContext() {
-            UndertowDeploymentService service = controller.getValue();
-            DeploymentManager manager = service.deploymentManager;
-            Deployment deployment = manager != null ? manager.getDeployment() : null;
-            return deployment != null ? deployment.getServletContext() : null;
+        if(this.deploymentManager != null) {
+            return deploymentManager.getDeployment();
+        } else {
+            return null;
         }
     }
 

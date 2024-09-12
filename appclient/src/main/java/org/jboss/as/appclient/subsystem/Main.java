@@ -127,12 +127,6 @@ public final class Main {
                     earPath = file.substring(0, pos);
                 }
 
-                File realFile = new File(earPath);
-
-                if (!realFile.exists()) {
-                    throw AppClientLogger.ROOT_LOGGER.cannotFindAppClientFile(realFile.getAbsoluteFile());
-                }
-
                 final Bootstrap bootstrap = Bootstrap.Factory.newInstance();
                 final Bootstrap.Configuration configuration = new Bootstrap.Configuration(serverEnvironment);
                 configuration.setModuleLoader(Module.getBootModuleLoader());
@@ -252,7 +246,7 @@ public final class Main {
                         value = "true";
                     } else {
                         name = arg.substring(2, idx);
-                        value = arg.substring(idx + 1, arg.length());
+                        value = arg.substring(idx + 1);
                     }
                     systemProperties.setProperty(name, value);
                     WildFlySecurityManager.setPropertyPrivileged(name, value);

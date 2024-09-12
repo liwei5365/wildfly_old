@@ -29,7 +29,11 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-webservices</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <artifactId>wildfly-webservices-server-integration</artifactId>
@@ -43,6 +47,11 @@
        <artifactId>junit</artifactId>
        <scope>test</scope>
     </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
 
     <dependency>
        <groupId>org.jboss.msc</groupId>
@@ -65,17 +74,28 @@
     </dependency>
 
     <dependency>
-       <groupId>org.wildfly</groupId>
+       <groupId>${project.groupId}</groupId>
        <artifactId>wildfly-ee</artifactId>
     </dependency>
 
     <dependency>
-       <groupId>org.wildfly</groupId>
+       <groupId>${project.groupId}</groupId>
        <artifactId>wildfly-ejb3</artifactId>
+    </dependency>
+    
+    <dependency>
+       <groupId>${project.groupId}</groupId>
+       <artifactId>wildfly-security-plugins</artifactId>
+       <scope>provided</scope>
     </dependency>
 
     <dependency>
-        <groupId>org.wildfly</groupId>
+       <groupId>${project.groupId}</groupId>
+       <artifactId>wildfly-undertow</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>${project.groupId}</groupId>
         <artifactId>wildfly-web-common</artifactId>
     </dependency>
 
@@ -97,7 +117,6 @@
         <scope>provided</scope>
         <optional>true</optional>
     </dependency>
-
     <dependency>
        <groupId>org.jboss.logging</groupId>
        <artifactId>jboss-logging-processor</artifactId>
@@ -105,10 +124,6 @@
              projects that depend on this project.-->
        <scope>provided</scope>
        <optional>true</optional>
-    </dependency>
-    <dependency>
-       <groupId>org.wildfly</groupId>
-       <artifactId>wildfly-undertow</artifactId>
     </dependency>
 
     <dependency>
@@ -123,10 +138,17 @@
 
     <dependency>
         <groupId>org.wildfly.core</groupId>
-            <artifactId>wildfly-subsystem-test</artifactId>
-				<type>pom</type>
+        <artifactId>wildfly-subsystem-test</artifactId>
+        <type>pom</type>
         <scope>test</scope>
     </dependency>
-
- </dependencies>
+    <dependency>
+        <groupId>jakarta.jws</groupId>
+        <artifactId>jakarta.jws-api</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.jboss.spec.javax.xml.ws</groupId>
+        <artifactId>jboss-jaxws-api_2.3_spec</artifactId>
+    </dependency>
+    </dependencies>
 </project>

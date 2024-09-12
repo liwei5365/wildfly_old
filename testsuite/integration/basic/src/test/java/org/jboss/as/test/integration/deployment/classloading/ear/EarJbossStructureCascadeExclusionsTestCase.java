@@ -27,7 +27,6 @@ import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
-import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,7 +47,7 @@ public class EarJbossStructureCascadeExclusionsTestCase {
                         "<ear-exclusions-cascaded-to-subdeployments>true</ear-exclusions-cascaded-to-subdeployments>" +
                         "<deployment>" +
                         "   <exclusions>" +
-                        "      <module name=\"org.jboss.logging\" slot=\"main\" />" +
+                        "      <module name=\"org.jboss.logging\" />" +
                         "   </exclusions>" +
                         "</deployment>" +
                         "<sub-deployment name=\"test.war\">" +

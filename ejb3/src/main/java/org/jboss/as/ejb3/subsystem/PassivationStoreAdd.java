@@ -22,20 +22,14 @@
 
 package org.jboss.as.ejb3.subsystem;
 
-import java.util.List;
-
 import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
-import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.ServiceVerificationHandler;
-import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.ejb3.cache.distributable.DistributableCacheFactoryBuilderService;
+import org.jboss.as.ejb3.cache.distributable.DistributableCacheFactoryBuilderServiceConfigurator;
 import org.jboss.dmr.ModelNode;
-import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
-import org.wildfly.clustering.ejb.BeanManagerFactoryBuilderConfiguration;
+import org.wildfly.clustering.ejb.BeanManagerFactoryServiceConfiguratorConfiguration;
 
 /**
  * @author Paul Ferraro
@@ -56,19 +50,17 @@ public class PassivationStoreAdd extends AbstractAddStepHandler {
     }
 
     @Override
-    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model, ServiceVerificationHandler verificationHandler, List<ServiceController<?>> serviceControllers) throws OperationFailedException {
+    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
         int initialMaxSize = PassivationStoreResourceDefinition.MAX_SIZE.resolveModelAttribute(context, model).asInt();
         String containerName = PassivationStoreResourceDefinition.CACHE_CONTAINER.resolveModelAttribute(context, model).asString();
         ModelNode beanCacheNode = PassivationStoreResourceDefinition.BEAN_CACHE.resolveModelAttribute(context, model);
         String cacheName = beanCacheNode.isDefined() ? beanCacheNode.asString() : null;
-        this.install(context, operation, initialMaxSize, containerName, cacheName, verificationHandler, serviceControllers);
+        this.install(context, operation, initialMaxSize, containerName, cacheName);
     }
 
-    protected void install(OperationContext context, ModelNode operation, final int initialMaxSize, final String containerName, final String cacheName, ServiceVerificationHandler verificationHandler, List<ServiceController<?>> serviceControllers) {
-        final String name = PathAddress.pathAddress(operation.get(ModelDescriptionConstants.ADDRESS)).getLastElement().getValue();
-        BeanManagerFactoryBuilderConfiguration config = new BeanManagerFactoryBuilderConfiguration() {
-            private volatile int maxSize = initialMaxSize;
-
+    protected void install(OperationContext context, ModelNode operation, final int maxSize, final String containerName, final String cacheName) {
+        final String name = context.getCurrentAddressValue();
+        BeanManagerFactoryServiceConfiguratorConfiguration config = new BeanManagerFactoryServiceConfiguratorConfiguration() {
             @Override
             public String getContainerName() {
                 return containerName;
@@ -81,20 +73,11 @@ public class PassivationStoreAdd extends AbstractAddStepHandler {
 
             @Override
             public int getMaxSize() {
-                return this.maxSize;
-            }
-
-            @Override
-            public void setMaxSize(int size) {
-                this.maxSize = size;
+                return maxSize;
             }
         };
-        ServiceBuilder<?> builder = new DistributableCacheFactoryBuilderService<>(name, config).build(context.getServiceTarget())
+        new DistributableCacheFactoryBuilderServiceConfigurator<>(name, config).build(context.getServiceTarget())
                 .setInitialMode(ServiceController.Mode.ON_DEMAND)
-        ;
-        if (verificationHandler != null) {
-            builder.addListener(verificationHandler);
-        }
-        serviceControllers.add(builder.install());
+                .install();
     }
 }

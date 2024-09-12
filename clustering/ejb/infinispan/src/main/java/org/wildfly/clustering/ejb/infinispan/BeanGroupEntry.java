@@ -23,8 +23,7 @@ package org.wildfly.clustering.ejb.infinispan;
 
 import java.util.Map;
 
-import org.wildfly.clustering.marshalling.jboss.MarshalledValue;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.marshalling.spi.MarshalledValue;
 
 /**
  * The cache entry for a bean group
@@ -34,13 +33,13 @@ import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
  * @param <I> the bean identifier type
  * @param <T> the bean type
  */
-public interface BeanGroupEntry<I, T> {
+public interface BeanGroupEntry<I, T, C> {
 
     /**
      * Returns the beans in this group indexed via identifier.
      * @return a marshalled value
      */
-    MarshalledValue<Map<I, T>, MarshallingContext> getBeans();
+    MarshalledValue<Map<I, T>, C> getBeans();
 
     /**
      * Increments the usage count of the specified bean.

@@ -21,37 +21,46 @@
  */
 package org.wildfly.clustering.web.infinispan.session.fine;
 
-import org.wildfly.clustering.infinispan.spi.distribution.Key;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.wildfly.clustering.ee.infinispan.GroupedKey;
 
 /**
  * Cache key for session attributes.
  * @author Paul Ferraro
  */
-public class SessionAttributeKey extends Key<String> {
+public class SessionAttributeKey extends GroupedKey<String> implements org.wildfly.clustering.web.cache.session.fine.SessionAttributeKey {
 
-    private final String attribute;
+    private final UUID attributeId;
 
-    public SessionAttributeKey(String id, String attribute) {
-        super(id);
-        this.attribute = attribute;
+    public SessionAttributeKey(Map.Entry<String, UUID> entry) {
+        this(entry.getKey(), entry.getValue());
     }
 
-    public String getAttribute() {
-        return this.attribute;
+    public SessionAttributeKey(String sessionId, UUID attributeId) {
+        super(sessionId);
+        this.attributeId = attributeId;
+    }
+
+    @Override
+    public UUID getAttributeId() {
+        return this.attributeId;
     }
 
     @Override
     public int hashCode() {
-        return (31 * super.hashCode()) + this.attribute.hashCode();
+        return Objects.hash(this.getClass(), this.getId(), this.attributeId);
     }
 
     @Override
     public boolean equals(Object object) {
-        return super.equals(object) && (object instanceof SessionAttributeKey) && this.attribute.equals(((SessionAttributeKey) object).attribute);
+        return super.equals(object) && (object instanceof SessionAttributeKey) && this.attributeId.equals(((SessionAttributeKey) object).attributeId);
     }
 
     @Override
     public String toString() {
-        return String.format("%s->%s", this.getValue(), this.attribute);
+        return String.format("%s(%s[%s])", SessionAttributeKey.class.getSimpleName(), this.getId(), this.attributeId);
     }
 }

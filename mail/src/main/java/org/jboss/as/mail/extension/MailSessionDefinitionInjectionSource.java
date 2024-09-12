@@ -36,12 +36,12 @@ import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.msc.inject.Injector;
-import org.jboss.msc.service.AbstractServiceListener;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
-
 
 /**
  * A binding description for {@link MailSessionDefinition} annotations.
@@ -82,30 +82,32 @@ class MailSessionDefinitionInjectionSource extends ResourceDefinitionInjectionSo
                                   final ServiceBuilder<?> valueSourceServiceBuilder, final Injector<ManagedReferenceFactory> injector) {
 
 
-        final ServiceName mailSessionServiceName = MailSessionAdd.MAIL_SESSION_SERVICE_NAME.append("MailSessionDefinition", moduleDescription.getApplicationName(), moduleDescription.getModuleName(), jndiName);
+        final ServiceName mailSessionServiceName = MailSessionDefinition.SESSION_CAPABILITY.getCapabilityServiceName().append("MailSessionDefinition", moduleDescription.getApplicationName(), moduleDescription.getModuleName(), jndiName);
         final ServiceBuilder<?> mailSessionServiceBuilder = serviceTarget
                 .addService(mailSessionServiceName, mailSessionService);
 
         final ContextNames.BindInfo bindInfo = ContextNames.bindInfoForEnvEntry(context.getApplicationName(), context.getModuleName(), context.getComponentName(), !context.isCompUsesModule(), jndiName);
-
-        final MailSessionManagedReferenceFactory referenceFactoryService = new MailSessionManagedReferenceFactory(mailSessionService);
-
         final BinderService binderService = new BinderService(bindInfo.getBindName(), this);
-        final ServiceBuilder<?> binderBuilder = serviceTarget
+        binderService.getManagedObjectInjector().inject(new MailSessionManagedReferenceFactory(mailSessionService));
+        final ServiceBuilder<ManagedReferenceFactory> binderBuilder = serviceTarget
                 .addService(bindInfo.getBinderServiceName(), binderService)
-                .addInjection(binderService.getManagedObjectInjector(), referenceFactoryService)
-                .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class, binderService.getNamingStoreInjector()).addListener(new AbstractServiceListener<Object>() {
-                    public void transition(final ServiceController<? extends Object> controller, final ServiceController.Transition transition) {
-                        switch (transition) {
-                            case STARTING_to_UP: {
+                .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class, binderService.getNamingStoreInjector()).addListener(new LifecycleListener() {
+                    private volatile boolean bound;
+                    @Override
+                    public void handleEvent(final ServiceController<?> controller, final LifecycleEvent event) {
+                        switch (event) {
+                            case UP: {
                                 MailLogger.ROOT_LOGGER.boundMailSession(jndiName);
+                                bound = true;
                                 break;
                             }
-                            case START_REQUESTED_to_DOWN: {
-                                MailLogger.ROOT_LOGGER.unboundMailSession(jndiName);
+                            case DOWN: {
+                                if (bound) {
+                                    MailLogger.ROOT_LOGGER.unboundMailSession(jndiName);
+                                }
                                 break;
                             }
-                            case REMOVING_to_REMOVED: {
+                            case REMOVED: {
                                 MailLogger.ROOT_LOGGER.debugf("Removed Mail Session [%s]", jndiName);
                                 break;
                             }

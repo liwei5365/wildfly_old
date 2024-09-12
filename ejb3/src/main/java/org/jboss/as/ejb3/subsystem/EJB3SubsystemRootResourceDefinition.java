@@ -22,47 +22,66 @@
 
 package org.jboss.as.ejb3.subsystem;
 
+import static org.jboss.as.controller.SimpleAttributeDefinitionBuilder.create;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
+
+import java.util.concurrent.ExecutorService;
+
+import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AbstractWriteAttributeHandler;
+import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.ModelVersion;
+import org.jboss.as.controller.ObjectListAttributeDefinition;
+import org.jboss.as.controller.ObjectTypeAttributeDefinition;
 import org.jboss.as.controller.OperationContext;
+import org.jboss.as.controller.OperationDefinition;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
+import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
-import org.jboss.as.controller.SubsystemRegistration;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
 import org.jboss.as.controller.capability.RuntimeCapability;
-import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.operations.common.GenericSubsystemDescribeHandler;
+import org.jboss.as.controller.operations.global.ReadAttributeHandler;
+import org.jboss.as.controller.operations.global.WriteAttributeHandler;
 import org.jboss.as.controller.operations.validation.LongRangeValidator;
 import org.jboss.as.controller.operations.validation.StringLengthValidator;
 import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.as.controller.services.path.PathManager;
-import org.jboss.as.controller.transform.description.AttributeConverter;
-import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
-import org.jboss.as.controller.transform.description.TransformationDescription;
-import org.jboss.as.controller.transform.description.TransformationDescriptionBuilder;
-import org.jboss.as.ejb3.clustering.ClusteredSingletonService;
+import org.jboss.as.ejb3.component.pool.PoolConfig;
 import org.jboss.as.ejb3.deployment.processors.EJBDefaultSecurityDomainProcessor;
 import org.jboss.as.ejb3.deployment.processors.merging.MissingMethodPermissionsDenyAccessMergingProcessor;
 import org.jboss.as.ejb3.logging.EjbLogger;
+import org.jboss.as.threads.EnhancedQueueExecutorResourceDefinition;
 import org.jboss.as.threads.ThreadFactoryResolver;
 import org.jboss.as.threads.ThreadsServices;
-import org.jboss.as.threads.UnboundedQueueThreadPoolResourceDefinition;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
 /**
  * {@link org.jboss.as.controller.ResourceDefinition} for the EJB3 subsystem's root management resource.
  *
+ * NOTE: References in this file to Enterprise JavaBeans(EJB) refer to the Jakarta Enterprise Beans unless otherwise noted.
+ *
  * @author Brian Stansberry (c) 2011 Red Hat Inc.
  */
 public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinition {
+
+    // TODO: put capability definitions up here
+    public static final String DEFAULT_SLSB_POOL_CONFIG_CAPABILITY_NAME = "org.wildfly.ejb3.pool-config.slsb-default";
+    public static final String DEFAULT_MDB_POOL_CONFIG_CAPABILITY_NAME = "org.wildfly.ejb3.pool-config.mdb-default";
+    public static final String DEFAULT_ENTITY_POOL_CONFIG_CAPABILITY_NAME = "org.wildfly.ejb3.pool-config.entity-default";
+
+    private static final String EJB_CAPABILITY_NAME = "org.wildfly.ejb3";
+    private static final String EJB_CLIENT_CONFIGURATOR_CAPABILITY_NAME = "org.wildfly.ejb3.remote.client-configurator";
+    private static final String CLUSTERED_SINGLETON_CAPABILITY_NAME = "org.wildfly.ejb3.clustered.singleton";
+    private static final String TRANSACTION_GLOBAL_DEFAULT_LOCAL_PROVIDER_CAPABILITY_NAME = "org.wildfly.transactions.global-default-local-provider";
 
     static final SimpleAttributeDefinition DEFAULT_SLSB_INSTANCE_POOL =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_SLSB_INSTANCE_POOL, ModelType.STRING, true)
@@ -90,6 +109,14 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
                     .setFlags(AttributeAccess.Flag.RESTART_NONE)
                     .build();
 
+    static final SimpleAttributeDefinition DEFAULT_STATEFUL_BEAN_SESSION_TIMEOUT =
+            new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_STATEFUL_BEAN_SESSION_TIMEOUT, ModelType.LONG, true)
+                    .setXmlName(EJB3SubsystemXMLAttribute.DEFAULT_SESSION_TIMEOUT.getLocalName())
+                    .setAllowExpression(true) // we allow expression for setting a timeout value
+                    .setValidator(new LongRangeValidator(-1, Integer.MAX_VALUE, true, true))
+                    .setFlags(AttributeAccess.Flag.RESTART_NONE)
+                    .build();
+
     static final SimpleAttributeDefinition DEFAULT_SINGLETON_BEAN_ACCESS_TIMEOUT =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_SINGLETON_BEAN_ACCESS_TIMEOUT, ModelType.LONG, true)
                     .setXmlName(EJB3SubsystemXMLAttribute.DEFAULT_ACCESS_TIMEOUT.getLocalName())
@@ -110,13 +137,21 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
     static final SimpleAttributeDefinition DEFAULT_CLUSTERED_SFSB_CACHE =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_CLUSTERED_SFSB_CACHE, ModelType.STRING, true)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDeprecated(ModelVersion.create(2))
                     .build();
 
     static final SimpleAttributeDefinition ENABLE_STATISTICS =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.ENABLE_STATISTICS, ModelType.BOOLEAN, true)
                     .setAllowExpression(true)
+                    .setDeprecated(ModelVersion.create(5))
+                    .setFlags(AttributeAccess.Flag.ALIAS)
+                    .build();
+
+    static final SimpleAttributeDefinition STATISTICS_ENABLED =
+            new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.STATISTICS_ENABLED, ModelType.BOOLEAN, true)
+                    .setAllowExpression(true)
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
     static final SimpleAttributeDefinition DEFAULT_DISTINCT_NAME =
@@ -129,60 +164,128 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_SECURITY_DOMAIN, ModelType.STRING, true)
                     .setAllowExpression(true)
                     .addAccessConstraint(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN_REF)
-                    .setNullSignficant(true)
+                    .setNullSignificant(true)
                     .build();
 
     public static final SimpleAttributeDefinition PASS_BY_VALUE =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.IN_VM_REMOTE_INTERFACE_INVOCATION_PASS_BY_VALUE, ModelType.BOOLEAN, true)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(true))
+                    .setDefaultValue(ModelNode.TRUE)
                     .build();
 
 
     public static final SimpleAttributeDefinition DEFAULT_MISSING_METHOD_PERMISSIONS_DENY_ACCESS =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DEFAULT_MISSING_METHOD_PERMISSIONS_DENY_ACCESS, ModelType.BOOLEAN, true)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(false))
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
     public static final SimpleAttributeDefinition DISABLE_DEFAULT_EJB_PERMISSIONS =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.DISABLE_DEFAULT_EJB_PERMISSIONS, ModelType.BOOLEAN, true)
                     .setDeprecated(ModelVersion.create(3, 0, 0))
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(true))
+                    .setDefaultValue(ModelNode.TRUE)
+                    .build();
+
+    public static final SimpleAttributeDefinition ENABLE_GRACEFUL_TXN_SHUTDOWN =
+            new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.ENABLE_GRACEFUL_TXN_SHUTDOWN, ModelType.BOOLEAN, true)
+                    .setAllowExpression(true)
+                    .setDefaultValue(ModelNode.FALSE)
                     .build();
 
     public static final SimpleAttributeDefinition LOG_EJB_EXCEPTIONS =
             new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.LOG_SYSTEM_EXCEPTIONS, ModelType.BOOLEAN, true)
                     .setAllowExpression(true)
-                    .setDefaultValue(new ModelNode(true))
+                    .setDefaultValue(ModelNode.TRUE)
                     .build();
 
+    public static final SimpleAttributeDefinition ALLOW_EJB_NAME_REGEX =
+            new SimpleAttributeDefinitionBuilder(EJB3SubsystemModel.ALLOW_EJB_NAME_REGEX, ModelType.BOOLEAN, true)
+            .setDefaultValue(ModelNode.FALSE)
+            .setAllowExpression(true)
+            .build();
+
+    private static final ObjectTypeAttributeDefinition SERVER_INTERCEPTOR = ObjectTypeAttributeDefinition.Builder.of(EJB3SubsystemModel.SERVER_INTERCEPTOR,
+            create(EJB3SubsystemModel.CLASS, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build(),
+            create(EJB3SubsystemModel.MODULE, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build())
+            .build();
+
+    public static final ObjectListAttributeDefinition SERVER_INTERCEPTORS = ObjectListAttributeDefinition.Builder.of(EJB3SubsystemModel.SERVER_INTERCEPTORS, SERVER_INTERCEPTOR)
+            .setRequired(false)
+            .setAllowExpression(false)
+            .setMinSize(1)
+            .setMaxSize(Integer.MAX_VALUE)
+            .build();
+
+    private static final ObjectTypeAttributeDefinition CLIENT_INTERCEPTOR = ObjectTypeAttributeDefinition.Builder.of(EJB3SubsystemModel.CLIENT_INTERCEPTOR,
+            create(EJB3SubsystemModel.CLASS, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build(),
+            create(EJB3SubsystemModel.MODULE, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build())
+            .build();
+
+    public static final ObjectListAttributeDefinition CLIENT_INTERCEPTORS = ObjectListAttributeDefinition.Builder.of(EJB3SubsystemModel.CLIENT_INTERCEPTORS, CLIENT_INTERCEPTOR)
+            .setRequired(false)
+            .setAllowExpression(false)
+            .setMinSize(1)
+            .setMaxSize(Integer.MAX_VALUE)
+            .build();
+
     public static final RuntimeCapability<Void> CLUSTERED_SINGLETON_CAPABILITY =  RuntimeCapability.Builder.of(
-            "org.wildfly.ejb3.clustered.singleton", ClusteredSingletonService.class).build();
+            CLUSTERED_SINGLETON_CAPABILITY_NAME, Void.class).build();
 
-    private static final EJBDefaultSecurityDomainProcessor defaultSecurityDomainDeploymentProcessor = new EJBDefaultSecurityDomainProcessor(null);
+    public static final RuntimeCapability<Void> EJB_CAPABILITY =  RuntimeCapability.Builder.of(EJB_CAPABILITY_NAME, Void.class)
+            // EJBComponentDescription adds a create dependency on the local tx provider to all components,
+            // so in the absence of relevant finer grained EJB capabilities, we'll say that EJB overall requires the local provider
+            .addRequirements(TRANSACTION_GLOBAL_DEFAULT_LOCAL_PROVIDER_CAPABILITY_NAME)
+            .build();
+
+    //We don't want to actually expose the service, we just want to use optional deps
+    public static final RuntimeCapability<Void> EJB_CLIENT_CONFIGURATOR_CAPABILITY = RuntimeCapability.Builder.of(EJB_CLIENT_CONFIGURATOR_CAPABILITY_NAME, Void.class)
+            .build();
+
+    // default pool capabilities, defined here but registered conditionally
+    // TODO: these are not guaranteed to be defined but their use as dependants is guarded by predicate which knows if the pool is available or not
+    public static final RuntimeCapability<Void> DEFAULT_SLSB_POOL_CONFIG_CAPABILITY =
+            RuntimeCapability.Builder.of(DEFAULT_SLSB_POOL_CONFIG_CAPABILITY_NAME, PoolConfig.class)
+                    .build();
+
+    public static final RuntimeCapability<Void> DEFAULT_MDB_POOL_CONFIG_CAPABILITY =
+            RuntimeCapability.Builder.of(DEFAULT_MDB_POOL_CONFIG_CAPABILITY_NAME, PoolConfig.class)
+                    .build();
+
+    public static final RuntimeCapability<Void> DEFAULT_ENTITY_POOL_CONFIG_CAPABILITY =
+            RuntimeCapability.Builder.of(DEFAULT_ENTITY_POOL_CONFIG_CAPABILITY_NAME, PoolConfig.class)
+                    .build();
+
+    private static final ApplicationSecurityDomainDefinition APPLICATION_SECURITY_DOMAIN = ApplicationSecurityDomainDefinition.INSTANCE;
+    private static final IdentityResourceDefinition IDENTITY = IdentityResourceDefinition.INSTANCE;
+    private static final EJBDefaultSecurityDomainProcessor defaultSecurityDomainDeploymentProcessor = new EJBDefaultSecurityDomainProcessor(null,
+            APPLICATION_SECURITY_DOMAIN.getKnownSecurityDomainFunction(), IDENTITY.getOutflowSecurityDomainsConfiguredSupplier());
     private static final MissingMethodPermissionsDenyAccessMergingProcessor missingMethodPermissionsDenyAccessMergingProcessor = new MissingMethodPermissionsDenyAccessMergingProcessor();
-
 
     private final boolean registerRuntimeOnly;
     private final PathManager pathManager;
 
-    private static final ModelVersion VERSION_1_2_1 = ModelVersion.create(1, 2, 1);
-    private static final ModelVersion VERSION_1_3_0 = ModelVersion.create(1, 3, 0);
-    private static final ModelVersion VERSION_3_0_0 = ModelVersion.create(3, 0, 0);
-
     EJB3SubsystemRootResourceDefinition(boolean registerRuntimeOnly, PathManager pathManager) {
-        super(PathElement.pathElement(ModelDescriptionConstants.SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME),
-                EJB3Extension.getResourceDescriptionResolver(EJB3Extension.SUBSYSTEM_NAME),
-                new EJB3SubsystemAdd(defaultSecurityDomainDeploymentProcessor, missingMethodPermissionsDenyAccessMergingProcessor), EJB3SubsystemRemove.INSTANCE,
-                OperationEntry.Flag.RESTART_ALL_SERVICES, OperationEntry.Flag.RESTART_ALL_SERVICES);
+        super(new Parameters(PathElement.pathElement(SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME), EJB3Extension.getResourceDescriptionResolver(EJB3Extension.SUBSYSTEM_NAME))
+                .setAddHandler(new EJB3SubsystemAdd(defaultSecurityDomainDeploymentProcessor, missingMethodPermissionsDenyAccessMergingProcessor, ATTRIBUTES))
+                .setRemoveHandler(EJB3SubsystemRemove.INSTANCE)
+                .setAddRestartLevel(OperationEntry.Flag.RESTART_ALL_SERVICES)
+                .setRemoveRestartLevel(OperationEntry.Flag.RESTART_ALL_SERVICES)
+                .setCapabilities(CLUSTERED_SINGLETON_CAPABILITY, EJB_CLIENT_CONFIGURATOR_CAPABILITY, EJB_CAPABILITY)
+        );
         this.registerRuntimeOnly = registerRuntimeOnly;
         this.pathManager = pathManager;
     }
 
-    static final SimpleAttributeDefinition[] ATTRIBUTES = {
-            DEFAULT_CLUSTERED_SFSB_CACHE,
+    static final AttributeDefinition[] ATTRIBUTES = {
             DEFAULT_ENTITY_BEAN_INSTANCE_POOL,
             DEFAULT_ENTITY_BEAN_OPTIMISTIC_LOCKING,
             DEFAULT_MDB_INSTANCE_POOL,
@@ -191,6 +294,8 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
             DEFAULT_SINGLETON_BEAN_ACCESS_TIMEOUT,
             DEFAULT_SLSB_INSTANCE_POOL,
             DEFAULT_STATEFUL_BEAN_ACCESS_TIMEOUT,
+            DEFAULT_STATEFUL_BEAN_SESSION_TIMEOUT,
+            STATISTICS_ENABLED,
             ENABLE_STATISTICS,
             PASS_BY_VALUE,
             DEFAULT_DISTINCT_NAME,
@@ -198,14 +303,18 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
             DEFAULT_MISSING_METHOD_PERMISSIONS_DENY_ACCESS,
             DEFAULT_SFSB_PASSIVATION_DISABLED_CACHE,
             DISABLE_DEFAULT_EJB_PERMISSIONS,
-            LOG_EJB_EXCEPTIONS
+            ENABLE_GRACEFUL_TXN_SHUTDOWN,
+            LOG_EJB_EXCEPTIONS,
+            ALLOW_EJB_NAME_REGEX,
+            SERVER_INTERCEPTORS,
+            CLIENT_INTERCEPTORS
     };
 
     @Override
     public void registerAttributes(ManagementResourceRegistration resourceRegistration) {
+        resourceRegistration.registerReadOnlyAttribute(DEFAULT_CLUSTERED_SFSB_CACHE, new SimpleAliasReadAttributeHandler(DEFAULT_SFSB_CACHE));
         resourceRegistration.registerReadWriteAttribute(DEFAULT_SFSB_CACHE, null, EJB3SubsystemDefaultCacheWriteHandler.SFSB_CACHE);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_SFSB_PASSIVATION_DISABLED_CACHE, null, EJB3SubsystemDefaultCacheWriteHandler.SFSB_PASSIVATION_DISABLED_CACHE);
-        resourceRegistration.registerReadWriteAttribute(DEFAULT_CLUSTERED_SFSB_CACHE, null, EJB3SubsystemDefaultCacheWriteHandler.CLUSTERED_SFSB_CACHE);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_SLSB_INSTANCE_POOL, null, EJB3SubsystemDefaultPoolWriteHandler.SLSB_POOL);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_MDB_INSTANCE_POOL, null, EJB3SubsystemDefaultPoolWriteHandler.MDB_POOL);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_ENTITY_BEAN_INSTANCE_POOL, null, EJB3SubsystemDefaultPoolWriteHandler.ENTITY_BEAN_POOL);
@@ -213,10 +322,21 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
         resourceRegistration.registerReadWriteAttribute(DEFAULT_RESOURCE_ADAPTER_NAME, null, DefaultResourceAdapterWriteHandler.INSTANCE);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_SINGLETON_BEAN_ACCESS_TIMEOUT, null, DefaultSingletonBeanAccessTimeoutWriteHandler.INSTANCE);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_STATEFUL_BEAN_ACCESS_TIMEOUT, null, DefaultStatefulBeanAccessTimeoutWriteHandler.INSTANCE);
-        resourceRegistration.registerReadWriteAttribute(ENABLE_STATISTICS, null, EnableStatisticsWriteHandler.INSTANCE);
+        resourceRegistration.registerReadWriteAttribute(DEFAULT_STATEFUL_BEAN_SESSION_TIMEOUT, null, DefaultStatefulBeanSessionTimeoutWriteHandler.INSTANCE);
+        resourceRegistration.registerReadWriteAttribute(ENABLE_STATISTICS, (context, operation) -> {
+            ModelNode aliasOp = operation.clone();
+            aliasOp.get("name").set(EJB3SubsystemModel.STATISTICS_ENABLED);
+            context.addStep(aliasOp, ReadAttributeHandler.INSTANCE, OperationContext.Stage.MODEL, true);
+        }, (context, operation) -> {
+            ModelNode aliasOp = operation.clone();
+            aliasOp.get("name").set(EJB3SubsystemModel.STATISTICS_ENABLED);
+            context.addStep(aliasOp, WriteAttributeHandler.INSTANCE, OperationContext.Stage.MODEL, true);
+        });
+        resourceRegistration.registerReadWriteAttribute(STATISTICS_ENABLED, null, StatisticsEnabledWriteHandler.INSTANCE);
         resourceRegistration.registerReadWriteAttribute(PASS_BY_VALUE, null, EJBRemoteInvocationPassByValueWriteHandler.INSTANCE);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_DISTINCT_NAME, null, EJBDefaultDistinctNameWriteHandler.INSTANCE);
         resourceRegistration.registerReadWriteAttribute(LOG_EJB_EXCEPTIONS, null, ExceptionLoggingWriteHandler.INSTANCE);
+        resourceRegistration.registerReadWriteAttribute(ALLOW_EJB_NAME_REGEX, null, EJBNameRegexWriteHandler.INSTANCE);
 
         final EJBDefaultSecurityDomainWriteHandler defaultSecurityDomainWriteHandler = new EJBDefaultSecurityDomainWriteHandler(DEFAULT_SECURITY_DOMAIN, defaultSecurityDomainDeploymentProcessor);
         resourceRegistration.registerReadWriteAttribute(DEFAULT_SECURITY_DOMAIN, null, defaultSecurityDomainWriteHandler);
@@ -235,12 +355,30 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
             protected void revertUpdateToRuntime(final OperationContext context, final ModelNode operation, final String attributeName, final ModelNode valueToRestore, final ModelNode valueToRevert, final Void handback) throws OperationFailedException {
             }
         });
+        resourceRegistration.registerReadWriteAttribute(ENABLE_GRACEFUL_TXN_SHUTDOWN, null, EnableGracefulTxnShutdownWriteHandler.INSTANCE);
+        resourceRegistration.registerReadWriteAttribute(SERVER_INTERCEPTORS, null,  new ReloadRequiredWriteAttributeHandler(SERVER_INTERCEPTORS));
+        resourceRegistration.registerReadWriteAttribute(CLIENT_INTERCEPTORS, null,  new ReloadRequiredWriteAttributeHandler(CLIENT_INTERCEPTORS));
     }
 
     @Override
     public void registerOperations(ManagementResourceRegistration subsystemRegistration) {
         super.registerOperations(subsystemRegistration);
         subsystemRegistration.registerOperationHandler(GenericSubsystemDescribeHandler.DEFINITION, GenericSubsystemDescribeHandler.INSTANCE);
+    }
+
+    /**
+     * Overrides the default impl to use a special definition of the add op that includes additional parameter
+     * {@link #DEFAULT_CLUSTERED_SFSB_CACHE}
+     * {@inheritDoc}
+     */
+    @Override
+    protected void registerAddOperation(ManagementResourceRegistration registration, AbstractAddStepHandler handler, OperationEntry.Flag... flags) {
+        OperationDefinition od = new SimpleOperationDefinitionBuilder(ADD, getResourceDescriptionResolver())
+                .setParameters(ATTRIBUTES)
+                .addParameter(DEFAULT_CLUSTERED_SFSB_CACHE)
+                .withFlags(flags)
+                .build();
+        registration.registerOperationHandler(od, handler);
     }
 
     @Override
@@ -264,8 +402,13 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
         subsystemRegistration.registerSubModel(new TimerServiceResourceDefinition(pathManager));
 
         // subsystem=ejb3/thread-pool=*
-        subsystemRegistration.registerSubModel(UnboundedQueueThreadPoolResourceDefinition.create(EJB3SubsystemModel.THREAD_POOL,
-                new EJB3ThreadFactoryResolver(), EJB3SubsystemModel.BASE_THREAD_POOL_SERVICE_NAME, registerRuntimeOnly));
+        subsystemRegistration.registerSubModel(EnhancedQueueExecutorResourceDefinition.create(
+                PathElement.pathElement(EJB3SubsystemModel.THREAD_POOL),
+                new EJB3ThreadFactoryResolver(),
+                EJB3SubsystemModel.BASE_THREAD_POOL_SERVICE_NAME,
+                registerRuntimeOnly,
+                ThreadsServices.createCapability(EJB3SubsystemModel.BASE_EJB_THREAD_POOL_NAME, ExecutorService.class),
+                false));
 
         // subsystem=ejb3/service=iiop
         subsystemRegistration.registerSubModel(EJB3IIOPResourceDefinition.INSTANCE);
@@ -274,58 +417,11 @@ public class EJB3SubsystemRootResourceDefinition extends SimpleResourceDefinitio
 
         // subsystem=ejb3/mdb-delivery-group=*
         subsystemRegistration.registerSubModel(MdbDeliveryGroupResourceDefinition.INSTANCE);
-    }
 
-    static void registerTransformers(SubsystemRegistration subsystemRegistration) {
-        registerTransformers_1_2_1(subsystemRegistration);
-        registerTransformers_1_3_0(subsystemRegistration);
-        registerTransformers_3_0_0(subsystemRegistration);
-    }
+        // subsystem=ejb3/application-security-domain=*
+        subsystemRegistration.registerSubModel(APPLICATION_SECURITY_DOMAIN);
 
-
-    private static void registerTransformers_1_2_1(SubsystemRegistration subsystemRegistration) {
-        registerTransformers1_2_1_and_1_3_0(subsystemRegistration, VERSION_1_2_1);
-    }
-
-    private static void registerTransformers_1_3_0(SubsystemRegistration subsystemRegistration) {
-        registerTransformers1_2_1_and_1_3_0(subsystemRegistration, VERSION_1_3_0);
-    }
-
-    private static void registerTransformers1_2_1_and_1_3_0(SubsystemRegistration subsystemRegistration, ModelVersion version) {
-        final ResourceTransformationDescriptionBuilder builder = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder.getAttributeBuilder().addRejectCheck(RejectAttributeChecker.DEFINED, EJB3SubsystemRootResourceDefinition.DEFAULT_SFSB_PASSIVATION_DISABLED_CACHE);
-        builder.getAttributeBuilder().setDiscard(DiscardAttributeChecker.UNDEFINED, EJB3SubsystemRootResourceDefinition.DEFAULT_SFSB_PASSIVATION_DISABLED_CACHE);
-        //This used to behave as 'true' and it is now defaulting as 'true'
-        builder.getAttributeBuilder().setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(true)), EJB3SubsystemRootResourceDefinition.LOG_EJB_EXCEPTIONS);
-        builder.getAttributeBuilder().addRejectCheck(RejectAttributeChecker.DEFINED, EJB3SubsystemRootResourceDefinition.LOG_EJB_EXCEPTIONS);
-
-        builder.getAttributeBuilder().addRejectCheck(RejectAttributeChecker.DEFINED, EJB3SubsystemRootResourceDefinition.DISABLE_DEFAULT_EJB_PERMISSIONS);
-        // We can always discard this attribute, because it's meaningless without the security-manager subsystem, and
-        // a legacy slave can't have that subsystem in its profile.
-        builder.getAttributeBuilder().setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(false)), EJB3SubsystemRootResourceDefinition.DISABLE_DEFAULT_EJB_PERMISSIONS);
-        //builder.getAttributeBuilder().setValueConverter(AttributeConverter.Factory.createHardCoded(new ModelNode("hornetq-ra"), true), EJB3SubsystemRootResourceDefinition.DEFAULT_RESOURCE_ADAPTER_NAME);
-
-        PassivationStoreResourceDefinition.registerTransformers_1_2_1_and_1_3_0(builder);
-        EJB3RemoteResourceDefinition.registerTransformers_1_2_0_and_1_3_0(builder);
-        MdbDeliveryGroupResourceDefinition.registerTransformers_1_2_0_and_1_3_0(builder);
-        StrictMaxPoolResourceDefinition.registerTransformers_1_2_0_and_1_3_0(builder);
-        builder.rejectChildResource(PathElement.pathElement(EJB3SubsystemModel.REMOTING_PROFILE));
-        if (version.equals(VERSION_1_2_1)) {
-            TimerServiceResourceDefinition.registerTransformers_1_2_0(builder);
-        } else if (version.equals(VERSION_1_3_0)) {
-            TimerServiceResourceDefinition.registerTransformers_1_3_0(builder);
-        }
-        TransformationDescription.Tools.register(builder.build(), subsystemRegistration, version);
-    }
-
-    private static void registerTransformers_3_0_0(SubsystemRegistration subsystemRegistration) {
-        final ResourceTransformationDescriptionBuilder builder = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder.getAttributeBuilder().setValueConverter(AttributeConverter.Factory.createHardCoded(new ModelNode("hornetq-ra"), true), EJB3SubsystemRootResourceDefinition.DEFAULT_RESOURCE_ADAPTER_NAME)
-        .end();
-        MdbDeliveryGroupResourceDefinition.registerTransformers_3_0(builder);
-        EJB3RemoteResourceDefinition.registerTransformers_3_0(builder);
-        StrictMaxPoolResourceDefinition.registerTransformers_3_0_0(builder);
-        TransformationDescription.Tools.register(builder.build(), subsystemRegistration, VERSION_3_0_0);
+        subsystemRegistration.registerSubModel(IDENTITY);
     }
 
     private static class EJB3ThreadFactoryResolver extends ThreadFactoryResolver.SimpleResolver {

@@ -56,7 +56,7 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
 
     @EJB
     private NestledBean nestledBean;
-    
+
     @Inject
     private ManagedBean managedBean;
 
@@ -67,6 +67,7 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
     /**
      * Returns the expected result
      */
+    @Override
     public String returnTrueString() {
         return TestPassivationRemote.EXPECTED_RESULT;
     }
@@ -74,6 +75,7 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
     /**
      * Returns whether or not this instance has been passivated
      */
+    @Override
     public boolean hasBeenPassivated() {
         return this.beenPassivated;
     }
@@ -81,6 +83,7 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
     /**
      * Returns whether or not this instance has been activated
      */
+    @Override
     public boolean hasBeenActivated() {
         return this.beenActivated;
     }
@@ -103,10 +106,19 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
         entityManager.flush();
     }
 
+    @Override
+    public void removeEntity(final int id) {
+        Employee e = entityManager.find(Employee.class, id);
+        entityManager.remove(e);
+        entityManager.flush();
+    }
+
+    @Override
     public void setManagedBeanMessage(String message) {
         this.managedBean.setMessage(message);
     }
 
+    @Override
     public String getManagedBeanMessage() {
         return managedBean.getMessage();
     }
@@ -115,30 +127,30 @@ public class TestPassivationBean extends PassivationSuperClass implements TestPa
     public void postConstruct() {
         Random r = new Random();
         this.identificator = new Integer(r.nextInt(999)).toString();
-        log.info("Bean [" + this.identificator + "] created");
+        log.trace("Bean [" + this.identificator + "] created");
     }
 
     @PreDestroy
     public void preDestroy() {
-        log.info("Bean [" + this.identificator + "] destroyed");
+        log.trace("Bean [" + this.identificator + "] destroyed");
     }
 
     @PrePassivate
     public void setPassivateFlag() {
-        log.info(this.toString() + " PrePassivation [" + this.identificator + "]");
+        log.trace(this.toString() + " PrePassivation [" + this.identificator + "]");
         this.beenPassivated = true;
     }
 
     @PostActivate
     public void setActivateFlag() {
-        log.info(this.toString() + " PostActivation [" + this.identificator + "]");
+        log.trace(this.toString() + " PostActivation [" + this.identificator + "]");
         this.beenActivated = true;
     }
 
     @Remove
-    public void remove() {
-        log.info("Bean [" + this.identificator + "] removing");
+    @Override
+    public void close() {
+        log.trace("Bean [" + this.identificator + "] removing");
+        this.nestledBean.close();
     }
-
-
 }

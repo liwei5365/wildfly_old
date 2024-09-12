@@ -29,7 +29,6 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SOC
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.STEPS;
 import static org.jboss.as.test.integration.management.util.ModelUtil.createOpNode;
 import static org.jboss.as.test.integration.security.common.Utils.makeCallWithHttpClient;
-import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT;
 import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT_VERIFY_FALSE;
 import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT_VERIFY_TRUE;
 import static org.jboss.as.test.integration.security.common.SSLTruststoreUtil.HTTPS_PORT_VERIFY_WANT;
@@ -42,6 +41,7 @@ import java.net.SocketException;
 import java.net.URL;
 import java.util.Locale;
 
+import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.servlet.http.HttpServletResponse;
@@ -82,6 +82,7 @@ import org.jboss.security.auth.spi.BaseCertLoginModule;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
@@ -107,6 +108,8 @@ public class HTTPSWebConnectorTestCase {
     private static final String STANDARD_SOCKETS = "standard-sockets";
 
     private static final String HTTPS = "https";
+
+    public static final int HTTPS_PORT = 8444;
 
     private static Logger LOGGER = Logger.getLogger(HTTPSWebConnectorTestCase.class);
 
@@ -139,9 +142,14 @@ public class HTTPSWebConnectorTestCase {
     @ArquillianResource
     private Deployer deployer;
 
+    @BeforeClass
+    public static void noJDK14Plus() {
+        Assume.assumeFalse("Avoiding JDK 14 due to https://issues.jboss.org/browse/WFCORE-4532", "14".equals(System.getProperty("java.specification.version")));
+    }
+
     @Deployment(name = APP_CONTEXT, testable = false, managed = false)
     public static WebArchive deployment() {
-        LOGGER.info("Start deployment " + APP_CONTEXT);
+        LOGGER.trace("Start deployment " + APP_CONTEXT);
         final WebArchive war = ShrinkWrap.create(WebArchive.class, APP_CONTEXT + ".war");
         war.addClasses(AddRoleLoginModule.class, SimpleServlet.class, SimpleSecuredServlet.class,
                 PrincipalPrintingServlet.class);
@@ -154,65 +162,16 @@ public class HTTPSWebConnectorTestCase {
     @InSequence(-1)
     public void startAndSetupContainer() throws Exception {
 
-        LOGGER.info("*** starting server");
+        LOGGER.trace("*** starting server");
         containerController.start(CONTAINER);
         ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
         ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
+                TestSuiteEnvironment.getServerPort(), "remote+http");
 
-        LOGGER.info("*** will configure server now");
+        LOGGER.trace("*** will configure server now");
         serverSetup(managementClient);
 
         deployer.deploy(APP_CONTEXT);
-    }
-
-    /**
-     * @test.tsfi tsfi.port.https
-     * @test.tsfi tsfi.keystore.file
-     * @test.tsfi tsfi.truststore.file
-     * @test.objective Testing default HTTPs connector with configured CLIENT-CERT authentication (BaseCertLoginModule is used).
-     *                 Trusted client is allowed to access both secured/unsecured resource. Untrusted client can only access
-     *                 unprotected resources.
-     * @test.expectedResult Trusted client has access to protected and unprotected resources. Untrusted client has only access
-     *                      to unprotected resources.
-     * @throws Exception
-     */
-    @Test
-    @InSequence(1)
-    public void testDefaultConnector() throws Exception {
-
-        Assume.assumeFalse(SystemUtils.IS_JAVA_1_6 && SystemUtils.JAVA_VENDOR.toUpperCase(Locale.ENGLISH).contains("IBM"));
-
-        final URL printPrincipalUrl = getServletUrl(HTTPS_PORT, PrincipalPrintingServlet.SERVLET_PATH);
-        final URL securedUrl = getServletUrl(HTTPS_PORT, SECURED_SERVLET_WITH_SESSION);
-        final URL unsecuredUrl = getServletUrl(HTTPS_PORT, SimpleServlet.SERVLET_PATH);
-
-        final HttpClient httpClient = getHttpClient(CLIENT_KEYSTORE_FILE);
-        final HttpClient httpClientUntrusted = getHttpClient(UNTRUSTED_KEYSTORE_FILE);
-
-        try {
-            makeCallWithHttpClient(printPrincipalUrl, httpClient, HttpServletResponse.SC_FORBIDDEN);
-
-            String responseBody = makeCallWithHttpClient(securedUrl, httpClient, HttpServletResponse.SC_OK);
-            assertEquals("Secured page was not reached", SimpleSecuredServlet.RESPONSE_BODY, responseBody);
-
-            String principal = makeCallWithHttpClient(printPrincipalUrl, httpClient, HttpServletResponse.SC_OK);
-            assertEquals("Unexpected principal", "cn=client", principal.toLowerCase());
-
-            responseBody = makeCallWithHttpClient(unsecuredUrl, httpClientUntrusted, HttpServletResponse.SC_OK);
-            assertEquals("Secured page was not reached", SimpleServlet.RESPONSE_BODY, responseBody);
-
-            try {
-                makeCallWithHttpClient(securedUrl, httpClientUntrusted, HttpServletResponse.SC_FORBIDDEN);
-            } catch (SSLHandshakeException e) {
-                // OK
-            } catch (java.net.SocketException se) {
-                // OK - on windows usually fails with this one
-            }
-        } finally {
-            httpClient.getConnectionManager().shutdown();
-            httpClientUntrusted.getConnectionManager().shutdown();
-        }
     }
 
     /**
@@ -340,6 +299,10 @@ public class HTTPSWebConnectorTestCase {
                 //depending on the OS and the version of HTTP client in use any one of these exceptions may be thrown
                 //in particular the SocketException gets thrown on Windows
                 // OK
+            } catch (SSLException e) {
+                if (! (e.getCause() instanceof SocketException)) { // OK
+                    throw e;
+                }
             }
 
             try {
@@ -347,6 +310,10 @@ public class HTTPSWebConnectorTestCase {
                 fail("Untrusted client should not be authenticated.");
             } catch (SSLHandshakeException |SSLPeerUnverifiedException | SocketException e) {
                 // OK
+            } catch (SSLException e) {
+                if (! (e.getCause() instanceof SocketException)) { // OK
+                    throw e;
+                }
             }
 
             try {
@@ -354,6 +321,10 @@ public class HTTPSWebConnectorTestCase {
                 fail("Untrusted client should not be authenticated.");
             } catch (SSLHandshakeException |SSLPeerUnverifiedException | SocketException e) {
                 // OK
+            } catch (SSLException e) {
+                if (! (e.getCause() instanceof SocketException)) { // OK
+                    throw e;
+                }
             }
 
         } finally {
@@ -368,11 +339,11 @@ public class HTTPSWebConnectorTestCase {
         deployer.undeploy(APP_CONTEXT);
         final ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
         final ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
-        LOGGER.info("*** reseting test configuration");
+                TestSuiteEnvironment.getServerPort(), "remote+http");
+        LOGGER.trace("*** reseting test configuration");
         serverTearDown(managementClient);
 
-        LOGGER.info("*** stopping container");
+        LOGGER.trace("*** stopping container");
         containerController.stop(CONTAINER);
     }
 
@@ -390,7 +361,8 @@ public class HTTPSWebConnectorTestCase {
         WORK_DIR.mkdirs();
         Utils.createKeyMaterial(WORK_DIR);
 
-        TRACE_SECURITY.setup(managementClient, null);
+        // Uncomment if TRACE logging is necessary. Don't leave it on all the time; CI resources aren't free.
+        //TRACE_SECURITY.setup(managementClient, null);
 
         SecurityDomainsSetup.INSTANCE.setup(managementClient, null);
 
@@ -414,14 +386,9 @@ public class HTTPSWebConnectorTestCase {
         // operation.get("alias").set("management");
         Utils.applyUpdate(operation, client);
 
-        LOGGER.info("*** restarting server");
+        LOGGER.trace("*** restarting server");
         containerController.stop(CONTAINER);
         containerController.start(CONTAINER);
-        
-        operation = createOpNode("subsystem=undertow/server=default-server/https-listener=" + HTTPS, ModelDescriptionConstants.ADD);
-        operation.get("socket-binding").set(HTTPS);
-        operation.get("security-realm").set(HTTPS_REALM);
-        Utils.applyUpdate(operation, client);
 
         addHttpsConnector("NOT_REQUESTED", HTTPS_NAME_VERIFY_NOT_REQUESTED, HTTPS_PORT_VERIFY_FALSE, client);
         addHttpsConnector("REQUESTED", HTTPS_NAME_VERIFY_REQUESTED, HTTPS_PORT_VERIFY_WANT, client);
@@ -459,19 +426,16 @@ public class HTTPSWebConnectorTestCase {
         final ModelControllerClient client = managementClient.getControllerClient();
 
         // delete https web connectors
-        ModelNode operation = createOpNode("subsystem=undertow/server=default-server/https-listener=" + HTTPS,
-                ModelDescriptionConstants.REMOVE);
-        Utils.applyUpdate(operation, client);
-
         rmHttpsConnector(HTTPS_NAME_VERIFY_NOT_REQUESTED, client);
         rmHttpsConnector(HTTPS_NAME_VERIFY_REQUESTED, client);
         rmHttpsConnector(HTTPS_NAME_VERIFY_REQUIRED, client);
 
-        operation = createOpNode("core-service=management/security-realm=" + HTTPS_REALM, ModelDescriptionConstants.REMOVE);
+        ModelNode operation = createOpNode("core-service=management/security-realm=" + HTTPS_REALM, ModelDescriptionConstants.REMOVE);
         Utils.applyUpdate(operation, client);
 
         FileUtils.deleteDirectory(WORK_DIR);
-        TRACE_SECURITY.tearDown(managementClient, null);
+        // Uncomment if TRACE logging is necessary. Don't leave it on all the time; CI resources aren't free.
+        //TRACE_SECURITY.tearDown(managementClient, null);
     }
 
     private void rmHttpsConnector(String httpsName, ModelControllerClient client) throws Exception {

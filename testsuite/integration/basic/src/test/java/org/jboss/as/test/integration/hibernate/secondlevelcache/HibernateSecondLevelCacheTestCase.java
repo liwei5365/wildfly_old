@@ -22,17 +22,18 @@
 
 package org.jboss.as.test.integration.hibernate.secondlevelcache;
 
-import java.sql.Connection;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import java.sql.Connection;
 import javax.naming.InitialContext;
-import javax.naming.NameClassPair;
-import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
+import org.jboss.as.test.shared.util.AssumeTestGroupUtil;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -43,9 +44,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 /**
  * Test that Hibernate second level cache is working native Hibernate
  *
@@ -54,19 +52,19 @@ import static org.junit.Assert.assertTrue;
 @RunWith(Arquillian.class)
 public class HibernateSecondLevelCacheTestCase {
 
-    private static final String FACTORY_CLASS = "<property name=\"hibernate.cache.region.factory_class\">org.jboss.as.jpa.hibernate5.infinispan.InfinispanRegionFactory</property>";
-    private static final String MODULE_DEPENDENCIES = "Dependencies: org.infinispan,org.hibernate.envers export,org.hibernate, org.javassist\n";
+    private static final String FACTORY_CLASS = "<property name=\"hibernate.cache.region.factory_class\">org.infinispan.hibernate.cache.v51.InfinispanRegionFactory</property>";
+    private static final String MODULE_DEPENDENCIES = "Dependencies: org.hibernate.envers export,org.hibernate\n";
 
     private static final String ARCHIVE_NAME = "hibernateSecondLevel_test";
 
     public static final String hibernate_cfg = "<?xml version='1.0' encoding='utf-8'?>"
             + "<!DOCTYPE hibernate-configuration PUBLIC " + "\"//Hibernate/Hibernate Configuration DTD 3.0//EN\" "
             + "\"http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd\">"
-            + "<hibernate-configuration><session-factory>" + "<property name=\"show_sql\">true</property>"
+            + "<hibernate-configuration><session-factory>" + "<property name=\"show_sql\">false</property>"
             + "<property name=\"hibernate.cache.use_second_level_cache\">true</property>"
-            + "<property name=\"hibernate.show_sql\">true</property>"
+            + "<property name=\"hibernate.show_sql\">false</property>"
             + FACTORY_CLASS
-            + "<property name=\"hibernate.cache.infinispan.cachemanager\">java:jboss/infinispan/container/hibernate</property>"
+            + "<property name=\"hibernate.cache.infinispan.shared\">false</property>"
             + "<mapping resource=\"testmapping.hbm.xml\"/>" + "</session-factory></hibernate-configuration>";
 
     public static final String testmapping = "<?xml version=\"1.0\"?>" + "<!DOCTYPE hibernate-mapping PUBLIC "
@@ -84,6 +82,8 @@ public class HibernateSecondLevelCacheTestCase {
 
     @BeforeClass
     public static void beforeClass() throws NamingException {
+        // TODO This can be re-looked at once HHH-13188 is resolved. This may require further changes in Hibernate.
+        AssumeTestGroupUtil.assumeSecurityManagerDisabled();
         iniCtx = new InitialContext();
     }
 
@@ -126,7 +126,6 @@ public class HibernateSecondLevelCacheTestCase {
             return interfaceType.cast(iniCtx.lookup("java:global/" + ARCHIVE_NAME + "/" + "beans/" + beanName + "!"
                     + interfaceType.getName()));
         } catch (NamingException e) {
-            dumpJndi("");
             throw e;
         }
     }
@@ -135,52 +134,69 @@ public class HibernateSecondLevelCacheTestCase {
         return interfaceType.cast(iniCtx.lookup(name));
     }
 
-    // TODO: move this logic to a common base class (might be helpful for writing new tests)
-    private static void dumpJndi(String s) {
-        /*try {
-            dumpTreeEntry(iniCtx.list(s), s);
-        } catch (NamingException ignore) {
-        }*/
-    }
-
-    private static void dumpTreeEntry(NamingEnumeration<NameClassPair> list, String s) throws NamingException {
-        System.out.println("\ndump " + s);
-        while (list.hasMore()) {
-            NameClassPair ncp = list.next();
-            System.out.println(ncp.toString());
-            if (s.length() == 0) {
-                dumpJndi(ncp.getName());
-            } else {
-                dumpJndi(s + "/" + ncp.getName());
-            }
-        }
-    }
-
     @Test
     public void testSecondLevelCache() throws Exception {
         SFSB sfsb = lookup("SFSB",
                 SFSB.class);
         // setup Configuration and SessionFactory
         sfsb.setupConfig();
+        DataSource ds = rawLookup("java:jboss/datasources/ExampleDS", DataSource.class);
         try {
             Student s1 = sfsb.createStudent("MADHUMITA", "SADHUKHAN", "99 Purkynova REDHAT BRNO CZ", 1);
             Student s2 = sfsb.getStudent(1);
 
-            DataSource ds = rawLookup("java:jboss/datasources/ExampleDS", DataSource.class);
             Connection conn = ds.getConnection();
-            //System.out.println("got JDBC connection");
             int updated = conn.prepareStatement("update Student set first_name='hacked' where student_id=1").executeUpdate();
             assertTrue("was able to update added Student.  update count=" + updated, updated > 0);
             conn.close();
-            //System.out.println("updated student first name to 'hacked' (bypassing 2lc by executing sql directly");
             // read updated (dirty) data from second level cache
             s2 = sfsb.getStudent(1);
-            //System.out.println("get sfsb.getStudent() returned student with first name=" + s2.getFirstName());
             assertTrue("was able to read updated Student entity", s2 != null);
-            //assertEquals("Student first name was read from second level cache = " + s2.getFirstName(), "MADHUMITA", s2.getFirstName());
-        } finally {
-            sfsb.cleanup();
-        }
+            assertEquals("Student first name was read from second level cache = " + s2.getFirstName(), "MADHUMITA", s2.getFirstName());
 
+            // clear dirty data from second level cache and verify that updated data is read from database
+            sfsb.clearCache();
+            s2 = sfsb.getStudent(1);
+            assertTrue("was able to read updated Student entity from database after clearing cache", s2 != null);
+            assertEquals("Updated Student first name was read from database = " + s2.getFirstName(), "hacked", s2.getFirstName());
+
+        } finally {
+            Connection conn = ds.getConnection();
+            conn.prepareStatement("delete from Student").executeUpdate();
+            conn.close();
+            try {
+                sfsb.cleanup();
+            } catch (Throwable ignore) {}
+        }
+    }
+
+    @Test
+    public void testReadDeletedRowFrom2lc() throws Exception {
+        SFSB sfsb = lookup("SFSB",
+                SFSB.class);
+        // setup Configuration and SessionFactory
+        sfsb.setupConfig();
+        DataSource ds = rawLookup("java:jboss/datasources/ExampleDS", DataSource.class);
+        try {
+            Student s1 = sfsb.createStudent("Hope", "Solo", "6415 NE 138th Pl. Kirkland, WA 98034 USA", 1);
+            Student s2 = sfsb.getStudent(1);
+
+            Connection conn = ds.getConnection();
+            int updated = conn.prepareStatement("delete from Student where student_id=1").executeUpdate();
+            assertTrue("was able to delete row from Student.  update count=" + updated, updated > 0);
+            conn.close();
+            // read updated (dirty) data from second level cache
+            s2 = sfsb.getStudent(1);
+            assertTrue("was able to read deleted Student entity", s2 != null);
+            assertEquals("deleted Student first name was read from second level cache = " + s2.getFirstName(), "Hope", s2.getFirstName());
+        } finally {
+            Connection conn = ds.getConnection();
+            conn.prepareStatement("delete from Student").executeUpdate();
+            conn.close();
+            try {
+                sfsb.cleanup();
+            } catch (Throwable ignore) {}
+
+        }
     }
 }

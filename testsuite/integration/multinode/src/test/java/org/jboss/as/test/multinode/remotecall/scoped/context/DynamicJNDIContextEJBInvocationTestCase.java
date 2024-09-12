@@ -36,12 +36,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import javax.naming.InitialContext;
+import java.io.FilePermission;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
+
 /**
  * A test case for testing the feature introduced in https://issues.jboss.org/browse/EJBCLIENT-34 which
- * allows applications to pass JNDI context properties during JNDI context creation for (scoped) EJB client
+ * allows applications to pass JNDI context properties during JNDI context creation for (scoped) Jakarta Enterprise Beans client
  * context creation
  *
  * @author Jaikiran Pai
@@ -64,6 +67,10 @@ public class DynamicJNDIContextEJBInvocationTestCase {
         jar.addClasses(StatefulRemoteHomeForBeanOnOtherServer.class);
         jar.addAsManifestResource(DynamicJNDIContextEJBInvocationTestCase.class.getPackage(), "MANIFEST.MF", "MANIFEST.MF");
         jar.addAsManifestResource(DynamicJNDIContextEJBInvocationTestCase.class.getPackage(), "ejb-jar.xml", "ejb-jar.xml");
+        jar.addAsManifestResource(createPermissionsXmlAsset(
+                new FilePermission(System.getProperty("jbossas.multinode.server") + "/standalone/tmp/auth/*", "read")),
+                "permissions.xml"
+        );
         return jar;
     }
 
@@ -78,7 +85,7 @@ public class DynamicJNDIContextEJBInvocationTestCase {
 
     /**
      * Tests that a SFSB hosted on server X can lookup and invoke a SFSB and SLSB hosted on a different server,
-     * by using a JNDI context which was created by passing the EJB client context creation properties
+     * by using a JNDI context which was created by passing the Jakarta Enterprise Beans client context creation properties
      *
      * @throws Exception
      */
@@ -104,7 +111,7 @@ public class DynamicJNDIContextEJBInvocationTestCase {
 
     /**
      * Tests that a SFSB Foo hosted on server X can lookup and store a SFSB and a SLSB hosted on a different server Y,
-     * by using a JNDI context which was created by passing the EJB client context creation properties. The SFSB Foo
+     * by using a JNDI context which was created by passing the Jakarta Enterprise Beans client context creation properties. The SFSB Foo
      * on server X is then allowed to passivate and after activation the invocations on the SFSB and SLSB members held
      * as state by SFSB Foo are expected to correcty end up on the remote server Y and return the correct state information
      *
@@ -133,12 +140,12 @@ public class DynamicJNDIContextEJBInvocationTestCase {
         final CountDownLatch passivationLatch = new CountDownLatch(1);
         sfsbOnLocalServer.registerPassivationNotificationLatch(passivationLatch);
 
-        logger.info("Triggering passivation of " + StatefulBeanA.class.getSimpleName() + " bean");
+        logger.trace("Triggering passivation of " + StatefulBeanA.class.getSimpleName() + " bean");
         InitialContext.doLookup("java:module/" + StatefulBeanA.class.getSimpleName() + "!" + StatefulBeanA.class.getName());
 
         final boolean passivated = passivationLatch.await(2, TimeUnit.SECONDS);
         if (passivated) {
-            logger.info("pre-passivate invoked on " + StatefulBeanA.class.getSimpleName() + " bean");
+            logger.trace("pre-passivate invoked on " + StatefulBeanA.class.getSimpleName() + " bean");
         } else {
             Assert.fail(sfsbOnLocalServer + " was not passivated");
         }
@@ -166,56 +173,8 @@ public class DynamicJNDIContextEJBInvocationTestCase {
     }
 
     /**
-     * Tests that if a bean exposes a remote view with a method returning a remote business interface of either
-     * the same bean or a different bean, then that returned business object doesn't hold on to the EJB client
-     * context identifier (if any) which was used to create the proxy.
-     *
-     * @throws Exception
-     */
-    @Test
-    @OperateOnDeployment("local-server-deployment")
-    public void testEJBClientContextIdentiferIsNotSerialized() throws Exception {
-        final LocalServerStatefulRemote sfsbOnLocalServer = InitialContext.doLookup("java:module/" + StatefulBeanA.class.getSimpleName() + "!" + LocalServerStatefulRemote.class.getName());
-        final int initialCount = sfsbOnLocalServer.getCountByInvokingOnRemoteServerBean();
-        Assert.assertEquals("Unexpected initial count from stateful bean", 0, initialCount);
-        // let the SFSB invoke an SLSB on a remote server
-        final String message = "foo";
-        final String firstEcho = sfsbOnLocalServer.getEchoByInvokingOnRemoteServerBean(message);
-        Assert.assertEquals("Unexpected echo from remote server SLSB", message, firstEcho);
-
-        // now let's fetch the SFSB proxy which was created using a scoped EJB client context
-        final StatefulRemoteOnOtherServer sfsbOnRemoteServer = sfsbOnLocalServer.getSFSBCreatedWithScopedEJBClientContext();
-        Assert.assertNotNull("Stateful bean proxy returned by local server SFSB was null", sfsbOnRemoteServer);
-        // try invoking on that returned proxy. It should fail since it MUST NOT know the EJB client context
-        // identifier with which it was created and should work as if it's using the "current" EJB client context
-        // which in this case has no knowledge of the remote server (== remote EJB receiver of the other server)
-        try {
-            sfsbOnRemoteServer.getCount();
-            Assert.fail("Invocation on SFSB proxy returned by the local server SFSB was expected to fail");
-        } catch (IllegalStateException ise) {
-            // expected
-            logger.debug("Invocation on returned SFSB failed with expected exception", ise);
-        }
-
-        // now let's fetch the SLSB proxy which was created using a scoped EJB client context
-        final StatelessRemoteOnOtherServer slsbOnRemoteServer = sfsbOnLocalServer.getSLSBCreatedWithScopedEJBClientContext();
-        Assert.assertNotNull("Stateless bean proxy returned by local server SFSB was null", slsbOnRemoteServer);
-        // try invoking on that returned proxy. It should fail since it MUST NOT know the EJB client context
-        // identifier with which it was created and should work as if it's using the "current" EJB client context
-        // which in this case has no knowledge of the remote server (== remote EJB receiver of the other server)
-        try {
-            slsbOnRemoteServer.echo("foo-bar");
-            Assert.fail("Invocation on SLSB proxy returned by the local server SFSB was expected to fail");
-        } catch (IllegalStateException ise) {
-            // expected
-            logger.debug("Invocation on returned SLSB failed with expected exception", ise);
-        }
-
-    }
-
-    /**
-     * Tests that a SFSB hosted on server X can lookup and invoke a SFSB hosted on a different server, through the EJB 2.x
-     * home view, by using a JNDI context which was created by passing the EJB client context creation properties
+     * Tests that a SFSB hosted on server X can lookup and invoke a SFSB hosted on a different server, through the Enterprise Beans 2.x
+     * home view, by using a JNDI context which was created by passing the Jakarta Enterprise Beans client context creation properties
      * @see https://issues.jboss.org/browse/EJBCLIENT-51
      *
      * @throws Exception

@@ -22,6 +22,7 @@
 
 package org.jboss.as.test.integration.jpa.beanvalidation.beanvalidationtest;
 
+import static org.jboss.as.test.shared.PermissionUtils.createPermissionsXmlAsset;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -29,6 +30,7 @@ import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.validation.ConstraintViolationException;
 
+import org.hibernate.validator.HibernateValidatorPermission;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
@@ -36,13 +38,12 @@ import org.jboss.as.test.integration.jpa.beanvalidation.Employee;
 import org.jboss.as.test.integration.jpa.beanvalidation.SFSB1;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * bean validation with JPA test
+ * Jakarta Bean Validation with Jakarta Persistence test
  *
  * @author Scott Marlow
  */
@@ -56,10 +57,13 @@ public class JPABeanValidationTestCase {
 
         JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
         jar.addClasses(JPABeanValidationTestCase.class,
-            Employee.class,
-            SFSB1.class
+                Employee.class,
+                SFSB1.class
         );
         jar.addAsManifestResource(JPABeanValidationTestCase.class.getPackage(), "persistence.xml", "persistence.xml");
+        jar.addAsManifestResource(createPermissionsXmlAsset(
+                HibernateValidatorPermission.ACCESS_PRIVATE_MEMBERS
+        ), "permissions.xml");
         return jar;
     }
 
@@ -75,7 +79,8 @@ public class JPABeanValidationTestCase {
     }
 
     /**
-     * Test that a bean validation error is not thrown
+     * Test that a Jakarta Bean Validation error is not thrown
+     *
      * @throws Exception
      */
     @Test
@@ -85,7 +90,8 @@ public class JPABeanValidationTestCase {
     }
 
     /**
-     * Test that a bean validation error is thrown
+     * Test that a Jakarta Bean Validation error is thrown
+     *
      * @throws Exception
      */
     @Test
@@ -97,11 +103,11 @@ public class JPABeanValidationTestCase {
         } catch (Throwable throwable) {
             ConstraintViolationException constraintViolationException = null;
             // find the ConstraintViolationException
-            while(throwable != null && ! (throwable instanceof ConstraintViolationException)) {
+            while (throwable != null && !(throwable instanceof ConstraintViolationException)) {
                 throwable = throwable.getCause();
             }
             // should be null or instanceof ConstraintViolationException
-            constraintViolationException = (ConstraintViolationException)throwable;
+            constraintViolationException = (ConstraintViolationException) throwable;
             assertTrue("expected ConstraintViolationException but got " + constraintViolationException, constraintViolationException instanceof ConstraintViolationException);
         }
     }

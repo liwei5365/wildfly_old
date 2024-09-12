@@ -52,11 +52,14 @@ import org.jboss.as.test.integration.security.common.config.SecurityModule;
 import org.jboss.as.test.integration.security.common.servlets.PrincipalPrintingServlet;
 import org.jboss.as.test.integration.security.common.servlets.SimpleSecuredServlet;
 import org.jboss.as.test.integration.security.common.servlets.SimpleServlet;
+import org.jboss.as.test.shared.ServerSnapshot;
 import org.jboss.as.test.shared.TestSuiteEnvironment;
 import org.jboss.logging.Logger;
 import org.jboss.security.auth.spi.DatabaseCertLoginModule;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -84,9 +87,18 @@ public class DatabaseCertLoginModuleTestCase extends AbstractCertificateLoginMod
     @ArquillianResource
     private Deployer deployer;
 
+    private static ManagementClient managementClient;
+
+    private static AutoCloseable snapshot;
+
+    @BeforeClass
+    public static void noJDK14Plus() {
+        Assume.assumeFalse("Avoiding JDK 14 due to https://issues.jboss.org/browse/WFCORE-4532", "14".equals(System.getProperty("java.specification.version")));
+    }
+
     @Deployment(name = APP_NAME, testable = false, managed = false)
     public static WebArchive deployment() {
-        LOGGER.info("Start deployment " + APP_NAME);
+        LOGGER.trace("Start deployment " + APP_NAME);
         final WebArchive war = ShrinkWrap.create(WebArchive.class, APP_NAME + ".war");
         war.addClasses(AddRoleLoginModule.class, SimpleServlet.class, SimpleSecuredServlet.class, PrincipalPrintingServlet.class);
         war.addAsWebInfResource(DatabaseCertLoginModuleTestCase.class.getPackage(), "web.xml", "web.xml");
@@ -100,20 +112,21 @@ public class DatabaseCertLoginModuleTestCase extends AbstractCertificateLoginMod
     @InSequence(-1)
     public void startAndSetupContainer() throws Exception {
 
-        LOGGER.info("*** starting server");
+        LOGGER.trace("*** starting server");
         containerController.start(CONTAINER);
         ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
-        ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
+        managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
+                TestSuiteEnvironment.getServerPort(), "remote+http");
+        snapshot = ServerSnapshot.takeSnapshot(managementClient);
 
-        LOGGER.info("*** will configure server now");
+        LOGGER.trace("*** will configure server now");
         AbstractCertificateLoginModuleTestCase.HTTPSConnectorSetup.INSTANCE.setup(managementClient, CONTAINER);
         DataSourcesSetup.INSTANCE.setup(managementClient, CONTAINER);
         DBSetup.INSTANCE.setup(managementClient, CONTAINER);
         SecurityDomainsSetup.INSTANCE.setup(managementClient, CONTAINER);
 
-        LOGGER.info("*** reloading server");
-        executeReloadAndWaitForCompletion(client, 100000);
+        LOGGER.trace("*** reloading server");
+        executeReloadAndWaitForCompletion(managementClient, 100000);
         deployer.deploy(APP_NAME);
     }
 
@@ -134,17 +147,13 @@ public class DatabaseCertLoginModuleTestCase extends AbstractCertificateLoginMod
     public void stopContainer() throws Exception {
 
         deployer.undeploy(APP_NAME);
-        final ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
-        final ManagementClient managementClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                TestSuiteEnvironment.getServerPort(), "http-remoting");
 
-        LOGGER.info("*** reseting test configuration");
-        AbstractCertificateLoginModuleTestCase.HTTPSConnectorSetup.INSTANCE.tearDown(managementClient, CONTAINER);
-        SecurityDomainsSetup.INSTANCE.tearDown(managementClient, CONTAINER);
-        DBSetup.INSTANCE.tearDown(managementClient, CONTAINER);
-        DataSourcesSetup.INSTANCE.tearDown(managementClient, CONTAINER);
+        LOGGER.trace("*** reseting test configuration");
+        deleteWorkDir();
+        snapshot.close();
+        managementClient.close();
 
-        LOGGER.info("*** stopping container");
+        LOGGER.trace("*** stopping container");
         containerController.stop(CONTAINER);
     }
 
@@ -212,8 +221,8 @@ public class DatabaseCertLoginModuleTestCase extends AbstractCertificateLoginMod
 
         public void setup(ManagementClient managementClient, String containerId) throws Exception {
             server = Server.createTcpServer("-tcpAllowOthers").start();
-            final String dbUrl = "jdbc:h2:mem:" + DATASOURCE_NAME + ";DB_CLOSE_DELAY=-1";
-            LOGGER.info("Creating database " + dbUrl);
+            final String dbUrl = "jdbc:h2:mem:" + DATASOURCE_NAME + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE";
+            LOGGER.trace("Creating database " + dbUrl);
 
             final Connection conn = DriverManager.getConnection(dbUrl, "sa", "sa");
             executeUpdate(conn, "CREATE TABLE Roles(PrincipalID Varchar(50), Role Varchar(50), RoleGroup Varchar(50))");
@@ -230,7 +239,7 @@ public class DatabaseCertLoginModuleTestCase extends AbstractCertificateLoginMod
         private void executeUpdate(Connection connection, String query) throws SQLException {
             final Statement statement = connection.createStatement();
             final int updateResult = statement.executeUpdate(query);
-            LOGGER.info("Result: " + updateResult + ".  SQL statement: " + query);
+            LOGGER.trace("Result: " + updateResult + ".  SQL statement: " + query);
             statement.close();
         }
     }

@@ -34,7 +34,8 @@ import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.modules.Module;
 import org.jboss.msc.inject.Injector;
-import org.jboss.msc.service.AbstractServiceListener;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
@@ -74,6 +75,10 @@ public class ConnectionFactoryDefinitionInjectionSource extends ResourceDefiniti
         this.resourceAdapter = resourceAdapter;
     }
 
+    public void addProperty(String key, String value) {
+        properties.put(key, value);
+    }
+
     public void getResourceValue(final ResolutionContext context, final ServiceBuilder<?> serviceBuilder, final DeploymentPhaseContext phaseContext, final Injector<ManagedReferenceFactory> injector) throws DeploymentUnitProcessingException {
         final DeploymentUnit deploymentUnit = phaseContext.getDeploymentUnit();
         final Module module = deploymentUnit.getAttachment(org.jboss.as.server.deployment.Attachments.MODULE);
@@ -97,23 +102,23 @@ public class ConnectionFactoryDefinitionInjectionSource extends ResourceDefiniti
                                                                     properties, transactionSupport,
                                                                     module, bindInfo);
         ServiceName serviceName =  DirectConnectionFactoryActivatorService.SERVICE_NAME_BASE.append(jndiName);
-        phaseContext.getServiceTarget().addService(serviceName, service)
-                .addDependency(ConnectorServices.IRONJACAMAR_MDR, AS7MetadataRepository.class, service.getMdrInjector())
-                .addDependency(ConnectorServices.RESOURCE_ADAPTER_DEPLOYER_SERVICE_PREFIX.append(deployerServiceName))
-                .setInitialMode(ServiceController.Mode.ACTIVE).install();
+        final ServiceBuilder sb = phaseContext.getServiceTarget().addService(serviceName, service);
+        sb.addDependency(ConnectorServices.IRONJACAMAR_MDR, AS7MetadataRepository.class, service.getMdrInjector());
+        sb.requires(ConnectorServices.RESOURCE_ADAPTER_DEPLOYER_SERVICE_PREFIX.append(deployerServiceName));
+        sb.setInitialMode(ServiceController.Mode.ACTIVE).install();
 
         serviceBuilder.addDependency(ConnectionFactoryReferenceFactoryService.SERVICE_NAME_BASE.append(bindInfo.getBinderServiceName()), ManagedReferenceFactory.class, injector);
-        serviceBuilder.addListener(new AbstractServiceListener<Object>() {
-            public void transition(final ServiceController<? extends Object> controller, final ServiceController.Transition transition) {
-                switch (transition) {
-                    case STARTING_to_UP: {
+        serviceBuilder.addListener(new LifecycleListener() {
+            public void handleEvent(final ServiceController<?> controller, final LifecycleEvent event) {
+                switch (event) {
+                    case UP: {
                         DEPLOYMENT_CONNECTOR_LOGGER.connectionFactoryAnnotation(jndiName);
                         break;
                     }
-                    case STOPPING_to_DOWN: {
+                    case DOWN: {
                         break;
                     }
-                    case REMOVING_to_REMOVED: {
+                    case REMOVED: {
                         DEPLOYMENT_CONNECTOR_LOGGER.debugf("Removed JCA ConnectionFactory [%s]", jndiName);
                     }
                 }

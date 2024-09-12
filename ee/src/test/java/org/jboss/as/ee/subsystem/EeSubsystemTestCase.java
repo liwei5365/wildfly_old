@@ -37,7 +37,6 @@ import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.model.test.FailedOperationTransformationConfig;
 import org.jboss.as.model.test.FailedOperationTransformationConfig.AttributesPathAddressConfig;
-import org.jboss.as.model.test.ModelFixer;
 import org.jboss.as.model.test.ModelTestControllerVersion;
 import org.jboss.as.model.test.ModelTestUtils;
 import org.jboss.as.subsystem.test.AbstractSubsystemBaseTest;
@@ -45,7 +44,6 @@ import org.jboss.as.subsystem.test.AdditionalInitialization;
 import org.jboss.as.subsystem.test.KernelServices;
 import org.jboss.as.subsystem.test.KernelServicesBuilder;
 import org.jboss.dmr.ModelNode;
-import org.jboss.dmr.ValueExpression;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -66,123 +64,61 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
 
     @Override
     protected String getSubsystemXsdPath() throws Exception {
-        return "schema/jboss-as-ee_4_0.xsd";
+        return "schema/jboss-as-ee_6_0.xsd";
+    }
+
+    @Override
+    protected AdditionalInitialization createAdditionalInitialization() {
+        return AdditionalInitialization.withCapabilities(EeCapabilities.PATH_MANAGER_CAPABILITY);
     }
 
     @Test
-    public void testTransformers800() throws Exception {
-        final ModelVersion legacyModelVersion = ModelVersion.create(3, 0, 0);
-        final ModelTestControllerVersion controllerVersion = ModelTestControllerVersion.WILDFLY_8_2_0_FINAL;
-
-        KernelServicesBuilder builder = createKernelServicesBuilder(AdditionalInitialization.MANAGEMENT);
-
-        // Add legacy subsystems
-        builder.createLegacyKernelServicesBuilder(null, controllerVersion, legacyModelVersion)
-                .addMavenResourceURL("org.wildfly:wildfly-ee:" + controllerVersion.getMavenGavVersion());
-
-        KernelServices mainServices = builder.build();
-        KernelServices legacyServices = mainServices.getLegacyServices(legacyModelVersion);
+    public void testTransformers5_0() throws Exception {
+        final ModelTestControllerVersion controllerVersion = ModelTestControllerVersion.EAP_7_2_0;
+        final ModelVersion legacyVersion = ModelVersion.create(4,0);
+        final KernelServicesBuilder builder = createKernelServicesBuilder(createAdditionalInitialization());
+        final List<ModelNode> xmlOps = builder.parseXml(readResource("subsystem_5_0.xml"));
+        builder.createLegacyKernelServicesBuilder(null, controllerVersion, legacyVersion)
+                .addMavenResourceURL(controllerVersion.getMavenGroupId() + ":wildfly-ee:" + controllerVersion.getMavenGavVersion());
+        final KernelServices mainServices = builder.build();
         Assert.assertTrue(mainServices.isSuccessfulBoot());
-        Assert.assertTrue(legacyServices.isSuccessfulBoot());
+        final FailedOperationTransformationConfig config =  new FailedOperationTransformationConfig()
+                .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_EXECUTOR_SERVICE)),
+                        new FailedOperationTransformationConfig.NewAttributesConfig(ManagedExecutorServiceResourceDefinition.THREAD_PRIORITY_AD))
+                .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_SCHEDULED_EXECUTOR_SERVICE)),
+                        new FailedOperationTransformationConfig.NewAttributesConfig(ManagedScheduledExecutorServiceResourceDefinition.THREAD_PRIORITY_AD))
+                .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.GLOBAL_DIRECTORY)), REJECTED_RESOURCE);
 
-        List<ModelNode> bootOps = builder.parseXmlResource("subsystem-wf8-transformer.xml");
-        ModelTestUtils.checkFailedTransformedBootOperations(
-                mainServices,
-                legacyModelVersion,
-                bootOps,
-                new FailedOperationTransformationConfig()
-                        .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, ManagedExecutorServiceResourceDefinition.INSTANCE.getPathElement()),
-                                new RejectUndefinedAttribute(new ModelNode(Integer.MAX_VALUE), ManagedExecutorServiceResourceDefinition.CORE_THREADS_AD.getName()))
-                        .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, ManagedScheduledExecutorServiceResourceDefinition.INSTANCE.getPathElement()),
-                                new RejectUndefinedAttribute(new ModelNode(Integer.MAX_VALUE), ManagedScheduledExecutorServiceResourceDefinition.CORE_THREADS_AD.getName())));
+        ModelTestUtils.checkFailedTransformedBootOperations(mainServices, legacyVersion, xmlOps, config);
     }
 
     @Test
-    public void testTransformers712() throws Exception {
-        //Due to https://issues.jboss.org/browse/AS7-4892 the jboss-descriptor-property-replacement
-        //does not get set properly on 7.1.2, so let's do a reject test.
-        testTransformers712(ModelTestControllerVersion.V7_1_2_FINAL);
+    public void testTransformers6_0() throws Exception {
+        final ModelTestControllerVersion controllerVersion = ModelTestControllerVersion.MASTER;
+        final ModelVersion legacyVersion = ModelVersion.create(5,0);
+        final KernelServicesBuilder builder = createKernelServicesBuilder(createAdditionalInitialization());
+        final List<ModelNode> xmlOps = builder.parseXml(readResource("subsystem.xml"));
+        builder.createLegacyKernelServicesBuilder(null, controllerVersion, legacyVersion)
+                .addMavenResourceURL(controllerVersion.getMavenGroupId() + ":wildfly-ee:" + controllerVersion.getMavenGavVersion());
+        final KernelServices mainServices = builder.build();
+        Assert.assertTrue(mainServices.isSuccessfulBoot());
+        final FailedOperationTransformationConfig config =  new FailedOperationTransformationConfig()
+                .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_EXECUTOR_SERVICE)),
+                        new FailedOperationTransformationConfig.NewAttributesConfig(ManagedExecutorServiceResourceDefinition.HUNG_TASK_TERMINATION_PERIOD_AD))
+                .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_SCHEDULED_EXECUTOR_SERVICE)),
+                        new FailedOperationTransformationConfig.NewAttributesConfig(ManagedScheduledExecutorServiceResourceDefinition.HUNG_TASK_TERMINATION_PERIOD_AD));
+
+        ModelTestUtils.checkFailedTransformedBootOperations(mainServices, legacyVersion, xmlOps, config);
     }
 
     @Test
-    public void testTransformersEAP600() throws Exception {
-        //Due to https://issues.jboss.org/browse/AS7-4892 the jboss-descriptor-property-replacement
-        //does not get set properly on 7.1.2, so let's do a reject test.
-        testTransformers712(ModelTestControllerVersion.EAP_6_0_0);
+    public void testTransformersEAP640() throws Exception {
+        testTransformers1_1(ModelTestControllerVersion.EAP_6_4_0, ModelVersion.create(1,1));
     }
 
-    private void testTransformers712(ModelTestControllerVersion controllerVersion) throws Exception {
-        //Due to https://issues.jboss.org/browse/AS7-4892 the jboss-descriptor-property-replacement
-        //does not get set properly on 7.1.2, so let's do a reject test
-
-        ModelVersion modelVersion = ModelVersion.create(1, 0, 0);
-
-        try {
-            //Override the core model version to make sure that our custom transformer for model version 1.0.0 running on 7.1.2 kicks in
-            System.setProperty("jboss.test.core.model.version.override", "1.2.0");
-
-            KernelServicesBuilder builder = createKernelServicesBuilder(AdditionalInitialization.MANAGEMENT);
-
-            // Add legacy subsystems
-            builder.createLegacyKernelServicesBuilder(null, ModelTestControllerVersion.V7_1_2_FINAL, modelVersion)
-                    .addMavenResourceURL("org.jboss.as:jboss-as-ee:7.1.2.Final");
-
-            KernelServices mainServices = builder.build();
-            KernelServices legacyServices = mainServices.getLegacyServices(modelVersion);
-            Assert.assertTrue(mainServices.isSuccessfulBoot());
-            Assert.assertTrue(legacyServices.isSuccessfulBoot());
-
-            List<ModelNode> bootOps = builder.parseXmlResource("subsystem-transformers.xml");
-            ModelTestUtils.checkFailedTransformedBootOperations(
-                    mainServices,
-                    modelVersion,
-                    bootOps,
-                    new FailedOperationTransformationConfig()
-                            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM), new JBossDescriptorPropertyReplacementConfig()));
-
-            checkSubsystemModelTransformation(mainServices, modelVersion, new ModelFixer() {
-                @Override
-                public ModelNode fixModel(ModelNode modelNode) {
-                    Assert.assertTrue(modelNode.get(EESubsystemModel.JBOSS_DESCRIPTOR_PROPERTY_REPLACEMENT).asBoolean());
-                    //Replace the value used in the xml
-                    modelNode.get(EESubsystemModel.JBOSS_DESCRIPTOR_PROPERTY_REPLACEMENT).set(new ValueExpression("${test-exp2:false}"));
-                    return modelNode;
-                }
-            });
-        } finally {
-            System.clearProperty("jboss.test.core.model.version.override");
-        }
-    }
-
-    @Test
-    public void testTransformers713() throws Exception {
-        testTransformers1_0_0_post712(ModelTestControllerVersion.V7_1_3_FINAL);
-    }
-
-    @Test
-    public void testTransformers720() throws Exception {
-        testTransformers1_0_0_post712(ModelTestControllerVersion.V7_2_0_FINAL);
-    }
-
-    @Test
-    public void testTransformersEAP601() throws Exception {
-        testTransformers1_0_0_post712(ModelTestControllerVersion.EAP_6_0_1);
-    }
-
-    @Test
-    public void testTransformersEAP610() throws Exception {
-        testTransformers1_0_0_post712(ModelTestControllerVersion.EAP_6_1_0);
-    }
-
-    @Test
-    public void testTransformersEAP611() throws Exception {
-        testTransformers1_0_0_post712(ModelTestControllerVersion.EAP_6_1_1);
-    }
-
-    private void testTransformers1_0_0_post712(ModelTestControllerVersion controllerVersion) throws Exception {
+    private void testTransformers1_1(ModelTestControllerVersion controllerVersion, ModelVersion modelVersion) throws Exception {
         //Do a normal transformation test containing parts of the subsystem that work everywhere
         String subsystemXml = readResource("subsystem-transformers.xml");
-        ModelVersion modelVersion = ModelVersion.create(1, 0, 0);
         //Use the non-runtime version of the extension which will happen on the HC
         KernelServicesBuilder builder = createKernelServicesBuilder(AdditionalInitialization.MANAGEMENT)
                 .setSubsystemXml(subsystemXml);
@@ -200,33 +136,12 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
     }
 
     @Test
-    public void testTransformers713Reject() throws Exception {
-        testTransformers1_0_0_reject(ModelTestControllerVersion.V7_1_3_FINAL);
+    public void testTransformersEAP640Reject() throws Exception {
+        testTransformers1_1_x_reject(ModelTestControllerVersion.EAP_6_4_0);
     }
 
-    @Test
-    public void testTransformers720Reject() throws Exception {
-        testTransformers1_0_0_reject(ModelTestControllerVersion.V7_2_0_FINAL);
-    }
-
-    @Test
-    public void testTransformersEAP601Reject() throws Exception {
-        testTransformers1_0_0_reject(ModelTestControllerVersion.EAP_6_0_1);
-    }
-
-    @Test
-    public void testTransformersEAP610Reject() throws Exception {
-        testTransformers1_0_0_reject(ModelTestControllerVersion.EAP_6_1_0);
-    }
-
-    @Test
-    public void testTransformersEAP611Reject() throws Exception {
-        testTransformers1_0_0_reject(ModelTestControllerVersion.EAP_6_1_1);
-    }
-
-    private void testTransformers1_0_0_reject(ModelTestControllerVersion controllerVersion) throws Exception {
+    private void testTransformers1_0_x_reject(ModelTestControllerVersion controllerVersion, ModelVersion modelVersion) throws Exception {
         String subsystemXml = readResource("subsystem.xml");
-        ModelVersion modelVersion = ModelVersion.create(1, 0, 0);
         //Use the non-runtime version of the extension which will happen on the HC
         KernelServicesBuilder builder = createKernelServicesBuilder(AdditionalInitialization.MANAGEMENT);
 
@@ -262,29 +177,34 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
         ModelTestUtils.checkFailedTransformedBootOperations(mainServices, modelVersion, xmlOps, config);
     }
 
-    @Test
-    public void testTransformersDiscardsImpliedValues713() throws Exception {
-        testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion.V7_1_3_FINAL);
-    }
+    private void testTransformers1_1_x_reject(ModelTestControllerVersion controllerVersion) throws Exception {
+            String subsystemXml = readResource("subsystem.xml");
+            //Use the non-runtime version of the extension which will happen on the HC
+            KernelServicesBuilder builder = createKernelServicesBuilder(createAdditionalInitialization());
+
+            List<ModelNode> xmlOps = builder.parseXml(subsystemXml);
+
+           ModelVersion modelVersion = ModelVersion.create(1,1);
+            // Add legacy subsystems
+            builder.createLegacyKernelServicesBuilder(null, controllerVersion, modelVersion)
+                    .addMavenResourceURL("org.jboss.as:jboss-as-ee:" + controllerVersion.getMavenGavVersion());
+
+            KernelServices mainServices = builder.build();
+            Assert.assertTrue(mainServices.isSuccessfulBoot());
+
+            FailedOperationTransformationConfig config =  new FailedOperationTransformationConfig()
+            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.CONTEXT_SERVICE)), REJECTED_RESOURCE)
+            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_THREAD_FACTORY)), REJECTED_RESOURCE)
+            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_EXECUTOR_SERVICE)), REJECTED_RESOURCE)
+            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.MANAGED_SCHEDULED_EXECUTOR_SERVICE)), REJECTED_RESOURCE)
+            .addFailedAttribute(PathAddress.pathAddress(EeExtension.PATH_SUBSYSTEM, PathElement.pathElement(EESubsystemModel.GLOBAL_DIRECTORY)), REJECTED_RESOURCE);
+
+            ModelTestUtils.checkFailedTransformedBootOperations(mainServices, modelVersion, xmlOps, config);
+        }
 
     @Test
-    public void testTransformersDiscardsImpliedValues720() throws Exception {
-        testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion.V7_2_0_FINAL);
-    }
-
-    @Test
-    public void testTransformersDiscardsImpliedValuesEAP601() throws Exception {
-        testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion.EAP_6_0_1);
-    }
-
-    @Test
-    public void testTransformersDiscardsImpliedValuesEAP610() throws Exception {
-        testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion.EAP_6_1_0);
-    }
-
-    @Test
-    public void testTransformersDiscardsImpliedValuesEAP611() throws Exception {
-        testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion.EAP_6_1_1);
+    public void testTransformersDiscardsImpliedValuesEAP640() throws Exception {
+        testTransformersDiscardsImpliedValues1_1_0(ModelTestControllerVersion.EAP_6_4_0);
     }
 
     private void testTransformersDiscardsImpliedValues1_0_0(ModelTestControllerVersion controllerVersion) throws Exception {
@@ -295,29 +215,26 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
                 .setSubsystemXml(subsystemXml);
 
         // Add legacy subsystems
+        // The regular model will have the new attributes because they are in the xml,
+        // but the reverse controller model will not because transformation strips them
         builder.createLegacyKernelServicesBuilder(null, controllerVersion, modelVersion)
                 .addMavenResourceURL("org.jboss.as:jboss-as-ee:" + controllerVersion.getMavenGavVersion())
-                .configureReverseControllerCheck(AdditionalInitialization.MANAGEMENT, new ModelFixer() {
-                    // The regular model will have the new attributes because they are in the xml,
-                    // but the reverse controller model will not because transformation strips them
-                    @Override
-                    public ModelNode fixModel(ModelNode modelNode) {
-                        for(ModelNode node : modelNode.get(GLOBAL_MODULES).asList()) {
-                            if ("org.apache.log4j".equals(node.get(NAME).asString())) {
-                                if (!node.has(ANNOTATIONS)) {
-                                    node.get(ANNOTATIONS).set(false);
-                                }
-                                if (!node.has(META_INF)) {
-                                    node.get(META_INF).set(false);
-                                }
-                                if (!node.has(SERVICES)) {
-                                    node.get(SERVICES).set(true);
-                                }
+                .configureReverseControllerCheck(AdditionalInitialization.MANAGEMENT, modelNode -> {
+                    for(ModelNode node : modelNode.get(GLOBAL_MODULES).asList()) {
+                        if ("org.apache.log4j".equals(node.get(NAME).asString())) {
+                            if (!node.has(ANNOTATIONS)) {
+                                node.get(ANNOTATIONS).set(false);
+                            }
+                            if (!node.has(META_INF)) {
+                                node.get(META_INF).set(false);
+                            }
+                            if (!node.has(SERVICES)) {
+                                node.get(SERVICES).set(true);
                             }
                         }
-
-                        return modelNode;
                     }
+
+                    return modelNode;
                 });
 
         KernelServices mainServices = builder.build();
@@ -335,26 +252,24 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
         }
     }
 
-    private static final class JBossDescriptorPropertyReplacementConfig extends AttributesPathAddressConfig<JBossDescriptorPropertyReplacementConfig> {
+    private void testTransformersDiscardsImpliedValues1_1_0(ModelTestControllerVersion controllerVersion) throws Exception {
+        String subsystemXml = readResource("subsystem-transformers-discard.xml");
+        ModelVersion modelVersion = ModelVersion.create(1, 1, 0);
+        //Use the non-runtime version of the extension which will happen on the HC
+        KernelServicesBuilder builder = createKernelServicesBuilder(AdditionalInitialization.MANAGEMENT)
+                .setSubsystemXml(subsystemXml);
 
-        public JBossDescriptorPropertyReplacementConfig() {
-            super(EESubsystemModel.JBOSS_DESCRIPTOR_PROPERTY_REPLACEMENT);
-        }
+        // Add legacy subsystems
+        builder.createLegacyKernelServicesBuilder(null, controllerVersion, modelVersion)
+                .addMavenResourceURL("org.jboss.as:jboss-as-ee:" + controllerVersion.getMavenGavVersion())
+                .configureReverseControllerCheck(AdditionalInitialization.MANAGEMENT, null);
 
-        @Override
-        protected boolean isAttributeWritable(String attributeName) {
-            return true;
-        }
+        KernelServices mainServices = builder.build();
+        KernelServices legacyServices = mainServices.getLegacyServices(modelVersion);
+        Assert.assertTrue(mainServices.isSuccessfulBoot());
+        Assert.assertTrue(legacyServices.isSuccessfulBoot());
 
-        @Override
-        protected boolean checkValue(String attrName, ModelNode attribute, boolean isWriteAttribute) {
-            return !attribute.asString().equals("true");
-        }
 
-        @Override
-        protected ModelNode correctValue(ModelNode toResolve, boolean isWriteAttribute) {
-            return new ModelNode(true);
-        }
     }
 
     private static final class GlobalModulesConfig extends AttributesPathAddressConfig<GlobalModulesConfig> {
@@ -386,30 +301,6 @@ public class EeSubsystemTestCase extends AbstractSubsystemBaseTest {
                 module.remove(SERVICES);
             }
             return toResolve;
-        }
-    }
-
-    private static class RejectUndefinedAttribute extends AttributesPathAddressConfig<RejectUndefinedAttribute> {
-        private final ModelNode replacementValue;
-
-        private RejectUndefinedAttribute(final ModelNode replacementValue, final String... attributes) {
-            super(attributes);
-            this.replacementValue = replacementValue;
-        }
-
-        @Override
-        protected boolean isAttributeWritable(final String attributeName) {
-            return true;
-        }
-
-        @Override
-        protected boolean checkValue(final String attrName, final ModelNode attribute, final boolean isWriteAttribute) {
-            return !attribute.isDefined();
-        }
-
-        @Override
-        protected ModelNode correctValue(final ModelNode toResolve, final boolean isWriteAttribute) {
-            return replacementValue.clone();
         }
     }
 

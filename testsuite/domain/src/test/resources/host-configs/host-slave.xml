@@ -20,9 +20,9 @@
   ~ 02110-1301 USA, or see the FSF site: http://www.fsf.org.
   -->
 
-<host xmlns="urn:jboss:domain:4.0"
+<host xmlns="urn:jboss:domain:18.0"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-      xsi:schemaLocation="urn:jboss:domain:4.0 wildfly-config_4_0.xsd"
+      xsi:schemaLocation="urn:jboss:domain:10.0 wildfly-config_10_0.xsd"
       name="slave">
 
     <paths>
@@ -70,7 +70,8 @@
             <native-interface security-realm="ManagementRealm">
                 <socket interface="management" port="19999"/>
             </native-interface>
-            <http-interface security-realm="ManagementRealm" console-enabled="false"  http-upgrade-enabled="true">
+            <http-interface security-realm="ManagementRealm" console-enabled="false">
+                <http-upgrade enabled="true"/>
                 <socket interface="management" port="19990"/>
             </http-interface>
         </management-interfaces>
@@ -78,7 +79,7 @@
 
     <domain-controller>
         <!-- Remote domain controller configuration with a host and port -->
-        <remote host="${jboss.test.host.master.address}" port="9999" security-realm="ManagementRealm">
+        <remote host="${jboss.test.host.master.address}" protocol="${jboss.domain.master.protocol:remote+http}" port="${jboss.domain.master.port:9990}" security-realm="ManagementRealm">
             <ignored-resources type="extension">
                 <instance name="org.jboss.as.jsr77"/>
             </ignored-resources>
@@ -110,6 +111,9 @@
  	<jvms>
  	   <jvm name="default">
           <heap size="64m" max-size="128m"/>
+           <jvm-options>
+               <option value="-ea"/>
+           </jvm-options>
        </jvm>
  	</jvms>
 
@@ -133,6 +137,7 @@
                 </interface>
             </interfaces>
             <socket-bindings socket-binding-group="other-sockets" port-offset="550"/>
+            <jvm name="default" />
         </server>
         <server name="reload-two" group="reload-test-group"  auto-start="false">
             <jvm name="default" />

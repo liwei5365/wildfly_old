@@ -9,16 +9,18 @@ import org.jboss.marshalling.InputStreamByteInput;
 import org.jboss.marshalling.MarshallerFactory;
 import org.jboss.marshalling.MarshallingConfiguration;
 import org.jboss.marshalling.Unmarshaller;
+import org.jboss.vfs.VFSUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.jboss.as.ejb3.logging.EjbLogger.ROOT_LOGGER;
+import static org.jboss.as.ejb3.logging.EjbLogger.EJB3_TIMER_LOGGER;
 
 /**
  * Contains the code needed to load timers from the legacy persistent format.
@@ -38,20 +40,21 @@ public class LegacyFileStore {
 
     static Map<String, TimerImpl> loadTimersFromFile(final String timedObjectId, final TimerServiceImpl timerService, String directory, MarshallerFactory factory, MarshallingConfiguration configuration) {
         final Map<String, TimerImpl> timers = new HashMap<String, TimerImpl>();
+        Unmarshaller unmarshaller = null;
         try {
             final File file = new File(directory);
             if (!file.exists()) {
                 //no timers exist yet
                 return timers;
             } else if (!file.isDirectory()) {
-                ROOT_LOGGER.failToRestoreTimers(file);
+                EJB3_TIMER_LOGGER.failToRestoreTimers(file);
                 return timers;
             }
             File marker = new File(file, MIGRATION_MARKER);
             if (marker.exists()) {
                 return timers;
             }
-            Unmarshaller unmarshaller = factory.createUnmarshaller(configuration);
+            unmarshaller = factory.createUnmarshaller(configuration);
             for (File timerFile : file.listFiles()) {
                 if(timerFile.getName().endsWith(".xml")) {
                     continue;
@@ -98,28 +101,25 @@ public class LegacyFileStore {
                     timers.put(entity.getId(), builder.build(timerService));
                     unmarshaller.finish();
                 } catch (Exception e) {
-                    ROOT_LOGGER.failToRestoreTimersFromFile(timerFile, e);
+                    EJB3_TIMER_LOGGER.failToRestoreTimersFromFile(timerFile, e);
                 } finally {
                     if (in != null) {
                         try {
                             in.close();
                         } catch (IOException e) {
-                            ROOT_LOGGER.failToCloseFile(e);
+                            EJB3_TIMER_LOGGER.failToCloseFile(e);
                         }
                     }
                 }
 
             }
             if (!timers.isEmpty()) {
-                FileOutputStream out = new FileOutputStream(marker);
-                try {
-                    out.write(new Date().toString().getBytes());
-                } finally {
-                    out.close();
-                }
+                Files.write(marker.toPath(), new Date().toString().getBytes(StandardCharsets.UTF_8));
             }
         } catch (Exception e) {
-            ROOT_LOGGER.failToRestoreTimersForObjectId(timedObjectId, e);
+            EJB3_TIMER_LOGGER.failToRestoreTimersForObjectId(timedObjectId, e);
+        } finally {
+            VFSUtils.safeClose(unmarshaller);
         }
         return timers;
     }

@@ -42,7 +42,7 @@ public class DivertDefinition extends ModelOnlyResourceDefinition {
     public static final PathElement PATH = PathElement.pathElement(CommonAttributes.DIVERT);
 
     public static final SimpleAttributeDefinition ROUTING_NAME = create("routing-name", STRING)
-            .setAllowNull(true)
+            .setRequired(false)
             .setAllowExpression(true)
             .setRestartAllServices()
             .build();
@@ -60,8 +60,8 @@ public class DivertDefinition extends ModelOnlyResourceDefinition {
             .build();
 
     public static final SimpleAttributeDefinition EXCLUSIVE = create("exclusive", BOOLEAN)
-            .setDefaultValue(new ModelNode(false))
-            .setAllowNull(true)
+            .setDefaultValue(ModelNode.FALSE)
+            .setRequired(false)
             .setAllowExpression(true)
             .setRestartAllServices()
             .build();

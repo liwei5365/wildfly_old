@@ -22,7 +22,10 @@
 
 package org.jboss.as.connector.deployers.ra;
 
+import static org.jboss.as.connector.util.ConnectorServices.TRANSACTION_INTEGRATION_CAPABILITY_NAME;
+
 import org.jboss.as.connector.deployers.ds.processors.DriverProcessor;
+import org.jboss.as.connector.deployers.ds.processors.DriverManagerAdapterProcessor;
 import org.jboss.as.connector.deployers.ds.processors.StructureDriverProcessor;
 import org.jboss.as.connector.deployers.ra.processors.IronJacamarDeploymentParsingProcessor;
 import org.jboss.as.connector.deployers.ra.processors.ParsedRaDeploymentProcessor;
@@ -43,6 +46,7 @@ import org.jboss.as.server.DeploymentProcessorTarget;
 import org.jboss.as.server.deployment.Phase;
 import org.jboss.jca.core.spi.mdr.MetadataRepository;
 import org.jboss.jca.core.spi.transaction.TransactionIntegration;
+import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceTarget;
 
 /**
@@ -52,6 +56,7 @@ import org.jboss.msc.service.ServiceTarget;
  * @author <a href="mailto:stefano.maestri@redhat.com">Stefano Maestri</a>
  */
 public class RaDeploymentActivator {
+
     private final boolean appclient;
     private final MdrService mdrService = new MdrService();
 
@@ -68,7 +73,7 @@ public class RaDeploymentActivator {
         RaRepositoryService raRepositoryService = new RaRepositoryService();
         serviceTarget.addService(ConnectorServices.RA_REPOSITORY_SERVICE, raRepositoryService)
                 .addDependency(ConnectorServices.IRONJACAMAR_MDR, MetadataRepository.class, raRepositoryService.getMdrInjector())
-                .addDependency(ConnectorServices.TRANSACTION_INTEGRATION_SERVICE, TransactionIntegration.class,
+                .addDependency(ConnectorServices.getCachedCapabilityServiceName(TRANSACTION_INTEGRATION_CAPABILITY_NAME), TransactionIntegration.class,
                         raRepositoryService.getTransactionIntegrationInjector())
                 .install();
 
@@ -84,9 +89,9 @@ public class RaDeploymentActivator {
                 .install();
 
         ResourceAdapterDeploymentRegistryService registryService = new ResourceAdapterDeploymentRegistryService();
-        serviceTarget.addService(ConnectorServices.RESOURCE_ADAPTER_REGISTRY_SERVICE, registryService)
-                .addDependency(ConnectorServices.IRONJACAMAR_MDR)
-                .install();
+        final ServiceBuilder sb = serviceTarget.addService(ConnectorServices.RESOURCE_ADAPTER_REGISTRY_SERVICE, registryService);
+        sb.requires(ConnectorServices.IRONJACAMAR_MDR);
+        sb.install();
     }
 
 
@@ -101,6 +106,7 @@ public class RaDeploymentActivator {
         updateContext.addDeploymentProcessor(ResourceAdaptersExtension.SUBSYSTEM_NAME, Phase.PARSE, Phase.PARSE_RESOURCE_DEF_ANNOTATION_ADMINISTERED_OBJECT,
                 new AdministeredObjectDefinitionAnnotationProcessor());
         updateContext.addDeploymentProcessor(ResourceAdaptersExtension.SUBSYSTEM_NAME, Phase.DEPENDENCIES, Phase.DEPENDENCIES_RAR_CONFIG, new RarDependencyProcessor(appclient));
+        updateContext.addDeploymentProcessor(ResourceAdaptersExtension.SUBSYSTEM_NAME, Phase.CONFIGURE_MODULE, Phase.CONFIGURE_JDBC_DRIVER_MANAGER_ADAPTER, new DriverManagerAdapterProcessor());
         if (!appclient)
             updateContext.addDeploymentProcessor(ResourceAdaptersExtension.SUBSYSTEM_NAME, Phase.POST_MODULE, Phase.POST_MODULE_RAR_SERVICES_DEPS, new RaXmlDependencyProcessor());
         updateContext.addDeploymentProcessor(ResourceAdaptersExtension.SUBSYSTEM_NAME, Phase.POST_MODULE, Phase.POST_MODULE_RESOURCE_DEF_XML_CONNECTION_FACTORY,

@@ -21,21 +21,15 @@
  */
 package org.jboss.as.jaxr.extension;
 
-import org.jboss.as.controller.ModelVersion;
+import org.jboss.as.controller.ModelOnlyResourceDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
-import org.jboss.as.controller.SubsystemRegistration;
-import org.jboss.as.controller.ModelOnlyResourceDefinition;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
-import org.jboss.as.controller.transform.description.TransformationDescription;
-import org.jboss.as.controller.transform.description.TransformationDescriptionBuilder;
 import org.jboss.dmr.ModelType;
 
 
 /**
- * The JAXR subsystem root resource
+ * The Jakarta XML Registries subsystem root resource
  *
  * @author Thomas.Diesler@jboss.com
  * @since 10-Nov-2011
@@ -44,31 +38,25 @@ class JAXRSubsystemRootResource extends ModelOnlyResourceDefinition {
 
     static SimpleAttributeDefinition CONNECTION_FACTORY_ATTRIBUTE =
             new SimpleAttributeDefinitionBuilder("jndi-name", ModelType.STRING, true)
-            .setAllowExpression(true)
-            .build();
+                    .setAllowExpression(true)
+                    .build();
 
     static SimpleAttributeDefinition CONNECTION_FACTORY_IMPL_ATTRIBUTE =
-            new SimpleAttributeDefinition("class", ModelType.STRING, true);
+            new SimpleAttributeDefinitionBuilder("class", ModelType.STRING)
+                    .setRequired(false)
+                    .build();
 
     JAXRSubsystemRootResource() {
         super(JAXRExtension.SUBSYSTEM_PATH,
                 JAXRExtension.getResolver(),
                 CONNECTION_FACTORY_ATTRIBUTE, CONNECTION_FACTORY_IMPL_ATTRIBUTE);
+        this.setDeprecated(JAXRExtension.DEPRECATED_SINCE);
     }
 
     @Override
     public void registerChildren(ManagementResourceRegistration subsystemRoot) {
         super.registerChildren(subsystemRoot);
-        // JAXR Properties
+        // Jakarta XML Registries Properties
         subsystemRoot.registerSubModel(new JAXRPropertyDefinition());
-    }
-
-    static void registerTransformerers(SubsystemRegistration subsystem) {
-
-        ResourceTransformationDescriptionBuilder builder = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder.getAttributeBuilder()
-            .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, CONNECTION_FACTORY_ATTRIBUTE)
-            .end();
-        TransformationDescription.Tools.register(builder.build(), subsystem, ModelVersion.create(1, 1, 0));
     }
 }

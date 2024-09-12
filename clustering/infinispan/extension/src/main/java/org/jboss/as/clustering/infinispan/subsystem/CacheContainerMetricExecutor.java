@@ -18,27 +18,38 @@
  */
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.function.Function;
+
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.as.clustering.controller.Metric;
 import org.jboss.as.clustering.controller.MetricExecutor;
-import org.jboss.as.clustering.msc.ServiceContainerHelper;
+import org.jboss.as.clustering.controller.MetricFunction;
+import org.jboss.as.clustering.controller.FunctionExecutor;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
+import org.jboss.as.clustering.controller.UnaryCapabilityNameResolver;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.dmr.ModelNode;
-import org.wildfly.clustering.infinispan.spi.CacheContainer;
-import org.wildfly.clustering.infinispan.spi.service.CacheContainerServiceName;
+import org.jboss.msc.service.ServiceName;
+import org.wildfly.clustering.infinispan.spi.InfinispanRequirement;
 
 /**
- * A handler for cache-container metrics.
+ * Executor for cache-container metrics.
  *
  * @author Paul Ferraro
  */
 public class CacheContainerMetricExecutor implements MetricExecutor<EmbeddedCacheManager> {
 
+    private final FunctionExecutorRegistry<EmbeddedCacheManager> executors;
+
+    public CacheContainerMetricExecutor(FunctionExecutorRegistry<EmbeddedCacheManager> executors) {
+        this.executors = executors;
+    }
+
     @Override
     public ModelNode execute(OperationContext context, Metric<EmbeddedCacheManager> metric) throws OperationFailedException {
-        String containerName = context.getCurrentAddressValue();
-        CacheContainer container = ServiceContainerHelper.findValue(context.getServiceRegistry(false), CacheContainerServiceName.CACHE_CONTAINER.getServiceName(containerName));
-        return (container != null) ? metric.execute(container) : null;
+        ServiceName name = InfinispanRequirement.CONTAINER.getServiceName(context, UnaryCapabilityNameResolver.DEFAULT);
+        FunctionExecutor<EmbeddedCacheManager> executor = this.executors.get(name);
+        return (executor != null) ? executor.execute(new MetricFunction<>(Function.identity(), metric)) : null;
     }
 }

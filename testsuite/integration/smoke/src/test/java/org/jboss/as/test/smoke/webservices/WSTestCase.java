@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
 import javax.xml.namespace.QName;
 import javax.xml.ws.Service;
 
@@ -47,7 +46,6 @@ import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.test.integration.common.HttpRequest;
 import org.jboss.as.test.integration.domain.management.util.DomainTestSupport;
-import org.jboss.as.webservices.dmr.WSExtension;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -63,11 +61,12 @@ import org.junit.runner.RunWith;
 @RunAsClient
 public class WSTestCase {
 
-	private static final ModelNode webserviceAddress;
-	static {
+    private static final ModelNode webserviceAddress;
+
+    static {
         webserviceAddress = new ModelNode();
         webserviceAddress.add("subsystem", "webservices");
-	}
+    }
 
     @ContainerResource
     private ManagementClient managementClient;
@@ -96,7 +95,7 @@ public class WSTestCase {
     public void testManagementDescription() throws Exception {
         final ModelNode address = new ModelNode();
         address.add(ModelDescriptionConstants.DEPLOYMENT, "ws-example.war");
-        address.add(ModelDescriptionConstants.SUBSYSTEM, WSExtension.SUBSYSTEM_NAME); //EndpointService
+        address.add(ModelDescriptionConstants.SUBSYSTEM, "webservices"); //EndpointService
         address.add("endpoint", "*"); // get all endpoints
 
         final ModelNode operation = new ModelNode();
@@ -122,10 +121,10 @@ public class WSTestCase {
     @Test
     @InSequence(3)
     public void testManagementDescriptionMetrics() throws Exception {
-    	setStatisticsEnabled(true);
-    	final ModelNode address = new ModelNode();
+        setStatisticsEnabled(true);
+        final ModelNode address = new ModelNode();
         address.add(ModelDescriptionConstants.DEPLOYMENT, "ws-example.war");
-        address.add(ModelDescriptionConstants.SUBSYSTEM, WSExtension.SUBSYSTEM_NAME); //EndpointService
+        address.add(ModelDescriptionConstants.SUBSYSTEM, "webservices"); //EndpointService
         address.add("endpoint", "*"); // get all endpoints
 
         final ModelNode operation = new ModelNode();
@@ -136,7 +135,7 @@ public class WSTestCase {
 
         ModelNode result = managementClient.getControllerClient().execute(operation);
         List<ModelNode> endpoints = DomainTestSupport.validateResponse(result).asList();
-        assertThat(endpoints.size() > 0, is(true) );
+        assertThat(endpoints.size() > 0, is(true));
         for (final ModelNode endpointResult : result.get("result").asList()) {
             final ModelNode endpoint = endpointResult.get("result");
             // Get the wsdl again to be sure the endpoint has been hit at least once
@@ -160,20 +159,20 @@ public class WSTestCase {
     }
 
     private int checkCountMetric(final ModelNode endpointResult, final ModelControllerClient client, final String metricName) throws IOException {
-    	final ModelNode readAttribute = new ModelNode();
+        final ModelNode readAttribute = new ModelNode();
         readAttribute.get(ModelDescriptionConstants.OP).set(ModelDescriptionConstants.READ_ATTRIBUTE_OPERATION);
         readAttribute.get(ModelDescriptionConstants.OP_ADDR).set(endpointResult.get(ModelDescriptionConstants.OP_ADDR));
         readAttribute.get(ModelDescriptionConstants.NAME).set(metricName);
         long timeout = 30_000L + System.currentTimeMillis();
         String value = "-1";
-        while(System.currentTimeMillis() < timeout) {
+        while (System.currentTimeMillis() < timeout) {
             ModelNode attribute = client.execute(readAttribute);
             ModelNode result = DomainTestSupport.validateResponse(attribute);
             value = result.asString();
             assertThat("We have found " + result, value.length(), is(1));
-            if(result.asInt() > 0) {
+            if (result.asInt() > 0) {
                 //We have found a valid metric
-                return result.asInt() ;
+                return result.asInt();
             }
         }
         fail("We have found " + value + " for metric " + metricName + " instead of some positive value");

@@ -29,32 +29,29 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.PRO
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.RESPONSE_HEADERS;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUCCESS;
 
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Pattern;
 
 import org.jboss.as.arquillian.container.ManagementClient;
-import org.jboss.as.cli.CommandContext;
 import org.jboss.as.connector.subsystems.resourceadapters.Namespace;
 import org.jboss.as.connector.subsystems.resourceadapters.ResourceAdapterSubsystemParser;
 import org.jboss.as.controller.ControlledProcessState;
 import org.jboss.as.test.integration.jca.rar.MultipleConnectionFactory1;
 import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
-import org.jboss.as.test.integration.management.util.CLITestUtil;
 import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.shared.FileUtils;
 import org.jboss.as.test.shared.ServerReload;
@@ -65,7 +62,6 @@ import org.jboss.shrinkwrap.api.exporter.ExplodedExporter;
 import org.jboss.shrinkwrap.api.exporter.ZipExporter;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.xnio.IoUtils;
 
 /**
  * AS7-5768 -Support for RA module deployment
@@ -103,8 +99,7 @@ public abstract class AbstractModuleDeploymentTestCaseSetup extends AbstractMgmt
         testModuleRoot = new File(getModulePath(), moduleName);
         File file = testModuleRoot;
         if (deleteParent) {
-            while (!getModulePath().equals(file.getParentFile()))
-                file = file.getParentFile();
+            while (!getModulePath().equals(file.getParentFile())) { file = file.getParentFile(); }
         }
         toRemove.add(file.toPath());
     }
@@ -144,28 +139,19 @@ public abstract class AbstractModuleDeploymentTestCaseSetup extends AbstractMgmt
     }
 
     protected void copyFile(File target, InputStream src) throws IOException {
-        final BufferedOutputStream out = new BufferedOutputStream(
-                new FileOutputStream(target));
-        try {
-            int i = src.read();
-            while (i != -1) {
-                out.write(i);
-                i = src.read();
-            }
-        } finally {
-            IoUtils.safeClose(out);
-        }
+        Files.copy(src, target.toPath());
     }
 
     protected void copyModuleXml(File slot, InputStream src) throws IOException {
-        try(BufferedReader in = new BufferedReader(new InputStreamReader(src));
-                PrintWriter out = new PrintWriter(new File(slot, "module.xml"));) {
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(src, StandardCharsets.UTF_8))) {
             String line;
+            List<String> lines = new ArrayList<>();
             while ((line = in.readLine()) != null) {
                 // replace slot name in the module xml file
                 line = MODULE_SLOT_PATTERN.matcher(line).replaceAll("slot=\"" + getSlot() + "\"");
-                out.println(line);
+                lines.add(line);
             }
+            Files.write(slot.toPath().resolve("module.xml"), lines, StandardCharsets.UTF_8);
         }
     }
 
@@ -200,10 +186,10 @@ public abstract class AbstractModuleDeploymentTestCaseSetup extends AbstractMgmt
         } finally {
             removeModule(defaultPath, true);
         }
-        if (reloadRequired){
-            ServerReload.executeReloadAndWaitForCompletion(managementClient.getControllerClient());
+        if (reloadRequired) {
+            ServerReload.executeReloadAndWaitForCompletion(managementClient);
         }
-        for (Path p:toRemove) {
+        for (Path p : toRemove) {
             deleteRecursively(p);
         }
         toRemove.clear();
@@ -297,6 +283,7 @@ public abstract class AbstractModuleDeploymentTestCaseSetup extends AbstractMgmt
     /**
      * This should be overridden to return a unique slot name for each test-case class / module.
      * We need this since custom modules are not supported to be removing at runtime, see WFLY-1560.
+     *
      * @return a name of the slot of the test module
      */
     protected abstract String getSlot();

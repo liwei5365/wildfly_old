@@ -22,6 +22,7 @@
 
 package org.jboss.as.jpa.processor;
 
+import org.jboss.as.controller.capability.CapabilityServiceSupport;
 import org.jboss.as.ee.structure.DeploymentType;
 import org.jboss.as.ee.structure.DeploymentTypeMarker;
 import org.jboss.as.ee.structure.SpecDescriptorPropertyReplacement;
@@ -30,6 +31,7 @@ import org.jboss.as.jpa.config.PersistenceUnitMetadataHolder;
 import org.jboss.as.jpa.config.PersistenceUnitsInApplication;
 import org.jboss.as.jpa.messages.JpaLogger;
 import org.jboss.as.jpa.puparser.PersistenceUnitXmlParser;
+import org.jboss.as.jpa.util.JPAServiceNames;
 import org.jboss.as.server.deployment.Attachments;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
@@ -39,8 +41,6 @@ import org.jboss.as.server.deployment.DeploymentUtils;
 import org.jboss.as.server.deployment.JPADeploymentMarker;
 import org.jboss.as.server.deployment.SubDeploymentMarker;
 import org.jboss.as.server.deployment.module.ResourceRoot;
-import org.jboss.as.txn.service.TransactionManagerService;
-import org.jboss.as.txn.service.TransactionSynchronizationRegistryService;
 import org.jboss.metadata.parser.util.NoopXMLResolver;
 import org.jboss.vfs.VirtualFile;
 import org.jipijapa.plugin.spi.PersistenceUnitMetadata;
@@ -93,8 +93,9 @@ public class PersistenceUnitParseProcessor implements DeploymentUnitProcessor {
         handleEarDeployment(phaseContext);
         handleJarDeployment(phaseContext);
 
-        phaseContext.addDeploymentDependency(TransactionManagerService.SERVICE_NAME, JpaAttachments.TRANSACTION_MANAGER);
-        phaseContext.addDeploymentDependency(TransactionSynchronizationRegistryService.SERVICE_NAME, JpaAttachments.TRANSACTION_SYNCHRONIZATION_REGISTRY);
+        CapabilityServiceSupport capabilitySupport = phaseContext.getDeploymentUnit().getAttachment(Attachments.CAPABILITY_SERVICE_SUPPORT);
+        phaseContext.addDeploymentDependency(capabilitySupport.getCapabilityServiceName(JPAServiceNames.LOCAL_TRANSACTION_PROVIDER_CAPABILITY), JpaAttachments.LOCAL_TRANSACTION_PROVIDER);
+        phaseContext.addDeploymentDependency(capabilitySupport.getCapabilityServiceName(JPAServiceNames.TRANSACTION_SYNCHRONIZATION_REGISTRY_CAPABILITY), JpaAttachments.TRANSACTION_SYNCHRONIZATION_REGISTRY);
     }
 
     @Override
@@ -317,7 +318,7 @@ public class PersistenceUnitParseProcessor implements DeploymentUnitProcessor {
     /**
      * Eliminate duplicate PU definitions from clustering the deployment (first definition will win)
      * <p/>
-     * JPA 8.2  A persistence unit must have a name. Only one persistence unit of any given name must be defined
+     * Jakarta Persistence 8.2  A persistence unit must have a name. Only one persistence unit of any given name must be defined
      * within a single EJB-JAR file, within a single WAR file, within a single application client jar, or within
      * an EAR. See Section 8.2.2, “Persistence Unit Scope”.
      *
@@ -393,7 +394,7 @@ public class PersistenceUnitParseProcessor implements DeploymentUnitProcessor {
     }
 
     private void markDU(PersistenceUnitMetadataHolder holder, DeploymentUnit deploymentUnit) {
-        if (holder.getPersistenceUnits() != null && holder.getPersistenceUnits().size() > 0) {
+        if (holder.getPersistenceUnits() != null && !holder.getPersistenceUnits().isEmpty()) {
             JPADeploymentMarker.mark(deploymentUnit);
         }
     }

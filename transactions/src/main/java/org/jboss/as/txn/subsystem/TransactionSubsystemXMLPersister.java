@@ -76,13 +76,15 @@ class TransactionSubsystemXMLPersister implements XMLElementWriter<SubsystemMars
         }
         if (TransactionSubsystemRootResourceDefinition.STATISTICS_ENABLED.isMarshallable(node)
                 || TransactionSubsystemRootResourceDefinition.ENABLE_TSM_STATUS.isMarshallable(node)
-                || TransactionSubsystemRootResourceDefinition.DEFAULT_TIMEOUT.isMarshallable(node)) {
+                || TransactionSubsystemRootResourceDefinition.DEFAULT_TIMEOUT.isMarshallable(node)
+                || TransactionSubsystemRootResourceDefinition.MAXIMUM_TIMEOUT.isMarshallable(node)) {
 
             writer.writeStartElement(Element.COORDINATOR_ENVIRONMENT.getLocalName());
 
             TransactionSubsystemRootResourceDefinition.STATISTICS_ENABLED.marshallAsAttribute(node, writer);
             TransactionSubsystemRootResourceDefinition.ENABLE_TSM_STATUS.marshallAsAttribute(node, writer);
             TransactionSubsystemRootResourceDefinition.DEFAULT_TIMEOUT.marshallAsAttribute(node, writer);
+            TransactionSubsystemRootResourceDefinition.MAXIMUM_TIMEOUT.marshallAsAttribute(node, writer);
 
             writer.writeEndElement();
         }
@@ -130,7 +132,7 @@ class TransactionSubsystemXMLPersister implements XMLElementWriter<SubsystemMars
             writer.writeEndElement();
         }
 
-        if (node.hasDefined(CommonAttributes.CM_RESOURCE) && node.get(CommonAttributes.CM_RESOURCE).asList().size() > 0) {
+        if (node.hasDefined(CommonAttributes.CM_RESOURCE) && !node.get(CommonAttributes.CM_RESOURCE).asList().isEmpty()) {
             writer.writeStartElement(Element.CM_RESOURCES.getLocalName());
             for (Property cmr : node.get(CommonAttributes.CM_RESOURCE).asPropertyList()) {
                 writer.writeStartElement(CommonAttributes.CM_RESOURCE);
@@ -146,6 +148,12 @@ class TransactionSubsystemXMLPersister implements XMLElementWriter<SubsystemMars
                 }
                 writer.writeEndElement();
             }
+            writer.writeEndElement();
+        }
+
+        if (TransactionSubsystemRootResourceDefinition.STALE_TRANSACTION_TIME.isMarshallable(node)){
+            writer.writeStartElement(Element.CLIENT.getLocalName());
+            TransactionSubsystemRootResourceDefinition.STALE_TRANSACTION_TIME.marshallAsAttribute(node, writer);
             writer.writeEndElement();
         }
         writer.writeEndElement();

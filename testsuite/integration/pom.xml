@@ -7,13 +7,17 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-testsuite</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <artifactId>wildfly-ts-integ</artifactId>
     <packaging>pom</packaging>
 
-    <name>WildFly Test Suite: Integration</name>
+    <name>WildFly Test Suite: Integration (parent)</name>
 
     <properties>
         <!-- Current module's directory. Will automatically pick up sub-module's basedir. -->
@@ -30,6 +34,7 @@
             -Djbossas.ts.dir=${jbossas.ts.dir}
             -Djbossas.project.dir=${jbossas.project.dir}
             -Djboss.dist=${jboss.dist}
+            -Djava.io.tmpdir=${basedir}/target
         </jvm.args.dirs>
 
         <!-- Used to provide an absolute location for the distribution under test. -->
@@ -40,7 +45,9 @@
         <xslt.scripts.dir>${jbossas.ts.integ.dir}/src/test/xslt</xslt.scripts.dir>
 
         <ts.skipTests>${skipTests}</ts.skipTests>
-        <enforcer.skip>true</enforcer.skip>
+
+        <ts.elytron.cli>../../shared/enable-elytron.cli</ts.elytron.cli>
+        <wildfly.dir>${project.build.directory}/wildfly</wildfly.dir>
     </properties>
 
     <profiles>
@@ -54,6 +61,9 @@
                 <module>web</module>
                 <module>smoke</module>
                 <module>basic</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+                <module>vdx</module>
                 <module>iiop</module>
                 <module>xts</module>
                 <module>rts</module>
@@ -63,6 +73,9 @@
                 <module>manualmode</module>
                 <module>picketlink</module>
                 <module>secman</module>
+                <module>legacy</module>
+                <module>legacy-ejb-client</module>
+                <module>elytron</module>
             </modules>
         </profile>
         <!-- Define ts.integration uber-group. -->
@@ -74,6 +87,9 @@
                 <module>web</module>
                 <module>smoke</module>
                 <module>basic</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+                <module>vdx</module>
                 <module>clustering</module>
                 <module>iiop</module>
                 <module>xts</module>
@@ -83,6 +99,9 @@
                 <module>manualmode</module>
                 <module>picketlink</module>
                 <module>secman</module>
+                <module>legacy</module>
+                <module>legacy-ejb-client</module>
+                <module>elytron</module>
             </modules>
         </profile>
 
@@ -195,11 +214,187 @@
                 <module>secman</module>
             </modules>
         </profile>
+
+        <!-- -Dts.layers -->
+        <profile>
+            <id>ts.integ.group.layers</id>
+            <activation><property><name>ts.layers</name></property></activation>
+            <modules>
+                <module>basic</module>
+                <module>elytron</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+                <module>clustering</module>
+                <module>ws</module>
+            </modules>
+        </profile>
+
+        <!-- -Dts.standalone.microprofile -->
+        <profile>
+            <id>ts.integ.group.standalone.microprofile</id>
+            <activation><property><name>ts.standalone.microprofile</name></property></activation>
+            <modules>
+                <module>basic</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+                <module>clustering</module>
+            </modules>
+        </profile>
+
+        <!-- -Dts.legacy -->
+        <profile>
+            <id>ts.integ.group.legacy</id>
+            <activation><property><name>ts.legacy</name></property></activation>
+            <modules>
+                <module>legacy</module>
+            </modules>
+        </profile>
+
+        <!-- -Dts.legacy.ejb.client -->
+        <profile>
+            <id>ts.integ.group.legacy.ejb.client</id>
+            <activation><property><name>ts.legacy.ejb.client</name></property></activation>
+            <modules>
+                <module>legacy-ejb-client</module>
+            </modules>
+        </profile>
+
+        <!-- -Dts.microprofile -->
+        <profile>
+            <id>ts.integ.group.microprofile</id>
+            <activation><property><name>ts.microprofile</name></property></activation>
+            <modules>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+            </modules>
+        </profile>
+
+        <!-- -Dts.elytron -->
+        <profile>
+            <id>ts.integ.group.elytron</id>
+            <activation><property><name>ts.elytron</name></property></activation>
+            <modules>
+                <module>elytron</module>
+            </modules>
+        </profile>
+
+        <!-- profile to configure WildFly to use Elytron instead of legacy security: -Delytron -->
+        <profile>
+            <id>elytron.profile</id>
+            <activation>
+                <property>
+                    <name>elytron</name>
+                </property>
+                <file>
+                    <exists>${ts.elytron.cli}</exists>
+                </file>
+            </activation>
+            <properties>
+                <!-- Re-enable the default surefire execution -->
+                <surefire.default-test.phase>test</surefire.default-test.phase>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.wildfly.plugins</groupId>
+                        <artifactId>wildfly-maven-plugin</artifactId>
+                        <version>${version.org.wildfly.plugin}</version>
+                        <executions>
+                            <execution>
+                                <phase>process-test-resources</phase>
+                                <goals>
+                                    <goal>execute-commands</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <offline>true</offline>
+                            <scripts>
+                                <script>${ts.elytron.cli}</script>
+                            </scripts>
+                            <jboss-home>${wildfly.dir}</jboss-home>
+                            <stdout>none</stdout>
+                            <java-opts>${modular.jdk.args}</java-opts>
+                            <system-properties>
+                                <maven.repo.local>${settings.localRepository}</maven.repo.local>
+                                <module.path>${jboss.dist}/modules</module.path>
+                            </system-properties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Test against bootable jar -->
+        <profile>
+            <id>bootablejar.profile</id>
+            <activation>
+                <property>
+                    <name>ts.bootable</name>
+                </property>
+            </activation>
+            <properties>
+                <!-- Re-enable the default surefire execution -->
+                <surefire.default-test.phase>test</surefire.default-test.phase>
+            </properties>
+            <modules>
+                <module>basic</module>
+                <module>clustering</module>
+                <module>elytron</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>bootablejar.ee9.profile</id>
+            <activation>
+                <property>
+                    <name>ts.bootable.ee9</name>
+                </property>
+            </activation>
+            <properties>
+                <!-- Re-enable the default surefire execution -->
+                <surefire.default-test.phase>test</surefire.default-test.phase>
+            </properties>
+            <modules>
+                <module>basic</module>
+                <module>clustering</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+            </modules>
+        </profile>
+
+        <!-- Test against the EE 9 feature pack -->
+        <profile>
+            <id>ee9.test.profile</id>
+            <activation>
+                <property>
+                    <name>ts.ee9</name>
+                </property>
+            </activation>
+            <modules>
+                <module>basic</module>
+                <module>ws</module>
+                <module>clustering</module>
+                <module>microprofile</module>
+                <module>microprofile-tck</module>
+            </modules>
+        </profile>
+
     </profiles>
 
 
     <build>
         <plugins>
+            <plugin>
+                <!-- This enforcer.skip property was set to true in the properties. However this doesn't work if the
+                     property is passed on the command line. Therefore we need to explicitly skip it.
+                -->
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
             <!-- General plugin configuration for all integration tests -->
 
             <!-- Resources plugin. -->
@@ -214,27 +409,12 @@
                         <goals><goal>copy-resources</goal></goals>
                         <inherited>true</inherited>
                         <configuration>
-                            <outputDirectory>${basedir}/target/jbossas/standalone/configuration</outputDirectory>
+                            <outputDirectory>${basedir}/target/wildfly/standalone/configuration</outputDirectory>
                             <overwrite>true</overwrite>
                             <resources>
                                 <resource>
                                     <directory>../../shared/src/main/resources</directory>
                                     <includes><include>*.properties</include></includes>
-                                </resource>
-                                <resource>
-                                    <!-- Add the XTS config to the standalone/config directory, so it will be processed as well -->
-                                    <directory>${basedir}/target/jbossas/docs/examples/configs</directory>
-                                    <includes>
-                                         <include>standalone-xts.xml</include>
-                                         <include>standalone-rts.xml</include>
-                                         <include>standalone-ec2-*.xml</include>
-                                         <include>standalone-gossip-*.xml</include>
-                                    </includes>
-                                </resource>
-                                <resource>
-                                    <!-- Add the Picketlink config to the standalone/config directory, so it will be processed as well -->
-                                    <directory>${basedir}/target/jbossas/docs/examples/configs</directory>
-                                    <includes><include>standalone-picketlink.xml</include></includes>
                                 </resource>
                             </resources>
                         </configuration>
@@ -257,17 +437,17 @@
                     <!-- Prevent test and server output appearing in console. -->
                     <redirectTestOutputToFile>${testLogToFile}</redirectTestOutputToFile>
                     <enableAssertions>true</enableAssertions>
-                    <!--<basedir>${jbossas.ts.integ.dir}</basedir>  <!- - "The base directory of the project being tested." Sets ${basedir}. -->
-                    <workingDirectory>${basedir}/target/workdir</workingDirectory> <!-- Work in submodule's own dir. -->
-
+                 
                     <!-- Forked process timeout -->
                     <forkedProcessTimeoutInSeconds>${surefire.forked.process.timeout}</forkedProcessTimeoutInSeconds>
+
                     <!-- System properties to forked surefire JVM which runs clients. -->
-                    <argLine>${surefire.memory.args} ${jvm.args.ip.client} ${jvm.args.timeouts}</argLine>
+                    <argLine>${surefire.system.args} ${surefire.memory.args} ${jvm.args.ip.client} ${jvm.args.timeouts}</argLine>
 
                     <!-- System properties passed to test cases -->
                     <systemPropertyVariables combine.children="append">
                         <node0>${node0}</node0>
+                        <node0.escaped>${node0.escaped}</node0.escaped>
                         <node1>${node1}</node1>
                         <mcast>${mcast}</mcast>
                         <mcast.ttl>${mcast.ttl}</mcast.ttl>
@@ -285,9 +465,18 @@
                             Used in arquillian.xml - arguments for all JBoss AS instances.
                             System properties are duplicated here until ARQ-647 is implemented.
                         -->
-                        <server.jvm.args>${surefire.system.args} ${jvm.args.ip.server} ${jvm.args.jacoco} ${jvm.args.other} ${jvm.args.timeouts} -Dnode0=${node0} -Dnode1=${node1} -Dmcast=${mcast} -Dmcast.ttl=${mcast.ttl} ${jvm.args.dirs}</server.jvm.args>
+                        <server.jvm.args>${surefire.system.args} ${jvm.args.ip.server} ${jvm.args.other} ${jvm.args.timeouts} -Dnode0=${node0} -Dnode1=${node1} -Dmcast=${mcast} -Dmcast.ttl=${mcast.ttl} ${jvm.args.dirs} ${extra.server.jvm.args}</server.jvm.args>
+                        <cli.jvm.args>${modular.jdk.args} -Dmaven.repo.local=${settings.localRepository}</cli.jvm.args>
+                        <modular.jdk.args>${modular.jdk.args}</modular.jdk.args>
                     </systemPropertyVariables>
 
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <configuration>
+                    <skip>${skip.antrun}</skip>
                 </configuration>
             </plugin>
         </plugins>
@@ -297,10 +486,15 @@
         <!-- Dependencies specific to the integration tests. -->
         <dependency>
             <groupId>org.wildfly</groupId>
-            <artifactId>wildfly-webservices-tests-integration</artifactId>
-            <version>${project.version}</version>
+            <artifactId>wildfly-naming-client</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.wildfly.transaction</groupId>
+            <artifactId>wildfly-transaction-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+      
         <dependency>
            <groupId>org.wildfly.core</groupId>
             <artifactId>wildfly-model-test</artifactId>
@@ -316,6 +510,47 @@
             <type>pom</type>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>wildfly-testsuite-shared</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.wildfly.arquillian</groupId>
+            <artifactId>wildfly-arquillian-container-managed</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.wildfly.arquillian</groupId>
+            <artifactId>wildfly-arquillian-protocol-jmx</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.spec.javax.ws.rs</groupId>
+            <artifactId>jboss-jaxrs-api_2.1_spec</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-impl-base</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.resteasy</groupId>
+            <artifactId>resteasy-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
 </project>

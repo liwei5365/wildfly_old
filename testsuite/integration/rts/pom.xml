@@ -15,7 +15,11 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-ts-integ</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <!-- ********************************************************************************** -->
@@ -30,6 +34,75 @@
         <jbossas.ts.dir>${jbossas.ts.integ.dir}/..</jbossas.ts.dir>
         <jbossas.project.dir>${jbossas.ts.dir}/..</jbossas.project.dir>
     </properties>
+
+    <dependencies>
+        <!-- These seem to be required first so that jbossws-cxf-client ends up on the class path first. Also required for Java 11 -->
+        <dependency>
+            <groupId>org.jboss.ws.cxf</groupId>
+            <artifactId>jbossws-cxf-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>com.sun.activation</groupId>
+            <artifactId>jakarta.activation</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>javax.jws</groupId>
+            <artifactId>jsr181-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The following are required at for JAXB on Java 11 -->
+        <dependency>
+            <groupId>org.jboss.logmanager</groupId>
+            <artifactId>log4j-jboss-logmanager</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-databinding-jaxb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-jaxws</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-simple</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-transports-http</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.ws.xmlschema</groupId>
+            <artifactId>xmlschema-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- End JAXB Java 11 Requirements -->
+        <dependency>
+            <groupId>org.jboss.arquillian.junit</groupId>
+            <artifactId>arquillian-junit-container</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.spec.javax.ws.rs</groupId>
+            <artifactId>jboss-jaxrs-api_2.1_spec</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Required for Java 11 -->
+        <dependency>
+            <groupId>org.jboss.spec.javax.xml.bind</groupId>
+            <artifactId>jboss-jaxb-api_2.3_spec</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
     <profiles>
         <profile>
@@ -68,7 +141,6 @@
                 <dependency>
                     <groupId>org.jboss.resteasy</groupId>
                     <artifactId>resteasy-client</artifactId>
-                    <version>${version.org.jboss.resteasy}</version>
                     <scope>test</scope>
                 </dependency>
             </dependencies>
@@ -77,28 +149,27 @@
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
+                        <artifactId>maven-resources-plugin</artifactId>
                         <executions combine.children="append">
-                            <!-- Disable default-test execution. -->
                             <execution>
-                                <id>default-test</id>
+                                <id>ts.copy-rts-config</id>
+                                <phase>generate-test-resources</phase>
                                 <goals>
-                                    <goal>test</goal>
+                                    <goal>copy-resources</goal>
                                 </goals>
-                                <phase>none</phase>
-                            </execution>
-
-                            <!-- Multi node clustering tests. -->
-                            <execution>
-                                <id>tests-rts.surefire</id>
-                                <phase>test</phase>
-                                <goals>
-                                    <goal>test</goal>
-                                </goals>
+                                <inherited>true</inherited>
                                 <configuration>
-                                    <includes>
-                                        <include>org/wildfly/test/extension/rts/**/*TestCase.java</include>
-                                    </includes>
+                                    <outputDirectory>${basedir}/target/wildfly/standalone/configuration</outputDirectory>
+                                    <overwrite>true</overwrite>
+                                    <resources>
+                                        <resource>
+                                            <!-- Add the RTS config to the standalone/config directory, so it will be processed as well -->
+                                            <directory>${jboss.home}/docs/examples/configs</directory>
+                                            <includes>
+                                                <include>standalone-rts.xml</include>
+                                            </includes>
+                                        </resource>
+                                    </resources>
                                 </configuration>
                             </execution>
                         </executions>

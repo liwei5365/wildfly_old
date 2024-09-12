@@ -26,7 +26,6 @@ package org.jboss.as.security;
 
 import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
-import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.PropertiesAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
@@ -35,7 +34,6 @@ import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
-import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
 /**
@@ -44,18 +42,20 @@ import org.jboss.dmr.ModelType;
 public class MappingModuleDefinition extends SimpleResourceDefinition {
 
     protected static final SimpleAttributeDefinition CODE = new SimpleAttributeDefinitionBuilder(ModelDescriptionConstants.CODE, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .build();
 
     protected static final SimpleAttributeDefinition TYPE = new SimpleAttributeDefinitionBuilder(ModelDescriptionConstants.TYPE, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setAllowExpression(true)
             .build();
+
+    protected static final SimpleAttributeDefinition MODULE = LoginModuleResourceDefinition.MODULE;
 
     protected static final PropertiesAttributeDefinition MODULE_OPTIONS = new PropertiesAttributeDefinition.Builder(Constants.MODULE_OPTIONS, true)
             .setAllowExpression(true)
             .build();
-    private static final AttributeDefinition[] ATTRIBUTES = {CODE, TYPE, LoginModuleResourceDefinition.MODULE, MODULE_OPTIONS};
+    private static final AttributeDefinition[] ATTRIBUTES = {CODE, TYPE, MODULE, MODULE_OPTIONS};
 
 
     MappingModuleDefinition(String key) {
@@ -69,14 +69,7 @@ public class MappingModuleDefinition extends SimpleResourceDefinition {
     @Override
     public void registerOperations(ManagementResourceRegistration resourceRegistration) {
         super.registerOperations(resourceRegistration);
-        super.registerAddOperation(resourceRegistration, new AbstractAddStepHandler() {
-            @Override
-            protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
-                for (AttributeDefinition attr : getAttributes()) {
-                    attr.validateAndSet(operation, model);
-                }
-            }
-        }, OperationEntry.Flag.RESTART_NONE);
+        super.registerAddOperation(resourceRegistration, new AbstractAddStepHandler(this.getAttributes()), OperationEntry.Flag.RESTART_NONE);
     }
 
     @Override

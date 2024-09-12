@@ -22,6 +22,8 @@
 
 package org.jboss.as.connector.subsystems.common.pool;
 
+import static org.jboss.as.connector.subsystems.datasources.Constants.DATASOURCES;
+import static org.jboss.as.connector.subsystems.datasources.Constants.ENABLED;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import static org.jboss.as.connector.subsystems.datasources.Constants.USERNAME;
 import static org.jboss.as.connector.subsystems.datasources.Constants.PASSWORD;
 
 import org.jboss.as.connector.util.ConnectorServices;
+import org.jboss.as.connector.util.ModelNodeUtil;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.OperationStepHandler;
@@ -67,6 +70,10 @@ public abstract class PoolOperations implements OperationStepHandler {
         if (!address.getElement(0).getKey().equals(ModelDescriptionConstants.DEPLOYMENT) &&
                 (model = context.readResource(PathAddress.EMPTY_ADDRESS, false).getModel()).isDefined()) {
             jndiName = Util.getJndiName(context, model);
+
+            if (isDisabledDatasource(context, address, model)) {
+                throw ConnectorLogger.ROOT_LOGGER.datasourceIsDisabled(jndiName);
+            }
         } else {
             jndiName = address.getLastElement().getValue();
         }
@@ -101,7 +108,6 @@ public abstract class PoolOperations implements OperationStepHandler {
                 }
             }, OperationContext.Stage.RUNTIME);
         }
-        context.stepCompleted();
     }
 
     protected abstract ModelNode invokeCommandOn(Pool pool, Object... parameters) throws Exception;
@@ -285,7 +291,7 @@ public abstract class PoolOperations implements OperationStepHandler {
             ArrayList<Pool> result = new ArrayList<Pool>(repository.getConnectors().size());
             if (repository.getConnectors() != null) {
                 for (Connector c : repository.getConnectors()) {
-                    if (c.getConnectionFactories() == null || c.getConnectionFactories().size() == 0)
+                    if (c.getConnectionFactories() == null || c.getConnectionFactories().isEmpty())
                         continue;
                     for (ConnectionFactory cf : c.getConnectionFactories()) {
                         if (cf != null && cf.getPool() != null &&
@@ -298,5 +304,10 @@ public abstract class PoolOperations implements OperationStepHandler {
             }
             return result;
         }
+    }
+
+    private boolean isDisabledDatasource(OperationContext context, PathAddress address, ModelNode datasourceNode) throws OperationFailedException {
+        return address.getElement(0).getValue().equals(DATASOURCES) &&
+                !ModelNodeUtil.getBooleanIfSetOrGetDefault(context, datasourceNode, ENABLED);
     }
 }

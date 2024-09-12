@@ -21,9 +21,10 @@
  */
 package org.jboss.as.test.smoke.deployment.rar.tests.multiobjectpartialactivation;
 
+import static org.junit.Assert.assertNotNull;
+
 import java.io.IOException;
 import java.util.List;
-
 import javax.annotation.Resource;
 
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -34,22 +35,16 @@ import org.jboss.as.connector.subsystems.resourceadapters.Namespace;
 import org.jboss.as.connector.subsystems.resourceadapters.ResourceAdapterSubsystemParser;
 import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
-import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
 import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.shared.FileUtils;
 import org.jboss.as.test.smoke.deployment.rar.MultipleAdminObject1;
 import org.jboss.as.test.smoke.deployment.rar.MultipleConnectionFactory1;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertNotNull;
 
 
 /**
@@ -58,15 +53,15 @@ import static org.junit.Assert.assertNotNull;
  */
 @RunWith(Arquillian.class)
 @ServerSetup(MultipleObjectPartialActivationTestCase.MultipleObjectPartialActivationTestCaseSetup.class)
-public class MultipleObjectPartialActivationTestCase extends ContainerResourceMgmtTestBase {
+public class MultipleObjectPartialActivationTestCase {
 
     static class MultipleObjectPartialActivationTestCaseSetup extends AbstractMgmtServerSetupTask {
 
         @Override
-        public void doSetup(final ManagementClient managementClient) throws Exception{
-                String xml = FileUtils.readFile(MultipleObjectPartialActivationTestCase.class, "multiple_part.xml");
-                List<ModelNode> operations = xmlToModelOperations(xml, Namespace.RESOURCEADAPTERS_1_0.getUriString(), new ResourceAdapterSubsystemParser());
-                executeOperation(operationListToCompositeOperation(operations));
+        public void doSetup(final ManagementClient managementClient) throws Exception {
+            String xml = FileUtils.readFile(MultipleObjectPartialActivationTestCase.class, "multiple_part.xml");
+            List<ModelNode> operations = xmlToModelOperations(xml, Namespace.RESOURCEADAPTERS_1_0.getUriString(), new ResourceAdapterSubsystemParser());
+            executeOperation(operationListToCompositeOperation(operations));
         }
 
         @Override
@@ -93,13 +88,12 @@ public class MultipleObjectPartialActivationTestCase extends ContainerResourceMg
                 ShrinkWrap.create(ResourceAdapterArchive.class, deploymentName);
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "multiple.jar");
         ja.addPackage(MultipleConnectionFactory1.class.getPackage()).
-                addClasses(MultipleObjectPartialActivationTestCase.class, AbstractMgmtTestBase.class, MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class, MultipleObjectPartialActivationTestCaseSetup.class, AbstractMgmtServerSetupTask.class );
+                addClasses(MultipleObjectPartialActivationTestCase.class, MultipleObjectPartialActivationTestCaseSetup.class);
 
-        ja.addPackage(AbstractMgmtTestBase.class.getPackage());
+        ja.addPackage(AbstractMgmtTestBase.class.getPackage());   // needed to process the @ServerSetup annotation on the server side
         raa.addAsLibrary(ja);
 
-        raa.addAsManifestResource(MultipleObjectPartialActivationTestCase.class.getPackage(), "ra.xml", "ra.xml")
-                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli\n"), "MANIFEST.MF");
+        raa.addAsManifestResource(MultipleObjectPartialActivationTestCase.class.getPackage(), "ra.xml", "ra.xml");
 
         //org.apache.httpcomponents,
         return raa;

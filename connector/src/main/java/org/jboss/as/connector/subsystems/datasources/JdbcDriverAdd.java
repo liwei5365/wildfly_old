@@ -29,13 +29,18 @@ import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_MAJ
 import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_MINOR_VERSION;
 import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_MODULE_NAME;
 import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_NAME;
+import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_NAME_NAME;
 import static org.jboss.as.connector.subsystems.datasources.Constants.DRIVER_XA_DATASOURCE_CLASS_NAME;
 import static org.jboss.as.connector.subsystems.datasources.Constants.MODULE_SLOT;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.sql.Driver;
 import java.util.ServiceLoader;
+
+import javax.sql.DataSource;
+import javax.sql.XADataSource;
 
 import org.jboss.as.connector.logging.ConnectorLogger;
 import org.jboss.as.connector.services.driver.DriverService;
@@ -51,6 +56,7 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.modules.Module;
 import org.jboss.modules.ModuleIdentifier;
 import org.jboss.modules.ModuleLoadException;
+import org.jboss.modules.ModuleNotFoundException;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
@@ -69,7 +75,10 @@ public class JdbcDriverAdd extends AbstractAddStepHandler {
         final String driverName = PathAddress.pathAddress(address).getLastElement().getValue();
 
         for (AttributeDefinition attribute : Constants.JDBC_DRIVER_ATTRIBUTES) {
-            attribute.validateAndSet(operation, model);
+            // https://issues.jboss.org/browse/WFLY-9324 skip validation on driver-name
+            if (!attribute.getName().equals(DRIVER_NAME_NAME)) {
+                attribute.validateAndSet(operation, model);
+            }
         }
         model.get(DRIVER_NAME.getName()).set(driverName);//this shouldn't be here anymore
     }
@@ -96,20 +105,50 @@ public class JdbcDriverAdd extends AbstractAddStepHandler {
         try {
             moduleId = ModuleIdentifier.create(moduleName, slot);
             module = Module.getCallerModuleLoader().loadModule(moduleId);
+        } catch (ModuleNotFoundException e) {
+            throw new OperationFailedException(ConnectorLogger.ROOT_LOGGER.missingDependencyInModuleDriver(moduleName, e.getMessage()), e);
         } catch (ModuleLoadException e) {
             throw new OperationFailedException(ConnectorLogger.ROOT_LOGGER.failedToLoadModuleDriver(moduleName), e);
         }
 
+        if (dataSourceClassName != null) {
+            Class<? extends DataSource> dsCls;
+            try {
+                dsCls = module.getClassLoader().loadClass(dataSourceClassName).asSubclass(DataSource.class);
+            } catch (ClassNotFoundException  e) {
+                throw SUBSYSTEM_DATASOURCES_LOGGER.failedToLoadDataSourceClass(dataSourceClassName, e);
+            } catch (ClassCastException e) {
+                throw SUBSYSTEM_DATASOURCES_LOGGER.notAValidDataSourceClass(dataSourceClassName, DataSource.class.getName());
+            }
+            checkDSCls(dsCls, DataSource.class);
+        }
+        if (xaDataSourceClassName != null) {
+            Class<? extends XADataSource> dsCls;
+            try {
+                dsCls = module.getClassLoader().loadClass(xaDataSourceClassName).asSubclass(XADataSource.class);
+            } catch (ClassNotFoundException e) {
+                throw SUBSYSTEM_DATASOURCES_LOGGER.failedToLoadDataSourceClass(xaDataSourceClassName, e);
+            } catch (ClassCastException e) {
+                throw SUBSYSTEM_DATASOURCES_LOGGER.notAValidDataSourceClass(dataSourceClassName, DataSource.class.getName());
+            }
+            checkDSCls(dsCls, XADataSource.class);
+        }
         if (driverClassName == null) {
             final ServiceLoader<Driver> serviceLoader = module.loadService(Driver.class);
             boolean driverLoaded = false;
             if (serviceLoader != null) {
+                ClassLoader tccl = Thread.currentThread().getContextClassLoader();
+                Thread.currentThread().setContextClassLoader(module.getClassLoader());
+                try {
                 for (Driver driver : serviceLoader) {
                     startDriverServices(target, moduleId, driver, driverName, majorVersion, minorVersion, dataSourceClassName, xaDataSourceClassName);
                     driverLoaded = true;
                     //just consider first definition and create service for this. User can use different implementation only
                     // w/ explicit declaration of driver-class attribute
                     break;
+                }
+                } finally {
+                    Thread.currentThread().setContextClassLoader(tccl);
                 }
             }
             if (!driverLoaded)
@@ -118,8 +157,15 @@ public class JdbcDriverAdd extends AbstractAddStepHandler {
             try {
                 final Class<? extends Driver> driverClass = module.getClassLoader().loadClass(driverClassName)
                         .asSubclass(Driver.class);
-                final Constructor<? extends Driver> constructor = driverClass.getConstructor();
-                final Driver driver = constructor.newInstance();
+                ClassLoader tccl = Thread.currentThread().getContextClassLoader();
+                Driver driver = null;
+                try {
+                    Thread.currentThread().setContextClassLoader(module.getClassLoader());
+                    final Constructor<? extends Driver> constructor = driverClass.getConstructor();
+                    driver = constructor.newInstance();
+                } finally {
+                    Thread.currentThread().setContextClassLoader(tccl);
+                }
                 startDriverServices(target, moduleId, driver, driverName, majorVersion, minorVersion, dataSourceClassName, xaDataSourceClassName);
             } catch (Exception e) {
                 SUBSYSTEM_DATASOURCES_LOGGER.cannotInstantiateDriverClass(driverClassName, e);
@@ -151,6 +197,12 @@ public class JdbcDriverAdd extends AbstractAddStepHandler {
                         driverService.getDriverRegistryServiceInjector())
                 .setInitialMode(ServiceController.Mode.ACTIVE);
         builder.install();
+    }
+
+    static <T> void checkDSCls(Class<? extends T> dsCls, Class<T> t) throws OperationFailedException {
+        if (Modifier.isInterface(dsCls.getModifiers()) || Modifier.isAbstract(dsCls.getModifiers())) {
+            throw SUBSYSTEM_DATASOURCES_LOGGER.notAValidDataSourceClass(dsCls.getName(), t.getName());
+        }
     }
 
 

@@ -35,6 +35,7 @@ public enum EJB3SubsystemXMLElement {
     UNKNOWN(null),
 
     ASYNC("async"),
+    ALLOW_EJB_NAME_REGEX("allow-ejb-name-regex"),
 
     BEAN_INSTANCE_POOLS("bean-instance-pools"),
     BEAN_INSTANCE_POOL_REF("bean-instance-pool-ref"),
@@ -47,6 +48,7 @@ public enum EJB3SubsystemXMLElement {
     DEFAULT_SECURITY_DOMAIN("default-security-domain"),
     DEFAULT_MISSING_METHOD_PERMISSIONS_DENY_ACCESS(EJB3SubsystemModel.DEFAULT_MISSING_METHOD_PERMISSIONS_DENY_ACCESS),
     DISABLE_DEFAULT_EJB_PERMISSIONS(EJB3SubsystemModel.DISABLE_DEFAULT_EJB_PERMISSIONS),
+    ENABLE_GRACEFUL_TXN_SHUTDOWN(EJB3SubsystemModel.ENABLE_GRACEFUL_TXN_SHUTDOWN),
 
     FILE_DATA_STORE("file-data-store"),
 
@@ -77,6 +79,7 @@ public enum EJB3SubsystemXMLElement {
 
     REMOTE("remote"),
     REMOTING_EJB_RECEIVER("remoting-ejb-receiver"),
+    REMOTE_HTTP_CONNECTION("remote-http-connection"),
     RESOURCE_ADAPTER_NAME("resource-adapter-name"),
     RESOURCE_ADAPTER_REF("resource-adapter-ref"),
 
@@ -87,12 +90,28 @@ public enum EJB3SubsystemXMLElement {
     STATISTICS("statistics"),
     STRICT_MAX_POOL("strict-max-pool"),
 
+    CONNECTIONS("connections"),
+
     THREAD_POOL("thread-pool"),
     THREAD_POOLS("thread-pools"),
     TIMER_SERVICE("timer-service"),
     LOG_SYSTEM_EXCEPTIONS(EJB3SubsystemModel.LOG_SYSTEM_EXCEPTIONS),
     DELIVERY_GROUPS("delivery-groups"),
     DELIVERY_GROUP("delivery-group"),
+
+    // Elytron integration
+    APPLICATION_SECURITY_DOMAIN("application-security-domain"),
+    APPLICATION_SECURITY_DOMAINS("application-security-domains"),
+    IDENTITY("identity"),
+
+    STATIC_EJB_DISCOVERY("static-ejb-discovery"),
+    MODULES("modules"),
+    MODULE("module"),
+
+    //server interceptors
+    SERVER_INTERCEPTORS("server-interceptors"),
+    CLIENT_INTERCEPTORS("client-interceptors"),
+    INTERCEPTOR("interceptor")
     ;
 
     private final String name;

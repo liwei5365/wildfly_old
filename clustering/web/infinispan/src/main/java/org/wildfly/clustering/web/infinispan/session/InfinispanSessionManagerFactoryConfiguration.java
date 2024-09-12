@@ -21,22 +21,26 @@
  */
 package org.wildfly.clustering.web.infinispan.session;
 
-import org.infinispan.Cache;
 import org.infinispan.remoting.transport.Address;
-import org.wildfly.clustering.dispatcher.CommandDispatcherFactory;
-import org.wildfly.clustering.group.NodeFactory;
 import org.wildfly.clustering.infinispan.spi.affinity.KeyAffinityServiceFactory;
+import org.wildfly.clustering.spi.NodeFactory;
+import org.wildfly.clustering.spi.dispatcher.CommandDispatcherFactory;
+import org.wildfly.clustering.web.session.DistributableSessionManagementConfiguration;
 import org.wildfly.clustering.web.session.SessionManagerFactoryConfiguration;
 
-public interface InfinispanSessionManagerFactoryConfiguration {
-
-    SessionManagerFactoryConfiguration getSessionManagerFactoryConfiguration();
-
-    <K, V> Cache<K, V> getCache();
+/**
+ * @param <S> the HttpSession specification type
+ * @param <SC> the ServletContext specification type
+ * @param <AL> the HttpSessionAttributeListener specification type
+ * @param <MC> the marshalling context type
+ * @param <LC> the local context type
+ * @author Paul Ferraro
+ */
+public interface InfinispanSessionManagerFactoryConfiguration<S, SC, AL, MC, LC> extends DistributableSessionManagementConfiguration, SessionManagerFactoryConfiguration<S, SC, AL, MC, LC>, InfinispanConfiguration {
 
     KeyAffinityServiceFactory getKeyAffinityServiceFactory();
 
     CommandDispatcherFactory getCommandDispatcherFactory();
 
-    NodeFactory<Address> getNodeFactory();
+    NodeFactory<Address> getMemberFactory();
 }

@@ -22,58 +22,139 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.UnaryOperator;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.Attribute;
-import org.jboss.as.clustering.controller.Registration;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
+import org.jboss.as.clustering.controller.CapabilityProvider;
+import org.jboss.as.clustering.controller.ResourceDefinitionProvider;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.ResourceServiceConfigurator;
+import org.jboss.as.clustering.controller.ResourceServiceConfiguratorFactory;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleAttribute;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
 import org.jboss.as.clustering.controller.transform.UndefinedAttributesDiscardPolicy;
 import org.jboss.as.clustering.controller.validation.IntRangeValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.LongRangeValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
+import org.jboss.as.clustering.infinispan.subsystem.remote.ClientThreadPoolServiceConfigurator;
+import org.jboss.as.clustering.infinispan.subsystem.remote.RemoteCacheContainerResourceDefinition;
 import org.jboss.as.controller.ModelVersion;
+import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.ResourceDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
-import org.jboss.as.controller.access.management.AccessConstraintDefinition;
+import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.client.helpers.MeasurementUnit;
-import org.jboss.as.controller.descriptions.DefaultResourceDescriptionProvider;
-import org.jboss.as.controller.descriptions.DescriptionProvider;
 import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
 import org.jboss.as.controller.registry.AttributeAccess;
-import org.jboss.as.controller.registry.ImmutableManagementResourceRegistration;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.DynamicDiscardPolicy;
+import org.jboss.as.controller.transform.description.AttributeConverter;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 import org.jboss.msc.service.ServiceName;
-import org.wildfly.clustering.infinispan.spi.service.CacheContainerServiceName;
 
 /**
  * Thread pool resource definitions for Infinispan subsystem. See {@link org.infinispan.factories.KnownComponentNames}
- * and {@link org.infinispan.commons.executors.BlockingThreadPoolExecutorFactory#create(int, int)} for the hardcoded
+ * and {@link org.infinispan.commons.executors.BlockingThreadPoolExecutorFactory#create} for the hardcoded
  * Infinispan default values.
  *
  * @author Radoslav Husar
- * @version February 2015
  */
-public enum ThreadPoolResourceDefinition implements ResourceDefinition, Registration<ManagementResourceRegistration>, ThreadPoolDefinition {
+public enum ThreadPoolResourceDefinition implements ResourceDefinitionProvider, ThreadPoolDefinition, ResourceServiceConfiguratorFactory, UnaryOperator<SimpleResourceDefinition.Parameters>, BiConsumer<ResourceTransformationDescriptionBuilder, ModelVersion> {
 
-    ASYNC_OPERATIONS("async-operations", 25, 25, 1000, 60000),
-    LISTENER("listener", 1, 1, 100000, 60000),
-    PERSISTENCE("persistence", 1, 4, 0, 60000),
-    REMOTE_COMMAND("remote-command", 1, 200, 0, 60000),
-    STATE_TRANSFER("state-transfer", 1, 60, 0, 60000),
-    TRANSPORT("transport", 25, 25, 100000, 60000),
+    // cache-container
+    @Deprecated ASYNC_OPERATIONS("async-operations", 25, 25, 1000, TimeUnit.MINUTES.toMillis(1), true, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+            return parameters.setDeprecatedSince(InfinispanModel.VERSION_13_0_0.getVersion());
+        }
+    },
+    BLOCKING("blocking", 1, 150, 5000, TimeUnit.MINUTES.toMillis(1), false, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public void buildTransformation(ResourceTransformationDescriptionBuilder parent, ModelVersion version) {
+            if (InfinispanModel.VERSION_13_0_0.requiresTransformation(version)) {
+                parent.discardChildResource(this.getPathElement());
+            }
+        }
+    },
+    LISTENER("listener", 1, 1, 1000, TimeUnit.MINUTES.toMillis(1), false, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public void accept(ResourceTransformationDescriptionBuilder builder, ModelVersion version) {
+            if (InfinispanModel.VERSION_12_0_0.requiresTransformation(version)) {
+                builder.getAttributeBuilder().setValueConverter(AttributeConverter.DEFAULT_VALUE, this.getQueueLength().getName());
+            }
+        }
+    },
+    NON_BLOCKING("non-blocking", 2, 2, 1000, TimeUnit.MINUTES.toMillis(1), true, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public void buildTransformation(ResourceTransformationDescriptionBuilder parent, ModelVersion version) {
+            if (InfinispanModel.VERSION_13_0_0.requiresTransformation(version)) {
+                parent.discardChildResource(this.getPathElement());
+            }
+        }
+    },
+    @Deprecated PERSISTENCE("persistence", 4, 4, 5000, TimeUnit.MINUTES.toMillis(1), false, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+            return parameters.setDeprecatedSince(InfinispanModel.VERSION_13_0_0.getVersion());
+        }
+
+        @Override
+        public void accept(ResourceTransformationDescriptionBuilder builder, ModelVersion version) {
+            if (InfinispanModel.VERSION_12_0_0.requiresTransformation(version)) {
+                builder.getAttributeBuilder()
+                        .setValueConverter(AttributeConverter.DEFAULT_VALUE, this.getMinThreads().getName(), this.getQueueLength().getName())
+                        ;
+            }
+        }
+    },
+    @Deprecated REMOTE_COMMAND("remote-command", 1, 200, 0, TimeUnit.MINUTES.toMillis(1), false, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+            return parameters.setDeprecatedSince(InfinispanModel.VERSION_13_0_0.getVersion());
+        }
+    },
+    @Deprecated STATE_TRANSFER("state-transfer", 1, 60, 0, TimeUnit.MINUTES.toMillis(1), true, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+            return parameters.setDeprecatedSince(InfinispanModel.VERSION_12_0_0.getVersion());
+        }
+    },
+    @Deprecated TRANSPORT("transport", 10, 10, 1000, TimeUnit.MINUTES.toMillis(1), true, CacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+            return parameters.setDeprecatedSince(InfinispanModel.VERSION_13_0_0.getVersion());
+        }
+
+        @Override
+        public void accept(ResourceTransformationDescriptionBuilder builder, ModelVersion version) {
+            if (InfinispanModel.VERSION_12_0_0.requiresTransformation(version)) {
+                builder.getAttributeBuilder()
+                        .setValueConverter(AttributeConverter.DEFAULT_VALUE, this.getMinThreads().getName(), this.getMaxThreads().getName(), this.getQueueLength().getName())
+                        ;
+            }
+        }
+    },
+    // remote-cache-container
+    CLIENT("async", 99, 99, 0, 0L, true, RemoteCacheContainerResourceDefinition.Capability.CONFIGURATION) {
+        @Override
+        public ResourceServiceConfigurator createServiceConfigurator(PathAddress address) {
+            return new ClientThreadPoolServiceConfigurator(this, address);
+        }
+
+        @Override
+        public void buildTransformation(ResourceTransformationDescriptionBuilder parent, ModelVersion version) {
+            ResourceTransformationDescriptionBuilder builder = parent.addChildResource(this.getPathElement());
+            if (InfinispanModel.VERSION_12_0_0.requiresTransformation(version)) {
+                builder.getAttributeBuilder().setValueConverter(AttributeConverter.DEFAULT_VALUE, this.getQueueLength().getName());
+            }
+        }
+    },
     ;
 
     static final PathElement WILDCARD_PATH = pathElement(PathElement.WILDCARD_VALUE);
@@ -82,89 +163,60 @@ public enum ThreadPoolResourceDefinition implements ResourceDefinition, Registra
         return PathElement.pathElement("thread-pool", name);
     }
 
-    private final String name;
-    private final ResourceDescriptionResolver descriptionResolver;
+    private final PathElement path;
     private final Attribute minThreads;
     private final Attribute maxThreads;
     private final Attribute queueLength;
     private final Attribute keepAliveTime;
+    private final boolean nonBlocking;
+    private final CapabilityProvider baseCapability;
 
-    ThreadPoolResourceDefinition(String name, int defaultMinThreads, int defaultMaxThreads, int defaultQueueLength, long defaultKeepaliveTime) {
-        this.name = name;
-        this.descriptionResolver = new InfinispanResourceDescriptionResolver(pathElement(name), pathElement(PathElement.WILDCARD_VALUE));
+    ThreadPoolResourceDefinition(String name, int defaultMinThreads, int defaultMaxThreads, int defaultQueueLength, long defaultKeepaliveTime, boolean nonBlocking, CapabilityProvider baseCapability) {
+        this.path = pathElement(name);
         this.minThreads = new SimpleAttribute(createBuilder("min-threads", ModelType.INT, new ModelNode(defaultMinThreads), new IntRangeValidatorBuilder().min(0)).build());
         this.maxThreads = new SimpleAttribute(createBuilder("max-threads", ModelType.INT, new ModelNode(defaultMaxThreads), new IntRangeValidatorBuilder().min(0)).build());
         this.queueLength = new SimpleAttribute(createBuilder("queue-length", ModelType.INT, new ModelNode(defaultQueueLength), new IntRangeValidatorBuilder().min(0)).build());
         this.keepAliveTime = new SimpleAttribute(createBuilder("keepalive-time", ModelType.LONG, new ModelNode(defaultKeepaliveTime), new LongRangeValidatorBuilder().min(0)).build());
+        this.nonBlocking = nonBlocking;
+        this.baseCapability = baseCapability;
     }
 
     private static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue, ParameterValidatorBuilder validatorBuilder) {
-        return new SimpleAttributeDefinitionBuilder(name, type)
+        SimpleAttributeDefinitionBuilder builder = new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
+                .setRequired(false)
                 .setDefaultValue(defaultValue)
                 .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                 .setMeasurementUnit((type == ModelType.LONG) ? MeasurementUnit.MILLISECONDS : null)
-                .setValidator(validatorBuilder.allowExpression(true).allowUndefined(true).build())
                 ;
+        return builder.setValidator(validatorBuilder.configure(builder).build());
     }
 
     @Override
-    public PathElement getPathElement() {
-        return pathElement(this.name);
+    public SimpleResourceDefinition.Parameters apply(SimpleResourceDefinition.Parameters parameters) {
+        return parameters;
     }
 
     @Override
-    public DescriptionProvider getDescriptionProvider(ImmutableManagementResourceRegistration registration) {
-        return new DefaultResourceDescriptionProvider(registration, this.descriptionResolver);
+    public void register(ManagementResourceRegistration parent) {
+        ResourceDescriptionResolver resolver = InfinispanExtension.SUBSYSTEM_RESOLVER.createChildResolver(this.path, pathElement(PathElement.WILDCARD_VALUE));
+        ResourceDefinition definition = new SimpleResourceDefinition(this.apply(new SimpleResourceDefinition.Parameters(this.path, resolver)));
+        ManagementResourceRegistration registration = parent.registerSubModel(definition);
+        ResourceDescriptor descriptor = new ResourceDescriptor(resolver)
+                .addAttributes(this.minThreads, this.maxThreads, this.queueLength, this.keepAliveTime)
+                ;
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler(this);
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
     }
 
     @Override
-    public void registerOperations(ManagementResourceRegistration registration) {
-        ResourceDescriptor descriptor = new ResourceDescriptor(this.descriptionResolver).addAttributes(this.getAttributes());
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new ThreadPoolBuilderFactory(this));
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+    public ResourceServiceConfigurator createServiceConfigurator(PathAddress address) {
+        return new ThreadPoolServiceConfigurator(this, address);
     }
 
     @Override
-    public void registerAttributes(ManagementResourceRegistration registration) {
-        // No-op.
-    }
-
-    @Override
-    public void registerNotifications(ManagementResourceRegistration registration) {
-        // No-op.
-    }
-
-    @Override
-    public void registerChildren(ManagementResourceRegistration registration) {
-        // No-op.
-    }
-
-    @Override
-    public List<AccessConstraintDefinition> getAccessConstraints() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public boolean isRuntime() {
-        return false;
-    }
-
-    @Override
-    public boolean isOrderedChild() {
-        return false;
-    }
-
-    @Override
-    public void register(ManagementResourceRegistration registration) {
-        registration.registerSubModel(this);
-    }
-
-    @Override
-    public ServiceName getServiceName(String containerName) {
-        return CacheContainerServiceName.CONFIGURATION.getServiceName(containerName).append(this.getPathElement().getKeyValuePair());
+    public ServiceName getServiceName(PathAddress containerAddress) {
+        return this.baseCapability.getServiceName(containerAddress).append(this.path.getKeyValuePair());
     }
 
     @Override
@@ -187,16 +239,28 @@ public enum ThreadPoolResourceDefinition implements ResourceDefinition, Registra
         return this.keepAliveTime;
     }
 
-    Collection<Attribute> getAttributes() {
-        return Arrays.asList(this.minThreads, this.maxThreads, this.queueLength, this.keepAliveTime);
+    @Override
+    public boolean isNonBlocking() {
+        return this.nonBlocking;
     }
 
-    void buildTransformation(ModelVersion version, ResourceTransformationDescriptionBuilder parent) {
-        // Nothing to transform yet
+    @Override
+    public PathElement getPathElement() {
+        return this.path;
     }
 
-    DynamicDiscardPolicy getDiscardPolicy() {
-        return new UndefinedAttributesDiscardPolicy(this.getAttributes());
+    @Override
+    public void buildTransformation(ResourceTransformationDescriptionBuilder parent, ModelVersion version) {
+        if (InfinispanModel.VERSION_4_0_0.requiresTransformation(version)) {
+            parent.addChildResource(this.path, new UndefinedAttributesDiscardPolicy(this.minThreads, this.maxThreads, this.queueLength, this.keepAliveTime));
+        } else {
+            ResourceTransformationDescriptionBuilder builder = parent.addChildResource(this.path);
+            this.accept(builder, version);
+        }
     }
 
+    @Override
+    public void accept(ResourceTransformationDescriptionBuilder builder, ModelVersion version) {
+        // Do nothing
+    }
 }

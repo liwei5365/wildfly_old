@@ -32,12 +32,18 @@ import org.jboss.msc.service.ServiceName;
  */
 public interface EJB3SubsystemModel {
     String LITE = "lite";
+    String ABSTACT_TYPE = "abstract-type";
+    String ABSTACT_TYPE_AUTHORITY = "abstract-type-authority";
     String ALIASES = "aliases";
+    String ATTRIBUTES = "attributes";
 
     String ASYNC = "async";
+    String ALLOW_EJB_NAME_REGEX = "allow-ejb-name-regex";
+
     String IIOP = "iiop";
 
     String CONNECTOR_REF = "connector-ref";
+    String CONNECTORS = "connectors";
     String IN_VM_REMOTE_INTERFACE_INVOCATION_PASS_BY_VALUE = "in-vm-remote-interface-invocation-pass-by-value";
 
     String DATASOURCE_JNDI_NAME = "datasource-jndi-name";
@@ -55,14 +61,19 @@ public interface EJB3SubsystemModel {
     String DEFAULT_ENTITY_BEAN_INSTANCE_POOL = "default-entity-bean-instance-pool";
     String DEFAULT_ENTITY_BEAN_OPTIMISTIC_LOCKING = "default-entity-bean-optimistic-locking";
     String DISABLE_DEFAULT_EJB_PERMISSIONS = "disable-default-ejb-permissions";
+    String ENABLE_GRACEFUL_TXN_SHUTDOWN = "enable-graceful-txn-shutdown";
+    String DISCOVERY = "discovery";
+    String STATIC = "static";
     String LOG_SYSTEM_EXCEPTIONS = "log-system-exceptions";
 
     String ENABLE_STATISTICS = "enable-statistics";
+    String STATISTICS_ENABLED = "statistics-enabled";
 
     String FILE_DATA_STORE = "file-data-store";
 
     String MAX_POOL_SIZE = "max-pool-size";
     String DERIVE_SIZE = "derive-size";
+    String DERIVED_SIZE = "derived-size";
 
     String STRICT_MAX_BEAN_INSTANCE_POOL = "strict-max-bean-instance-pool";
 
@@ -74,6 +85,7 @@ public interface EJB3SubsystemModel {
 
     String DEFAULT_SINGLETON_BEAN_ACCESS_TIMEOUT = "default-singleton-bean-access-timeout";
     String DEFAULT_STATEFUL_BEAN_ACCESS_TIMEOUT = "default-stateful-bean-access-timeout";
+    String DEFAULT_STATEFUL_BEAN_SESSION_TIMEOUT = "default-stateful-bean-session-timeout";
     String DEFAULT_DATA_STORE = "default-data-store";
 
     String REMOTE = "remote";
@@ -86,6 +98,7 @@ public interface EJB3SubsystemModel {
     String OUTBOUND_CONNECTION_REF= "outbound-connection-ref";
     String CONNECT_TIMEOUT= "connect-timeout";
     String CLIENT_MAPPINGS_CLUSTER_NAME = "cluster";
+    String REMOTE_HTTP_CONNECTION = "remote-http-connection";
 
     String TIMER = "timer";
     String TIMER_SERVICE = "timer-service";
@@ -126,6 +139,8 @@ public interface EJB3SubsystemModel {
     String REFRESH_INTERVAL = "refresh-interval";
     String ALLOW_EXECUTION = "allow-execution";
 
+    String STATIC_URLS = "static-urls";
+
     PathElement REMOTE_SERVICE_PATH = PathElement.pathElement(SERVICE, REMOTE);
     PathElement ASYNC_SERVICE_PATH = PathElement.pathElement(SERVICE, ASYNC);
     PathElement TIMER_PATH = PathElement.pathElement(TIMER);
@@ -134,6 +149,35 @@ public interface EJB3SubsystemModel {
     PathElement IIOP_PATH = PathElement.pathElement(SERVICE, IIOP);
     PathElement FILE_DATA_STORE_PATH = PathElement.pathElement(FILE_DATA_STORE);
     PathElement DATABASE_DATA_STORE_PATH = PathElement.pathElement(DATABASE_DATA_STORE);
+    PathElement MDB_DELIVERY_GROUP_PATH = PathElement.pathElement(MDB_DELIVERY_GROUP);
+    PathElement STRICT_MAX_BEAN_INSTANCE_POOL_PATH = PathElement.pathElement(STRICT_MAX_BEAN_INSTANCE_POOL);
+    PathElement REMOTING_PROFILE_PATH = PathElement.pathElement(REMOTING_PROFILE);
 
-    ServiceName BASE_THREAD_POOL_SERVICE_NAME = ThreadsServices.EXECUTOR.append("ejb3");
+    String BASE_EJB_THREAD_POOL_NAME = "ejb3";
+    ServiceName BASE_THREAD_POOL_SERVICE_NAME = ThreadsServices.EXECUTOR.append(BASE_EJB_THREAD_POOL_NAME);
+    String EXECUTE_IN_WORKER = "execute-in-worker";
+
+    // Elytron integration
+    String APPLICATION_SECURITY_DOMAIN = "application-security-domain";
+    String IDENTITY = "identity";
+    String OUTFLOW_SECURITY_DOMAINS = "outflow-security-domains";
+    String REFERENCING_DEPLOYMENTS = "referencing-deployments";
+    String SECURITY_DOMAIN = "security-domain";
+    String ENABLE_JACC = "enable-jacc";
+    String LEGACY_COMPLIANT_PRINCIPAL_PROPAGATION = "legacy-compliant-principal-propagation";
+
+    PathElement IDENTITY_PATH = PathElement.pathElement(SERVICE, IDENTITY);
+
+    //Server interceptors
+    String SERVER_INTERCEPTOR = "server-interceptor";
+    String SERVER_INTERCEPTORS = "server-interceptors";
+    //Client interceptors
+    String CLIENT_INTERCEPTOR = "client-interceptor";
+    String CLIENT_INTERCEPTORS = "client-interceptors";
+    String MODULE = "module";
+    String CLASS = "class";
+    String BINDING = "binding";
+
+    String URI = "uri";
+
 }

@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2015, Red Hat, Inc., and individual contributors
+ * Copyright 2021, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -22,96 +22,48 @@
 
 package org.wildfly.clustering.web.infinispan.session;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 import org.infinispan.Cache;
 import org.infinispan.context.Flag;
-import org.wildfly.clustering.ee.infinispan.CacheEntryMutator;
-import org.wildfly.clustering.ee.infinispan.Mutator;
-import org.wildfly.clustering.infinispan.spi.distribution.Key;
-import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
-import org.wildfly.clustering.web.session.SessionMetaData;
+import org.wildfly.clustering.ee.Key;
+import org.wildfly.clustering.web.cache.session.CompositeSessionMetaDataEntry;
+import org.wildfly.clustering.web.cache.session.SessionAccessMetaData;
+import org.wildfly.clustering.web.cache.session.SessionCreationMetaDataEntry;
 
 /**
+ * {@link org.wildfly.clustering.web.cache.session.SessionMetaDataFactory} implementation for read-committed and non-transactional caches.
  * @author Paul Ferraro
  */
-public class InfinispanSessionMetaDataFactory<L> implements SessionMetaDataFactory<InfinispanSessionMetaData<L>, L> {
+public class InfinispanSessionMetaDataFactory<L> extends AbstractInfinispanSessionMetaDataFactory<L> {
 
-    private final Cache<SessionCreationMetaDataKey, SessionCreationMetaDataEntry<L>> creationMetaDataCache;
-    private final Cache<SessionCreationMetaDataKey, SessionCreationMetaDataEntry<L>> findCreationMetaDataCache;
-    private final Cache<SessionAccessMetaDataKey, SessionAccessMetaData> accessMetaDataCache;
-    private final boolean transactional;
+    private final Cache<Key<String>, Object> cache;
 
-    @SuppressWarnings("unchecked")
-    public InfinispanSessionMetaDataFactory(Cache<? extends Key<String>, ?> cache, boolean lockOnRead) {
-        this.creationMetaDataCache = (Cache<SessionCreationMetaDataKey, SessionCreationMetaDataEntry<L>>) cache;
-        this.findCreationMetaDataCache = lockOnRead ? this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_WRITE_LOCK) : this.creationMetaDataCache;
-        this.accessMetaDataCache = (Cache<SessionAccessMetaDataKey, SessionAccessMetaData>) cache;
-        this.transactional = cache.getCacheConfiguration().transaction().transactionMode().isTransactional();
+    public InfinispanSessionMetaDataFactory(InfinispanSessionMetaDataFactoryConfiguration configuration) {
+        super(configuration);
+        this.cache = configuration.getCache();
     }
 
     @Override
-    public InfinispanSessionMetaData<L> createValue(String id, Void context) {
-        SessionCreationMetaDataEntry<L> creationMetaDataEntry = this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).computeIfAbsent(new SessionCreationMetaDataKey(id), key -> new SessionCreationMetaDataEntry<>(new SimpleSessionCreationMetaData()));
-        SessionAccessMetaData accessMetaData = this.accessMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).computeIfAbsent(new SessionAccessMetaDataKey(id), key -> new SimpleSessionAccessMetaData());
-        return new InfinispanSessionMetaData<>(creationMetaDataEntry.getMetaData(), accessMetaData, creationMetaDataEntry.getLocalContext());
-    }
-
-    @Override
-    public InfinispanSessionMetaData<L> findValue(String id) {
-        return this.getValue(id, this.findCreationMetaDataCache);
-    }
-
-    @Override
-    public InfinispanSessionMetaData<L> tryValue(String id) {
-        return this.getValue(id, this.findCreationMetaDataCache.getAdvancedCache().withFlags(Flag.ZERO_LOCK_ACQUISITION_TIMEOUT, Flag.FAIL_SILENTLY));
-    }
-
-    private InfinispanSessionMetaData<L> getValue(String id, Cache<SessionCreationMetaDataKey, SessionCreationMetaDataEntry<L>> creationMetaDataCache) {
+    public CompositeSessionMetaDataEntry<L> apply(String id, Set<Flag> flags) {
         SessionCreationMetaDataKey creationMetaDataKey = new SessionCreationMetaDataKey(id);
-        SessionCreationMetaDataEntry<L> creationMetaDataEntry = creationMetaDataCache.get(creationMetaDataKey);
-        if (creationMetaDataEntry != null) {
-            SessionAccessMetaDataKey accessMetaDataKey = new SessionAccessMetaDataKey(id);
-            SessionAccessMetaData accessMetaData = this.accessMetaDataCache.get(accessMetaDataKey);
-            if (accessMetaData != null) {
-                return new InfinispanSessionMetaData<>(creationMetaDataEntry.getMetaData(), accessMetaData, creationMetaDataEntry.getLocalContext());
-            }
-            // Purge orphaned entry, making sure not to trigger cache listener
-            this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES, Flag.SKIP_LISTENER_NOTIFICATION).remove(creationMetaDataKey);
+        SessionAccessMetaDataKey accessMetaDataKey = new SessionAccessMetaDataKey(id);
+        Set<Key<String>> keys = new HashSet<>(3);
+        keys.add(creationMetaDataKey);
+        keys.add(accessMetaDataKey);
+        // Use bulk read
+        Map<Key<String>, Object> entries = this.cache.getAdvancedCache().withFlags(flags).getAll(keys);
+        @SuppressWarnings("unchecked")
+        SessionCreationMetaDataEntry<L> creationMetaDataEntry = (SessionCreationMetaDataEntry<L>) entries.get(creationMetaDataKey);
+        SessionAccessMetaData accessMetaData = (SessionAccessMetaData) entries.get(accessMetaDataKey);
+        if ((creationMetaDataEntry != null) && (accessMetaData != null)) {
+            return new CompositeSessionMetaDataEntry<>(creationMetaDataEntry, accessMetaData);
+        }
+        if (flags.isEmpty() && ((creationMetaDataEntry != null) || (accessMetaData != null))) {
+            this.purge(id);
         }
         return null;
-    }
-
-    @Override
-    public SessionMetaData createSessionMetaData(String id, InfinispanSessionMetaData<L> entry) {
-        SessionCreationMetaDataKey creationMetaDataKey = new SessionCreationMetaDataKey(id);
-        Mutator creationMutator = this.transactional && this.creationMetaDataCache.getAdvancedCache().getCacheEntry(creationMetaDataKey).isCreated() ? Mutator.PASSIVE : new CacheEntryMutator<>(this.creationMetaDataCache, creationMetaDataKey, new SessionCreationMetaDataEntry<>(entry.getCreationMetaData(), entry.getLocalContext()));
-        SessionCreationMetaData creationMetaData = new MutableSessionCreationMetaData(entry.getCreationMetaData(), creationMutator);
-
-        SessionAccessMetaDataKey accessMetaDataKey = new SessionAccessMetaDataKey(id);
-        Mutator accessMutator = this.transactional && this.accessMetaDataCache.getAdvancedCache().getCacheEntry(accessMetaDataKey).isCreated() ? Mutator.PASSIVE : new CacheEntryMutator<>(this.accessMetaDataCache, accessMetaDataKey, entry.getAccessMetaData());
-        SessionAccessMetaData accessMetaData = new MutableSessionAccessMetaData(entry.getAccessMetaData(), accessMutator);
-
-        return new SimpleSessionMetaData(creationMetaData, accessMetaData);
-    }
-
-    @Override
-    public ImmutableSessionMetaData createImmutableSessionMetaData(String id, InfinispanSessionMetaData<L> entry) {
-        return new SimpleSessionMetaData(entry.getCreationMetaData(), entry.getAccessMetaData());
-    }
-
-    @Override
-    public boolean remove(String id) {
-        SessionCreationMetaDataKey key = new SessionCreationMetaDataKey(id);
-        if (this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.ZERO_LOCK_ACQUISITION_TIMEOUT, Flag.FAIL_SILENTLY).lock(key)) {
-            this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES).remove(new SessionCreationMetaDataKey(id));
-            this.accessMetaDataCache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES).remove(new SessionAccessMetaDataKey(id));
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public void evict(String id) {
-        this.creationMetaDataCache.evict(new SessionCreationMetaDataKey(id));
-        this.accessMetaDataCache.evict(new SessionAccessMetaDataKey(id));
     }
 }

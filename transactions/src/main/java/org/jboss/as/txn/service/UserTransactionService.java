@@ -29,7 +29,7 @@ import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.ServiceTarget;
-import org.jboss.msc.value.InjectedValue;
+import org.wildfly.transaction.client.LocalUserTransaction;
 
 /**
  * Service responsible for getting the {@link UserTransaction}.
@@ -38,19 +38,27 @@ import org.jboss.msc.value.InjectedValue;
  * @since 29-Oct-2010
  */
 public class UserTransactionService extends AbstractService<UserTransaction> {
+    /** @deprecated Use the "org.wildfly.transactions.global-default-local-provider" capability to confirm existence of a local provider
+     *              and org.wildfly.transaction.client.LocalTransactionContext to obtain a UserTransaction reference. */
+    @Deprecated
     public static final ServiceName SERVICE_NAME = TxnServices.JBOSS_TXN_USER_TRANSACTION;
+    /** Non-deprecated service name only for use within the subsystem */
+    @SuppressWarnings("deprecation")
+    public static final ServiceName INTERNAL_SERVICE_NAME = TxnServices.JBOSS_TXN_USER_TRANSACTION;
 
-    private final InjectedValue<com.arjuna.ats.jbossatx.jta.TransactionManagerService> injectedArjunaTM = new InjectedValue<com.arjuna.ats.jbossatx.jta.TransactionManagerService>();
+    private static final UserTransactionService INSTANCE = new UserTransactionService();
+
+    private UserTransactionService() {
+    }
 
     public static ServiceController<UserTransaction> addService(final ServiceTarget target) {
-        UserTransactionService service = new UserTransactionService();
-        ServiceBuilder<UserTransaction> serviceBuilder = target.addService(SERVICE_NAME, service);
-        serviceBuilder.addDependency(ArjunaTransactionManagerService.SERVICE_NAME, com.arjuna.ats.jbossatx.jta.TransactionManagerService.class, service.injectedArjunaTM);
+        ServiceBuilder<UserTransaction> serviceBuilder = target.addService(INTERNAL_SERVICE_NAME, INSTANCE);
+        serviceBuilder.requires(TxnServices.JBOSS_TXN_LOCAL_TRANSACTION_CONTEXT);
         return serviceBuilder.install();
     }
 
     @Override
     public UserTransaction getValue() throws IllegalStateException {
-        return injectedArjunaTM.getValue().getUserTransaction();
+        return LocalUserTransaction.getInstance();
     }
 }

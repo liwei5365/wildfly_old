@@ -45,6 +45,7 @@ import org.jboss.as.jaxr.extension.JAXRConstants.Namespace;
 public class JAXRExtension extends AbstractLegacyExtension {
 
     private static final ModelVersion CURRENT_MODEL_VERSION = ModelVersion.create(1, 2, 0);
+    static final ModelVersion DEPRECATED_SINCE = ModelVersion.create(1, 2, 0);
     static final String SUBSYSTEM_NAME = "jaxr";
     static final PathElement SUBSYSTEM_PATH = PathElement.pathElement(ModelDescriptionConstants.SUBSYSTEM, SUBSYSTEM_NAME);
 
@@ -64,23 +65,18 @@ public class JAXRExtension extends AbstractLegacyExtension {
 
     @Override
     protected Set<ManagementResourceRegistration> initializeLegacyModel(ExtensionContext context) {
-        SubsystemRegistration subsystemRegistration = context.registerSubsystem(SUBSYSTEM_NAME, CURRENT_MODEL_VERSION);
+        SubsystemRegistration subsystemRegistration = context.registerSubsystem(SUBSYSTEM_NAME, CURRENT_MODEL_VERSION, true);
 
         subsystemRegistration.registerXMLElementWriter(JAXRSubsystemWriter.INSTANCE);
 
         ManagementResourceRegistration subsystemRoot = subsystemRegistration.registerSubsystemModel(new JAXRSubsystemRootResource());
-
-        if (context.isRegisterTransformers()) {
-            JAXRSubsystemRootResource.registerTransformerers(subsystemRegistration);
-        }
 
         return Collections.singleton(subsystemRoot);
     }
 
     @Override
     protected void initializeLegacyParsers(ExtensionParsingContext context) {
-        final JAXRSubsystemParser parser = new JAXRSubsystemParser();
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JAXR_1_1.getUriString(), parser);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JAXR_1_0.getUriString(), parser);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JAXR_1_1.getUriString(), JAXRSubsystemParser::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JAXR_1_0.getUriString(), JAXRSubsystemParser::new);
     }
 }

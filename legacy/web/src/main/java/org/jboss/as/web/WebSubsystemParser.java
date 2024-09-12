@@ -86,13 +86,8 @@ import org.jboss.staxmapper.XMLExtendedStreamWriter;
 class WebSubsystemParser implements XMLStreamConstants, XMLElementReader<List<ModelNode>>,
         XMLElementWriter<SubsystemMarshallingContext> {
 
-    private static final WebSubsystemParser INSTANCE = new WebSubsystemParser();
     private static final String RULE_PREFIX = "rule-";
     private static final String CONDITION_PREFIX = "condition-";
-
-    static WebSubsystemParser getInstance() {
-        return INSTANCE;
-    }
 
     /**
      * {@inheritDoc}
@@ -1162,10 +1157,9 @@ class WebSubsystemParser implements XMLStreamConstants, XMLElementReader<List<Mo
             }
         }
         Namespace namespace = Namespace.forUri(reader.getNamespaceURI());
-        if (namespace == Namespace.WEB_1_1 || namespace == Namespace.WEB_1_0) { // workaround to set default for old schema
-            if (!ssl.hasDefined(WebSSLDefinition.KEY_ALIAS.getName())) {
+        if ((namespace == Namespace.WEB_1_1 || namespace == Namespace.WEB_1_0) // workaround to set default for old schema
+                && !ssl.hasDefined(WebSSLDefinition.KEY_ALIAS.getName())) {
                 ssl.get(WebSSLDefinition.KEY_ALIAS.getName()).set("jboss");
-            }
         }
 
         requireNoContent(reader);

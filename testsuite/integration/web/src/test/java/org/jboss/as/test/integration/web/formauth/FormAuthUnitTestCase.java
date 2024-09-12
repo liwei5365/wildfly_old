@@ -37,21 +37,32 @@ import org.jboss.arquillian.container.test.api.OperateOnDeployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
-import org.jboss.as.controller.client.ModelControllerClient;
-import org.jboss.as.controller.client.OperationBuilder;
+import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
+import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.test.integration.management.ManagementOperations;
 import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -69,6 +80,12 @@ public class FormAuthUnitTestCase {
 
     @ArquillianResource
     private URL baseURLNoAuth;
+
+    @ArquillianResource
+    private ManagementClient managementClient;
+
+    private static final String USERNAME = "user2";
+    private static final String PASSWORD = "password2";
 
     DefaultHttpClient httpclient = new DefaultHttpClient();
 
@@ -94,21 +111,6 @@ public class FormAuthUnitTestCase {
         return war;
     }
 
-    public static void applyUpdates(final List<ModelNode> updates, final ModelControllerClient client) throws Exception {
-        for (ModelNode update : updates) {
-            log.debug("+++ Update on " + client + ":\n" + update.toString());
-            ModelNode result = client.execute(new OperationBuilder(update).build());
-            if (result.hasDefined("outcome") && "success".equals(result.get("outcome").asString())) {
-                if (result.hasDefined("result"))
-                    log.info(result.get("result"));
-            } else if (result.hasDefined("failure-description")) {
-                throw new RuntimeException(result.get("failure-description").toString());
-            } else {
-                throw new RuntimeException("Operation not successful; outcome = " + result.get("outcome"));
-            }
-        }
-    }
-
     /**
      * Test form authentication of a secured servlet
      *
@@ -117,7 +119,7 @@ public class FormAuthUnitTestCase {
     @Test
     @OperateOnDeployment("form-auth.war")
     public void testFormAuth() throws Exception {
-        log.info("+++ testFormAuth");
+        log.trace("+++ testFormAuth");
         doSecureGetWithLogin("restricted/SecuredServlet");
         /*
          * Access the resource without attempting a login to validate that the
@@ -134,12 +136,12 @@ public class FormAuthUnitTestCase {
     @Test
     @OperateOnDeployment("form-auth.war")
     public void testFormAuthException() throws Exception {
-        log.info("+++ testFormAuthException");
+        log.trace("+++ testFormAuthException");
 
         URL url = new URL(baseURLNoAuth + "restricted/SecuredServlet");
         HttpGet httpget = new HttpGet(url.toURI());
 
-        log.info("Executing request " + httpget.getRequestLine());
+        log.trace("Executing request " + httpget.getRequestLine());
         HttpResponse response = httpclient.execute(httpget);
 
         int statusCode = response.getStatusLine().getStatusCode();
@@ -160,7 +162,7 @@ public class FormAuthUnitTestCase {
             if (k.getName().equalsIgnoreCase("JSESSIONID"))
                 sessionID = k.getValue();
         }
-        log.info("Saw JSESSIONID=" + sessionID);
+        log.trace("Saw JSESSIONID=" + sessionID);
 
         // Submit the login form
         HttpPost formPost = new HttpPost(baseURLNoAuth + "j_security_check");
@@ -169,9 +171,9 @@ public class FormAuthUnitTestCase {
         List<NameValuePair> formparams = new ArrayList<NameValuePair>();
         formparams.add(new BasicNameValuePair("j_username", "baduser"));
         formparams.add(new BasicNameValuePair("j_password", "badpass"));
-        formPost.setEntity(new UrlEncodedFormEntity(formparams, "UTF-8"));
+        formPost.setEntity(new UrlEncodedFormEntity(formparams, StandardCharsets.UTF_8));
 
-        log.info("Executing request " + formPost.getRequestLine());
+        log.trace("Executing request " + formPost.getRequestLine());
         HttpResponse postResponse = httpclient.execute(formPost);
 
         statusCode = postResponse.getStatusLine().getStatusCode();
@@ -188,7 +190,7 @@ public class FormAuthUnitTestCase {
     @Test
     @OperateOnDeployment("form-auth.war")
     public void testFormAuthSubject() throws Exception {
-        log.info("+++ testFormAuthSubject");
+        log.trace("+++ testFormAuthSubject");
         doSecureGetWithLogin("restricted/SecuredServlet");
     }
 
@@ -199,12 +201,12 @@ public class FormAuthUnitTestCase {
     @Test
     @OperateOnDeployment("form-auth.war")
     public void testPostDataFormAuth() throws Exception {
-        log.info("+++ testPostDataFormAuth");
+        log.trace("+++ testPostDataFormAuth");
 
         URL url = new URL(baseURLNoAuth + "unsecure_form.html");
         HttpGet httpget = new HttpGet(url.toURI());
 
-        log.info("Executing request " + httpget.getRequestLine());
+        log.trace("Executing request " + httpget.getRequestLine());
         HttpResponse response = httpclient.execute(httpget);
 
         int statusCode = response.getStatusLine().getStatusCode();
@@ -218,9 +220,9 @@ public class FormAuthUnitTestCase {
 
         List<NameValuePair> restrictedParams = new ArrayList<NameValuePair>();
         restrictedParams.add(new BasicNameValuePair("checkParam", "123456"));
-        restrictedPost.setEntity(new UrlEncodedFormEntity(restrictedParams, "UTF-8"));
+        restrictedPost.setEntity(new UrlEncodedFormEntity(restrictedParams, StandardCharsets.UTF_8));
 
-        log.info("Executing request " + restrictedPost.getRequestLine());
+        log.trace("Executing request " + restrictedPost.getRequestLine());
         HttpResponse restrictedResponse = httpclient.execute(restrictedPost);
 
         statusCode = restrictedResponse.getStatusLine().getStatusCode();
@@ -241,7 +243,7 @@ public class FormAuthUnitTestCase {
             if (k.getName().equalsIgnoreCase("JSESSIONID"))
                 sessionID = k.getValue();
         }
-        log.info("Saw JSESSIONID=" + sessionID);
+        log.trace("Saw JSESSIONID=" + sessionID);
 
         // Submit the login form
         HttpPost formPost = new HttpPost(baseURLNoAuth + "j_security_check");
@@ -250,9 +252,9 @@ public class FormAuthUnitTestCase {
         List<NameValuePair> formparams = new ArrayList<NameValuePair>();
         formparams.add(new BasicNameValuePair("j_username", "user1"));
         formparams.add(new BasicNameValuePair("j_password", "password1"));
-        formPost.setEntity(new UrlEncodedFormEntity(formparams, "UTF-8"));
+        formPost.setEntity(new UrlEncodedFormEntity(formparams, StandardCharsets.UTF_8));
 
-        log.info("Executing request " + formPost.getRequestLine());
+        log.trace("Executing request " + formPost.getRequestLine());
         HttpResponse postResponse = httpclient.execute(formPost);
 
         statusCode = postResponse.getStatusLine().getStatusCode();
@@ -266,7 +268,7 @@ public class FormAuthUnitTestCase {
         URL indexURI = new URL(location.getValue());
         HttpGet war1Index = new HttpGet(indexURI.toURI());
 
-        log.info("Executing request " + war1Index.getRequestLine());
+        log.trace("Executing request " + war1Index.getRequestLine());
         HttpResponse war1Response = httpclient.execute(war1Index);
 
         statusCode = war1Response.getStatusLine().getStatusCode();
@@ -290,51 +292,57 @@ public class FormAuthUnitTestCase {
      * jaas security domain cache entries after the web session has been
      * invalidated.
      */
-    // lbarerreiro: SKIPPED !!! No JMX connection on AS7
-    // TODO: Other ways of getting this values !?!?
-    //@Ignore
     @Test
     public void testFlushOnSessionInvalidation() throws Exception {
-        log.info("+++ testFlushOnSessionInvalidation");
+        assumeNotElytron(); // not supported in Elytron
 
-        // MBeanServerConnection conn = (MBeanServerConnection) getServer();
-        // ObjectName name = new
-        // ObjectName("jboss.security:service=JaasSecurityManager");
-        // JaasSecurityManagerServiceMBean secMgrService =
-        // (JaasSecurityManagerServiceMBean)
-        // MBeanServerInvocationHandler.newProxyInstance(conn, name,
-        // JaasSecurityManagerServiceMBean.class, false);
+        log.trace("+++ testFlushOnSessionInvalidation");
+
+        final ModelNode addr = new ModelNode();
+        addr.add(ModelDescriptionConstants.SUBSYSTEM, "security");
+        addr.add("security-domain", "other");
+        addr.protect();
+        final ModelNode listCachedPrincipalsOperation = new ModelNode();
+        listCachedPrincipalsOperation.get(ModelDescriptionConstants.OP_ADDR).set(addr);
+        listCachedPrincipalsOperation.get(ModelDescriptionConstants.OP).set("list-cached-principals");
 
         // Access a secured servlet to create a session and jaas cache entry
         doSecureGetWithLogin("restricted/SecuredServlet");
 
-        // Validate that the jaas cache has 1 principal
-        // List<Principal> principals =
-        // secMgrService.getAuthenticationCachePrincipals("jbossweb-form-auth");
-        // assertTrue("jbossweb-form-auth does not have one and only one principal",
-        // principals.size() == 1);
+        // Validate that the jaas cache has our principal
+        final ModelNode node = ManagementOperations.executeOperation(managementClient.getControllerClient(), listCachedPrincipalsOperation);
+        assertNotNull(node);
+        final Set<String> cachedPrincipals = createSetOfPrincipals(node);
+        assertTrue(USERNAME + " should be cached now.", cachedPrincipals.contains(USERNAME));
 
         // Logout to clear the cache
         doSecureGet("Logout");
-        // principals =
-        // secMgrService.getAuthenticationCachePrincipals("jbossweb-form-auth");
-        // log.info("jbossweb-form-auth principals = " +
-        // Arrays.toString(principals.toArray()));
-        // assertTrue("jbossweb-form-auth has cached principals",
-        // principals.size() == 0);
+
+        final ModelNode node2 = ManagementOperations.executeOperation(managementClient.getControllerClient(), listCachedPrincipalsOperation);
+        assertNotNull(node2);
+        final Set<String> cachedPrincipals2 = createSetOfPrincipals(node2);
+        assertFalse(USERNAME + " should no longer be cached.", cachedPrincipals2.contains(USERNAME));
+    }
+
+    private Set<String> createSetOfPrincipals(final ModelNode list) {
+        Set<String> set = new HashSet<>();
+        for (ModelNode node : list.asList()) {
+            set.add(node.asString());
+        }
+        return set;
     }
 
     public HttpPost doSecureGetWithLogin(String path) throws Exception {
-        return doSecureGetWithLogin(path, "user2", "password2");
+        return doSecureGetWithLogin(path, USERNAME, PASSWORD);
     }
 
     public HttpPost doSecureGetWithLogin(String path, String username, String password) throws Exception {
-        log.info("+++ doSecureGetWithLogin : " + path);
+        log.trace("+++ doSecureGetWithLogin : " + path);
 
         URL url = new URL(baseURLNoAuth + path);
         HttpGet httpget = new HttpGet(url.toURI());
 
-        log.info("Executing request " + httpget.getRequestLine());
+        log.trace("Executing request " + httpget.getRequestLine());
         HttpResponse response = httpclient.execute(httpget);
 
         int statusCode = response.getStatusLine().getStatusCode();
@@ -355,7 +363,7 @@ public class FormAuthUnitTestCase {
             if (k.getName().equalsIgnoreCase("JSESSIONID"))
                 sessionID = k.getValue();
         }
-        log.info("Saw JSESSIONID=" + sessionID);
+        log.trace("Saw JSESSIONID=" + sessionID);
 
         // Submit the login form
         HttpPost formPost = new HttpPost(baseURLNoAuth + "j_security_check");
@@ -364,9 +372,9 @@ public class FormAuthUnitTestCase {
         List<NameValuePair> formparams = new ArrayList<NameValuePair>();
         formparams.add(new BasicNameValuePair("j_username", username));
         formparams.add(new BasicNameValuePair("j_password", password));
-        formPost.setEntity(new UrlEncodedFormEntity(formparams, "UTF-8"));
+        formPost.setEntity(new UrlEncodedFormEntity(formparams, StandardCharsets.UTF_8));
 
-        log.info("Executing request " + formPost.getRequestLine());
+        log.trace("Executing request " + formPost.getRequestLine());
         HttpResponse postResponse = httpclient.execute(formPost);
 
         statusCode = postResponse.getStatusLine().getStatusCode();
@@ -380,7 +388,7 @@ public class FormAuthUnitTestCase {
         URL indexURI = new URL(location.getValue());
         HttpGet war1Index = new HttpGet(url.toURI());
 
-        log.info("Executing request " + war1Index.getRequestLine());
+        log.trace("Executing request " + war1Index.getRequestLine());
         HttpResponse war1Response = httpclient.execute(war1Index);
 
         statusCode = war1Response.getStatusLine().getStatusCode();
@@ -401,24 +409,32 @@ public class FormAuthUnitTestCase {
     }
 
     public void doSecureGet(String path) throws Exception {
-        log.info("+++ doSecureGet : " + path);
+        log.trace("+++ doSecureGet : " + path);
 
         String sessionID = null;
         for (Cookie k : httpclient.getCookieStore().getCookies()) {
             if (k.getName().equalsIgnoreCase("JSESSIONID"))
                 sessionID = k.getValue();
         }
-        log.info("Saw JSESSIONID=" + sessionID);
+        log.trace("Saw JSESSIONID=" + sessionID);
 
         URL url = new URL(baseURLNoAuth + path);
         HttpGet httpget = new HttpGet(url.toURI());
 
-        log.info("Executing request" + httpget.getRequestLine());
+        log.trace("Executing request" + httpget.getRequestLine());
         HttpResponse response = httpclient.execute(httpget);
 
         int statusCode = response.getStatusLine().getStatusCode();
         Header[] errorHeaders = response.getHeaders("X-NoJException");
         assertTrue("Wrong response code: " + statusCode, statusCode == HttpURLConnection.HTTP_OK);
         assertTrue("X-NoJException(" + Arrays.toString(errorHeaders) + ") is null", errorHeaders.length == 0);
+    }
+
+    private void assumeNotElytron() throws IOException {
+
+        ModelNode op = Util.createEmptyOperation("read-resource", PathAddress.pathAddress("subsystem", "undertow"));
+        final ModelNode response = managementClient.getControllerClient().execute(op);
+        assertEquals(response.toString(), "success", response.get("outcome").asString());
+        Assume.assumeTrue("flushOnSessionInvalidation is not supported with Elytron", !response.hasDefined("result", "application-security-domain"));
     }
 }

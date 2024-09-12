@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -36,6 +36,7 @@ import org.jboss.msc.service.ServiceTarget;
 
 /**
  * @author Stuart Douglas
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 final class BufferCacheAdd extends AbstractAddStepHandler {
     static final BufferCacheAdd INSTANCE = new BufferCacheAdd();
@@ -53,15 +54,13 @@ final class BufferCacheAdd extends AbstractAddStepHandler {
         protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
         final PathAddress address = PathAddress.pathAddress(operation.get(OP_ADDR));
         final String name = address.getLastElement().getValue();
-        int bufferSize = BufferCacheDefinition.BUFFER_SIZE.resolveModelAttribute(context, model).asInt();
-        int buffersPerRegions = BufferCacheDefinition.BUFFERS_PER_REGION.resolveModelAttribute(context, model).asInt();
-        int maxRegions = BufferCacheDefinition.MAX_REGIONS.resolveModelAttribute(context, model).asInt();
+        final int bufferSize = BufferCacheDefinition.BUFFER_SIZE.resolveModelAttribute(context, model).asInt();
+        final int buffersPerRegions = BufferCacheDefinition.BUFFERS_PER_REGION.resolveModelAttribute(context, model).asInt();
+        final int maxRegions = BufferCacheDefinition.MAX_REGIONS.resolveModelAttribute(context, model).asInt();
 
         final BufferCacheService service = new BufferCacheService(bufferSize, buffersPerRegions, maxRegions);
         final ServiceTarget target = context.getServiceTarget();
-
-        target.addService(BufferCacheService.SERVICE_NAME.append(name), service)
-                .setInitialMode(ServiceController.Mode.ON_DEMAND)
-                .install();
+        target.addService(BufferCacheService.SERVICE_NAME.append(name)).setInstance(service)
+                .setInitialMode(ServiceController.Mode.ON_DEMAND).install();
     }
 }

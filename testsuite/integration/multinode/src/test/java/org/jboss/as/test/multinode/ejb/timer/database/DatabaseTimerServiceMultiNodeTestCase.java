@@ -21,6 +21,23 @@
  */
 package org.jboss.as.test.multinode.ejb.timer.database;
 
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.COMPOSITE;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SERVICE;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.STEPS;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
+import static org.jboss.as.test.multinode.ejb.timer.database.DatabaseTimerServiceMultiNodeExecutionDisabledTestCase.getRemoteContext;
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
+
+import java.net.SocketPermission;
+import java.security.SecurityPermission;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import javax.naming.Context;
+
 import org.h2.tools.Server;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
@@ -30,9 +47,12 @@ import org.jboss.as.arquillian.api.ContainerResource;
 import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
-import org.jboss.as.test.integration.management.ManagementOperations;
+import org.jboss.as.controller.PathAddress;
+import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.test.integration.security.common.Utils;
 import org.jboss.as.test.shared.FileUtils;
-import org.jboss.as.test.shared.integration.ejb.security.CallbackHandler;
+import org.jboss.as.test.shared.ServerReload;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -42,23 +62,6 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import javax.naming.Context;
-import javax.naming.InitialContext;
-import java.net.URI;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
-
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ALLOW_RESOURCE_SERVICE_RESTART;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OPERATION_HEADERS;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.REMOVE;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ROLLBACK_ON_RUNTIME_FAILURE;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
 
 /**
  * Tests that timers are never doubled up
@@ -77,6 +80,8 @@ public class DatabaseTimerServiceMultiNodeTestCase {
 
     private static final int TIMER_DELAY = 400;
 
+    static final PathAddress ADDR_DATA_SOURCE = PathAddress.pathAddress().append(SUBSYSTEM, "datasources").append("data-source", "MyNewDs");
+    static final PathAddress ADDR_DATA_STORE = PathAddress.pathAddress().append(SUBSYSTEM, "ejb3").append(SERVICE, "timer-service").append("database-data-store", "dbstore");
 
     @AfterClass
     public static void afterClass() {
@@ -87,6 +92,10 @@ public class DatabaseTimerServiceMultiNodeTestCase {
 
     static class DatabaseTimerServiceTestCaseServerSetup implements ServerSetupTask {
 
+        private static final PathAddress ADDR_DATA_SOURCE = PathAddress.pathAddress().append(SUBSYSTEM, "datasources").append("data-source", "MyNewDs");
+        private static final PathAddress ADDR_TIMER_SERVICE = PathAddress.pathAddress().append(SUBSYSTEM, "ejb3").append("service", "timer-service");
+        private static final PathAddress ADDR_DATABASE_DATA_STORE = ADDR_TIMER_SERVICE.append("database-data-store", "dbstore");
+
         @Override
         public void setup(final ManagementClient managementClient, final String containerId) throws Exception {
 
@@ -95,59 +104,52 @@ public class DatabaseTimerServiceMultiNodeTestCase {
                 server = Server.createTcpServer().start();
             }
 
-            final ModelNode address = new ModelNode();
-            address.add("subsystem", "datasources");
-            address.add("data-source", "MyNewDs");
-            address.protect();
+            final ModelNode compositeOp = new ModelNode();
+            compositeOp.get(OP).set(COMPOSITE);
+            compositeOp.get(OP_ADDR).setEmptyList();
+            ModelNode steps = compositeOp.get(STEPS);
 
-            final ModelNode operation = new ModelNode();
-            operation.get(OP).set("add");
-            operation.get(OP_ADDR).set(address);
+            // /subsystem=datasources/data-source=MyNewDs:add(name=MyNewDs,jndi-name=java:jboss/datasources/TimeDs, enabled=true)
+            ModelNode datasourceAddModelNode = Util.createAddOperation(ADDR_DATA_SOURCE);
+            datasourceAddModelNode.get("name").set("MyNewDs");
+            datasourceAddModelNode.get("jndi-name").set("java:jboss/datasources/TimeDs");
+            datasourceAddModelNode.get("enabled").set(true);
+            datasourceAddModelNode.get("driver-name").set("h2");
+            datasourceAddModelNode.get("pool-name").set("MyNewDs_Pool");
+            datasourceAddModelNode.get("connection-url").set("jdbc:h2:" + server.getURL() + "/mem:testdb;DB_CLOSE_DELAY=-1");
+            datasourceAddModelNode.get("user-name").set("sa");
+            datasourceAddModelNode.get("password").set("sa");
+            steps.add(datasourceAddModelNode);
 
-            operation.get("name").set("MyNewDs");
-            operation.get("jndi-name").set("java:jboss/datasources/TimeDs");
-            operation.get("enabled").set(true);
+            // /subsystem=ejb3/remoting-profile=test-profile/remoting-ejb-receiver=test-receiver:add(outbound-connection-ref=remote-ejb-connection)
+            ModelNode databaseDataStoreAddModelNode = Util.createAddOperation(ADDR_DATABASE_DATA_STORE);
+            databaseDataStoreAddModelNode.get("datasource-jndi-name").set("java:jboss/datasources/TimeDs");
+            databaseDataStoreAddModelNode.get("database").set("postgresql");
+            databaseDataStoreAddModelNode.get("refresh-interval").set(100);
+            steps.add(databaseDataStoreAddModelNode);
 
-
-            operation.get("driver-name").set("h2");
-            operation.get("pool-name").set("MyNewDs_Pool");
-
-            operation.get("connection-url").set("jdbc:h2:" + server.getURL() + "/testdb;DB_CLOSE_DELAY=-1");
-            operation.get("user-name").set("sa");
-            operation.get("password").set("sa");
-
-            ManagementOperations.executeOperation(managementClient.getControllerClient(), operation);
-
-            ModelNode op = new ModelNode();
-            op.get(OP).set(ADD);
-            op.get(OP_ADDR).add(SUBSYSTEM, "ejb3");
-            op.get(OP_ADDR).add("service", "timer-service");
-            op.get(OP_ADDR).add("database-data-store", "dbstore");
-            op.get("datasource-jndi-name").set("java:jboss/datasources/TimeDs");
-            op.get("database").set("postgresql");
-            op.get("refresh-interval").set(100);
-            op.get(OPERATION_HEADERS, ALLOW_RESOURCE_SERVICE_RESTART).set(true);
-            ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
+            Utils.applyUpdates(Collections.singletonList(compositeOp), managementClient.getControllerClient());
+            ServerReload.reloadIfRequired(managementClient);
         }
 
         @Override
         public void tearDown(final ManagementClient managementClient, final String containerId) throws Exception {
-            ModelNode op = new ModelNode();
-            op.get(OP).set(REMOVE);
-            op.get(OP_ADDR).add(SUBSYSTEM, "ejb3");
-            op.get(OP_ADDR).add("service", "timer-service");
-            op.get(OP_ADDR).add("database-data-store", "dbstore");
-            op.get(OPERATION_HEADERS, ROLLBACK_ON_RUNTIME_FAILURE).set(false);
-            op.get(OPERATION_HEADERS, ALLOW_RESOURCE_SERVICE_RESTART).set(true);
-            ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
 
-            op = new ModelNode();
-            op.get(OP).set(REMOVE);
-            op.get(OP_ADDR).add(SUBSYSTEM, "datasources");
-            op.get(OP_ADDR).add("data-source", "MyNewDs");
-            op.get(OPERATION_HEADERS, ROLLBACK_ON_RUNTIME_FAILURE).set(false);
-            op.get(OPERATION_HEADERS, ALLOW_RESOURCE_SERVICE_RESTART).set(true);
-            ManagementOperations.executeOperation(managementClient.getControllerClient(), op);
+            final ModelNode compositeOp = new ModelNode();
+            compositeOp.get(OP).set(COMPOSITE);
+            compositeOp.get(OP_ADDR).setEmptyList();
+            ModelNode steps = compositeOp.get(STEPS);
+
+            ModelNode databaseDataStoreRemoveModelNode = Util.createRemoveOperation(ADDR_DATABASE_DATA_STORE);
+            // omitting op.get(OPERATION_HEADERS, ROLLBACK_ON_RUNTIME_FAILURE).set(false)
+            steps.add(databaseDataStoreRemoveModelNode);
+
+            ModelNode datasourceRemoveModelNode = Util.createRemoveOperation(ADDR_DATA_SOURCE);
+            // omitting op.get(OPERATION_HEADERS, ROLLBACK_ON_RUNTIME_FAILURE).set(false)
+            steps.add(datasourceRemoveModelNode);
+
+            Utils.applyUpdates(Collections.singletonList(compositeOp), managementClient.getControllerClient());
+            ServerReload.reloadIfRequired(managementClient);
         }
     }
 
@@ -181,6 +183,11 @@ public class DatabaseTimerServiceMultiNodeTestCase {
         war.addAsResource(new StringAsset(client ? "client" : "server"), "node.txt");
         if (client) {
             war.addAsManifestResource(DatabaseTimerServiceMultiNodeExecutionDisabledTestCase.class.getPackage(), "jboss-ejb-client.xml", "jboss-ejb-client.xml");
+            war.addAsManifestResource(
+                    createPermissionsXmlAsset(
+                            new SocketPermission("*:9092", "connect,resolve"),
+                            new SecurityPermission("putProviderProperty.WildFlyElytron")),
+                    "permissions.xml");
         }
         return war;
     }
@@ -192,7 +199,7 @@ public class DatabaseTimerServiceMultiNodeTestCase {
         try {
             RemoteTimedBean clientBean = (RemoteTimedBean) clientContext.lookup(ARCHIVE_NAME + "/" + TimedObjectTimerServiceBean.class.getSimpleName() + "!" + RemoteTimedBean.class.getName());
             Set<String> names = new HashSet<>();
-            long time = System.currentTimeMillis() + TIMER_DELAY;
+            long time = System.currentTimeMillis() + TimeoutUtil.adjust(TIMER_DELAY);
             for (int i = 0; i < TIMER_COUNT; ++i) {
                 String name = "timer" + i;
                 clientBean.scheduleTimer(time, name);
@@ -204,8 +211,6 @@ public class DatabaseTimerServiceMultiNodeTestCase {
                 Collector serverBean = (Collector) remoteContext.lookup(ARCHIVE_NAME + "/" + CollectionSingleton.class.getSimpleName() + "!" + Collector.class.getName());
                 List<TimerData> res = serverBean.collect(TIMER_COUNT);
                 Assert.assertEquals("Expected " + TIMER_COUNT + " was " + res.size() + " " + res, TIMER_COUNT, res.size());
-                boolean server = false;
-                boolean client = false;
                 final Set<String> newNames = new HashSet<>(names);
                 for (TimerData r : res) {
                     if (!newNames.remove(r.getInfo())) {
@@ -215,14 +220,7 @@ public class DatabaseTimerServiceMultiNodeTestCase {
                             throw new RuntimeException("Timer " + r.getInfo() + " run twice " + res);
                         }
                     }
-                    if (r.getNode().equals("client")) {
-                        client = true;
-                    } else if (r.getNode().equals("server")) {
-                        server = true;
-                    }
                 }
-                Assert.assertTrue(client);
-                Assert.assertTrue(server);
             } finally {
                 remoteContext.close();
             }
@@ -230,18 +228,4 @@ public class DatabaseTimerServiceMultiNodeTestCase {
             clientContext.close();
         }
     }
-
-
-    public Context getRemoteContext(ManagementClient managementClient) throws Exception {
-        final Properties env = new Properties();
-        env.put(Context.INITIAL_CONTEXT_FACTORY, org.jboss.naming.remote.client.InitialContextFactory.class.getName());
-        URI webUri = managementClient.getWebUri();
-        URI namingUri = new URI("http-remoting", webUri.getUserInfo(), webUri.getHost(), webUri.getPort(), "", "", "");
-        env.put(Context.PROVIDER_URL, namingUri.toString());
-        env.put("jboss.naming.client.connect.options.org.xnio.Options.SASL_POLICY_NOPLAINTEXT", "false");
-        env.put("jboss.naming.client.security.callback.handler.class", CallbackHandler.class.getName());
-        env.put("jboss.naming.client.ejb.context", true);
-        return new InitialContext(env);
-    }
-
 }

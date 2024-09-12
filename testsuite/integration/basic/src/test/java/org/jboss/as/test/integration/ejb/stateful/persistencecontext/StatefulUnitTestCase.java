@@ -30,6 +30,7 @@ import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.test.shared.ServerReload;
 import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.Archive;
@@ -56,7 +57,7 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUC
 @ServerSetup(StatefulUnitTestCase.StatefulUnitTestCaseSetup.class)
 public class StatefulUnitTestCase {
     private static final Logger log = Logger.getLogger(StatefulUnitTestCase.class);
-    private static int TIME_TO_WAIT_FOR_PASSIVATION_MS = 1000;
+    private static final int TIME_TO_WAIT_FOR_PASSIVATION_MS = 1000;
 
     @ArquillianResource
     InitialContext ctx;
@@ -76,8 +77,9 @@ public class StatefulUnitTestCase {
             operation.get("name").set("max-size");
             operation.get("value").set(1);
             ModelNode result = managementClient.getControllerClient().execute(operation);
-            log.info("modelnode operation write-attribute max-size=0: " + result);
+            log.trace("modelnode operation write-attribute max-size=0: " + result);
             Assert.assertEquals(SUCCESS, result.get(OUTCOME).asString());
+            ServerReload.reloadIfRequired(managementClient);
         }
 
         @Override
@@ -89,6 +91,7 @@ public class StatefulUnitTestCase {
             operation.get("name").set("max-size");
             ModelNode result = managementClient.getControllerClient().execute(operation);
             Assert.assertEquals(SUCCESS, result.get(OUTCOME).asString());
+            ServerReload.reloadIfRequired(managementClient);
         }
 
         private static ModelNode getAddress() {
@@ -107,37 +110,39 @@ public class StatefulUnitTestCase {
         jar.addPackage(StatefulUnitTestCase.class.getPackage());
         jar.addAsManifestResource(StatefulUnitTestCase.class.getPackage(), "persistence.xml", "persistence.xml");
         jar.addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client, org.jboss.dmr, org.jboss.marshalling \n"), "MANIFEST.MF");
-        log.info(jar.toString(true));
         return jar;
     }
 
     @Test
     public void testStateful() throws Exception {
-        StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + StatefulBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        //System.out.println("Before DOIT testStateful");
-        int id = remote.doit();
-        //System.out.println("After DOIT testStateful");
-        ctx.lookup("java:module/" + StatefulBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
-        remote.find(id);
-        //System.out.println("After find testStateful");
+        try (StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + StatefulBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+            int id = remote.doit();
+            try (StatefulRemote remote2 = (StatefulRemote) ctx.lookup("java:module/" + StatefulBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+                Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
+                remote.find(id);
+            }
+        }
     }
 
     @Test
     public void testTransientStateful() throws Exception {
-        StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + StatefulTransientBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        int id = remote.doit();
-        ctx.lookup("java:module/" + StatefulTransientBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
-        remote.find(id);
+        try (StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + StatefulTransientBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+            int id = remote.doit();
+            try (StatefulRemote remote2 = (StatefulRemote) ctx.lookup("java:module/" + StatefulTransientBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+                Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
+                remote.find(id);
+            }
+        }
     }
 
     @Test
     public void testNonExtended() throws Exception {
-        StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + NonExtendedStatefuBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        int id = remote.doit();
-        ctx.lookup("java:module/" + NonExtendedStatefuBean.class.getSimpleName() + "!" + StatefulRemote.class.getName());
-        Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
-        remote.find(id);
+        try (StatefulRemote remote = (StatefulRemote) ctx.lookup("java:module/" + NonExtendedStatefuBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+            int id = remote.doit();
+            try (StatefulRemote remote2 = (StatefulRemote) ctx.lookup("java:module/" + NonExtendedStatefuBean.class.getSimpleName() + "!" + StatefulRemote.class.getName())) {
+                Thread.sleep(TIME_TO_WAIT_FOR_PASSIVATION_MS);
+                remote.find(id);
+            }
+        }
     }
 }

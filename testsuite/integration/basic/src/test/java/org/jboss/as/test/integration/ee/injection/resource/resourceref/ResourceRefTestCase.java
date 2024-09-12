@@ -25,6 +25,7 @@ package org.jboss.as.test.integration.ee.injection.resource.resourceref;
 import java.net.URL;
 
 import javax.naming.InitialContext;
+import javax.naming.NameNotFoundException;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 
@@ -32,7 +33,6 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.test.jms.auxiliary.CreateQueueSetupTask;
-import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
@@ -58,7 +58,6 @@ import org.junit.runner.RunWith;
 @RunWith(Arquillian.class)
 @ServerSetup(CreateQueueSetupTask.class)
 public class ResourceRefTestCase {
-    private static final Logger log = Logger.getLogger(ResourceRefTestCase.class);
 
     @Deployment
     public static Archive<?> deployment() {
@@ -66,6 +65,7 @@ public class ResourceRefTestCase {
 
         WebArchive war = ShrinkWrap.create(WebArchive.class, "managed-bean.war");
         war.addAsWebInfResource(ResourceRefTestCase.class.getPackage(),"web.xml", "web.xml");
+        war.addAsWebInfResource(ResourceRefTestCase.class.getPackage(),"jboss-web.xml", "jboss-web.xml");
         war.addClasses(ResourceRefTestCase.class, DatasourceManagedBean.class, CreateQueueSetupTask.class);
 
         JavaArchive jar = ShrinkWrap.create(JavaArchive.class, "resource-ref-test.jar");
@@ -76,7 +76,6 @@ public class ResourceRefTestCase {
         ear.addAsModule(jar);
         ear.addAsModule(war);
 
-        log.info(ear.toString(true));
         return ear;
     }
 
@@ -85,6 +84,12 @@ public class ResourceRefTestCase {
         InitialContext context = new InitialContext();
         Object result = context.lookup("java:module/env/ds");
         Assert.assertTrue(result instanceof DataSource);
+    }
+
+    @Test(expected = NameNotFoundException.class)
+    public void testIgnoredDependency() throws NamingException {
+        InitialContext context = new InitialContext();
+        context.lookup("java:module/env/ds-ignored");
     }
 
     @Test
@@ -119,8 +124,7 @@ public class ResourceRefTestCase {
      * @throws Exception
      */
     @Test
-    public void testResourceEnvRefWithoutInjectionTarget() throws Exception
-    {
+    public void testResourceEnvRefWithoutInjectionTarget() throws Exception {
         InitialContext context = new InitialContext();
        StatelessBeanRemote bean = (StatelessBeanRemote) context.lookup("java:app/resource-ref-test/"+StatelessBean.class.getSimpleName() + "!" + StatelessBeanRemote.class.getName());
        // check EJBContext through resource-env-ref was handled

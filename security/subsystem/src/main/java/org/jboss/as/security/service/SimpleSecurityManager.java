@@ -35,19 +35,16 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import javax.security.auth.Subject;
 import javax.security.jacc.PolicyContext;
 
 import org.jboss.as.core.security.ServerSecurityManager;
-import org.jboss.as.core.security.SubjectUserInfo;
-import org.jboss.as.domain.management.security.PasswordCredential;
 import org.jboss.as.security.logging.SecurityLogger;
+import org.jboss.as.security.remoting.RemoteConnection;
 import org.jboss.as.security.remoting.RemotingConnectionCredential;
-import org.jboss.as.security.remoting.RemotingConnectionPrincipal;
 import org.jboss.metadata.javaee.spec.SecurityRolesMetaData;
-import org.jboss.remoting3.Connection;
-import org.jboss.remoting3.security.UserInfo;
 import org.jboss.security.AuthenticationManager;
 import org.jboss.security.ISecurityManagement;
 import org.jboss.security.RunAs;
@@ -64,17 +61,32 @@ import org.jboss.security.audit.AuditLevel;
 import org.jboss.security.audit.AuditManager;
 import org.jboss.security.authorization.resources.EJBResource;
 import org.jboss.security.identity.Identity;
+import org.jboss.security.identity.RoleGroup;
 import org.jboss.security.identity.plugins.SimpleIdentity;
 import org.jboss.security.identity.plugins.SimpleRoleGroup;
 import org.jboss.security.javaee.AbstractEJBAuthorizationHelper;
 import org.jboss.security.javaee.SecurityHelperFactory;
 import org.jboss.security.javaee.SecurityRoleRef;
+import org.wildfly.security.auth.server.IdentityCredentials;
+import org.wildfly.security.auth.server.SecurityDomain;
+import org.wildfly.security.auth.server.SecurityIdentity;
+import org.wildfly.security.credential.PasswordCredential;
+import org.wildfly.security.manager.WildFlySecurityManager;
+import org.wildfly.security.password.interfaces.ClearPassword;
 
 /**
+ * This {@code SimpleSecurityManager} also implements {@code Supplier<ServerSecurityManager>} so that
+ * the corresponding {@code get()} method can return a new instance which delegates to {@code this}.
+ *
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
  * @author <a href="mailto:darran.lofthouse@jboss.com">Darran Lofthouse</a>
  */
-public class SimpleSecurityManager implements ServerSecurityManager {
+public class SimpleSecurityManager implements ServerSecurityManager, Supplier<ServerSecurityManager> {
+    protected static final PrivilegedAction<SecurityContext> GET_SECURITY_CONTEXT = new PrivilegedAction<SecurityContext>() {
+        public SecurityContext run() {
+            return SecurityContextAssociation.getSecurityContext();
+        }
+    };
     private ThreadLocalStack<SecurityContext> contexts = new ThreadLocalStack<SecurityContext>();
     /**
      * Indicates if we propagate previous SecurityContext informations to the current one or not.
@@ -87,20 +99,18 @@ public class SimpleSecurityManager implements ServerSecurityManager {
     public SimpleSecurityManager() {
     }
 
-    public SimpleSecurityManager(SimpleSecurityManager delegate) {
+    SimpleSecurityManager(SimpleSecurityManager delegate) {
         this.securityManagement = delegate.securityManagement;
         this.propagate = false;
     }
 
-    private ISecurityManagement securityManagement = null;
-
-    private PrivilegedAction<SecurityContext> securityContext() {
-        return new PrivilegedAction<SecurityContext>() {
-            public SecurityContext run() {
-                return SecurityContextAssociation.getSecurityContext();
-            }
-        };
+    public ServerSecurityManager get() {
+        return new SimpleSecurityManager(this);
     }
+
+
+
+    private ISecurityManagement securityManagement = null;
 
     private SecurityContext establishSecurityContext(final String securityDomain) {
         // Do not use SecurityFactory.establishSecurityContext, its static init is broken.
@@ -121,7 +131,12 @@ public class SimpleSecurityManager implements ServerSecurityManager {
     }
 
     public Principal getCallerPrincipal() {
-        final SecurityContext securityContext = doPrivileged(securityContext());
+        final SecurityContext securityContext;
+        if (WildFlySecurityManager.isChecking()) {
+            securityContext = doPrivileged(GET_SECURITY_CONTEXT);
+        } else {
+            securityContext = SecurityContextAssociation.getSecurityContext();
+        }
         if (securityContext == null) {
             return getUnauthenticatedIdentity().asPrincipal();
         }
@@ -137,7 +152,12 @@ public class SimpleSecurityManager implements ServerSecurityManager {
     }
 
     public Subject getSubject() {
-        final SecurityContext securityContext = doPrivileged(securityContext());
+        final SecurityContext securityContext;
+        if (WildFlySecurityManager.isChecking()) {
+            securityContext = doPrivileged(GET_SECURITY_CONTEXT);
+        } else {
+            securityContext = SecurityContextAssociation.getSecurityContext();
+        }
         if (securityContext != null) {
             return getSubjectInfo(securityContext).getAuthenticatedSubject();
         }
@@ -176,6 +196,7 @@ public class SimpleSecurityManager implements ServerSecurityManager {
     }
 
     @Override
+    @Deprecated
     public boolean isCallerInRole(String ejbName, Object mappedRoles, Map<String, Collection<String>> roleLinks, String... roleNames) {
         return isCallerInRole(ejbName, PolicyContext.getContextID(), mappedRoles, roleLinks, roleNames);
     }
@@ -190,8 +211,12 @@ public class SimpleSecurityManager implements ServerSecurityManager {
      */
     public boolean isCallerInRole(final String ejbName, final String policyContextID, final Object incommingMappedRoles,
                                   final Map<String, Collection<String>> roleLinks, final String... roleNames) {
-
-        final SecurityContext securityContext = doPrivileged(securityContext());
+        final SecurityContext securityContext;
+        if (WildFlySecurityManager.isChecking()) {
+            securityContext = doPrivileged(GET_SECURITY_CONTEXT);
+        } else {
+            securityContext = SecurityContextAssociation.getSecurityContext();
+        }
         if (securityContext == null) {
             return false;
         }
@@ -243,8 +268,12 @@ public class SimpleSecurityManager implements ServerSecurityManager {
     }
 
     public boolean authorize(String ejbName, CodeSource ejbCodeSource, String ejbMethodIntf, Method ejbMethod, Set<Principal> methodRoles, String contextID) {
-
-        final SecurityContext securityContext = doPrivileged(securityContext());
+        final SecurityContext securityContext;
+        if (WildFlySecurityManager.isChecking()) {
+            securityContext = doPrivileged(GET_SECURITY_CONTEXT);
+        } else {
+            securityContext = SecurityContextAssociation.getSecurityContext();
+        }
         if (securityContext == null) {
             return false;
         }
@@ -280,47 +309,51 @@ public class SimpleSecurityManager implements ServerSecurityManager {
         contexts.push(previous);
         SecurityContext current = establishSecurityContext(securityDomain);
         if (propagate && previous != null) {
-            current.setSubjectInfo(getSubjectInfo(previous));
-            current.setIncomingRunAs(previous.getOutgoingRunAs());
+            propagateSubject(current,previous);
+            // If the outgoing run-as identity is not set, take the incoming
+            // run-as identity and propagate it (it could be null which is fine)
+            if( previous.getOutgoingRunAs() != null ) {
+              current.setIncomingRunAs(previous.getOutgoingRunAs());
+            }
+            else {
+              current.setIncomingRunAs(previous.getIncomingRunAs());
+            }
         }
 
         RunAs currentRunAs = current.getIncomingRunAs();
         boolean trusted = currentRunAs != null && currentRunAs instanceof RunAsIdentity;
 
-        if (trusted == false) {
+        if (!trusted && SecurityActions.remotingContextIsSet()) {
             /*
              * We should only be switching to a context based on an identity from the Remoting connection if we don't already
              * have a trusted identity - this allows for beans to reauthenticate as a different identity.
              */
-            if (SecurityActions.remotingContextIsSet()) {
-                // In this case the principal and credential will not have been set to set some random values.
-                SecurityContextUtil util = current.getUtil();
+            // In this case the principal and credential will not have been set to set some random values.
+            SecurityContextUtil util = current.getUtil();
 
-                Connection connection = SecurityActions.remotingContextGetConnection();
-                UserInfo userInfo = connection.getUserInfo();
-                Principal p = null;
-                Object credential = null;
+            RemoteConnection connection = SecurityActions.remotingContextGetConnection();
+            Principal p = null;
+            Object credential = null;
 
-                if (userInfo instanceof SubjectUserInfo) {
-                    SubjectUserInfo sinfo = (SubjectUserInfo) userInfo;
-                    Subject subject = sinfo.getSubject();
-
-                    Set<PasswordCredential> pcSet = subject.getPrivateCredentials(PasswordCredential.class);
-                    if (pcSet.size() > 0) {
-                        PasswordCredential pc = pcSet.iterator().next();
-                        p = new SimplePrincipal(pc.getUserName());
-                        credential = new String(pc.getCredential());
-                    }
+            SecurityIdentity localIdentity = SecurityDomain.forIdentity(connection.getSecurityIdentity())
+                    .getCurrentSecurityIdentity();
+            if (localIdentity != null) {
+                p = new SimplePrincipal(localIdentity.getPrincipal().getName());
+                IdentityCredentials privateCredentials = localIdentity.getPrivateCredentials();
+                PasswordCredential passwordCredential = privateCredentials.getCredential(PasswordCredential.class,
+                        ClearPassword.ALGORITHM_CLEAR);
+                if (passwordCredential != null) {
+                    credential = new String(passwordCredential.getPassword(ClearPassword.class).getPassword());
+                } else {
+                    credential = new RemotingConnectionCredential(connection, localIdentity);
                 }
-
-                if (p == null || credential == null) {
-                    p = new RemotingConnectionPrincipal(connection);
-                    credential = new RemotingConnectionCredential(connection);
-                }
-                SecurityActions.remotingContextClear();
-
-                util.createSubjectInfo(p, credential, null);
+            } else {
+                throw SecurityLogger.ROOT_LOGGER.noUserPrincipalFound();
             }
+
+            SecurityActions.remotingContextClear();
+
+            util.createSubjectInfo(p, credential, null);
         }
     }
 
@@ -329,7 +362,7 @@ public class SimpleSecurityManager implements ServerSecurityManager {
         contexts.push(previous);
         SecurityContext current = establishSecurityContext(securityDomain);
         if (propagate &&  previous != null) {
-            current.setSubjectInfo(getSubjectInfo(previous));
+            propagateSubject(current,previous);
             current.setIncomingRunAs(previous.getOutgoingRunAs());
         }
 
@@ -342,6 +375,25 @@ public class SimpleSecurityManager implements ServerSecurityManager {
         }
     }
 
+    private void propagateSubject(final SecurityContext target, final SecurityContext source) {
+        final SecurityContextUtil previousUtil = source.getUtil();
+        final SecurityContextUtil currentUtil = target.getUtil();
+        if(target.getSecurityDomain() != null && source.getSecurityDomain() != null && target.getSecurityDomain().equals(source.getSecurityDomain())){
+            target.setSubjectInfo(source.getSubjectInfo());
+        } else {
+            currentUtil.createSubjectInfo(previousUtil.getUserPrincipal(), previousUtil.getCredential(), previousUtil.getSubject());
+            if (previousUtil.getRoles() != null) {
+                try {
+                    currentUtil.setRoles((RoleGroup) previousUtil.getRoles().clone());
+                } catch (CloneNotSupportedException e) {
+                    // should not happen, RoleGroup supports clone.
+                    throw new RuntimeException(e);
+                }
+            }
+            currentUtil.setIdentities(previousUtil.getIdentities(Identity.class));
+        }
+    }
+
     public void authenticate() {
         authenticate(null, null, null);
     }
@@ -351,9 +403,12 @@ public class SimpleSecurityManager implements ServerSecurityManager {
         SecurityContext previous = contexts.peek();
 
         // skip reauthentication if the current context already has an authenticated subject (copied from the previous context
-        // upon creation - see push method) and if both contexts use the same security domain.
+        // upon creation - see push method) and both contexts use the same security domain or there is an incoming RunAs of RunAsIdentity type
         boolean skipReauthentication = current.getSubjectInfo() != null && current.getSubjectInfo().getAuthenticatedSubject() != null &&
-                previous != null && current.getSecurityDomain().equals(previous.getSecurityDomain());
+                !current.getSubjectInfo().getAuthenticatedSubject().getPrincipals().isEmpty() && (
+                        (previous != null && current.getSecurityDomain().equals(previous.getSecurityDomain())) ||
+                        current.getIncomingRunAs() instanceof RunAsIdentity
+                );
 
         if (!skipReauthentication) {
             SecurityContextUtil util = current.getUtil();

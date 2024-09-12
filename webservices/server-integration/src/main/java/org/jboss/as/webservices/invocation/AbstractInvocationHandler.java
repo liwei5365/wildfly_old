@@ -22,12 +22,16 @@
 package org.jboss.as.webservices.invocation;
 
 import static org.jboss.as.webservices.metadata.model.AbstractEndpoint.COMPONENT_VIEW_NAME;
+import static org.jboss.as.webservices.metadata.model.AbstractEndpoint.WELD_DEPLOYMENT;
 import static org.jboss.as.webservices.util.ASHelper.getMSCService;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Collection;
+import java.util.concurrent.Callable;
 
 import javax.management.MBeanException;
 import javax.xml.ws.soap.SOAPFaultException;
@@ -40,7 +44,12 @@ import org.jboss.as.webservices.logging.WSLogger;
 import org.jboss.invocation.InterceptorContext;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.wsf.spi.deployment.Endpoint;
+import org.jboss.wsf.spi.deployment.EndpointState;
+import org.jboss.wsf.spi.deployment.EndpointType;
 import org.jboss.wsf.spi.invocation.Invocation;
+import org.jboss.wsf.spi.security.SecurityDomainContext;
+import org.wildfly.transaction.client.ContextTransactionManager;
+import org.wildfly.transaction.client.LocalTransactionContext;
 
 /**
  * Invocation abstraction for all endpoint types
@@ -76,16 +85,15 @@ abstract class AbstractInvocationHandler extends org.jboss.ws.common.invocation.
             synchronized (this) {
                 cv = componentView;
                 if (cv == null) {
-                    cv = getMSCService(componentViewName, ComponentView.class);
+                    SecurityManager sm = System.getSecurityManager();
+                    if (sm == null) {
+                        cv = getMSCService(componentViewName, ComponentView.class);
+                    } else {
+                        cv = AccessController.doPrivileged(
+                                (PrivilegedAction<ComponentView>) () -> getMSCService(componentViewName, ComponentView.class));
+                    }
                     if (cv == null) {
                         throw WSLogger.ROOT_LOGGER.cannotFindComponentView(componentViewName);
-                    }
-                    if (reference == null) {
-                        try {
-                            reference = cv.createInstance();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
                     }
                     componentView = cv;
                 }
@@ -101,50 +109,66 @@ abstract class AbstractInvocationHandler extends org.jboss.ws.common.invocation.
     * @param wsInvocation web service invocation
     * @throws Exception if any error occurs
     */
-   public void invoke(final Endpoint endpoint, final Invocation wsInvocation) throws Exception {
-      try {
-         // prepare for invocation
-         onBeforeInvocation(wsInvocation);
-         // prepare invocation data
-         final ComponentView componentView = getComponentView();
-         Component component = componentView.getComponent();
-         //in case of @FactoryType annotation we don't need to go into EE interceptors
-         final boolean forceTargetBean = (wsInvocation.getInvocationContext().getProperty("forceTargetBean") != null);
-         if (forceTargetBean) {
-             this.reference = new ManagedReference() {
-                 public void release() {
-                 }
+    public void invoke(final Endpoint endpoint, final Invocation wsInvocation) throws Exception {
+        try {
+            if (!EndpointState.STARTED.equals(endpoint.getState())) {
+                throw WSLogger.ROOT_LOGGER.endpointAlreadyStopped(endpoint.getShortName());
+            }
+            SecurityDomainContext securityDomainContext = endpoint.getSecurityDomainContext();
+            if (securityDomainContext != null) {
+                securityDomainContext.runAs((Callable<Void>) () -> {
+                    invokeInternal(endpoint, wsInvocation);
+                    return null;
+                });
+            } else {
+                invokeInternal(endpoint, wsInvocation);
+            }
+        } catch (Throwable t) {
+            handleInvocationException(t);
+        } finally {
+            onAfterInvocation(wsInvocation);
+        }
+    }
 
-                 public Object getInstance() {
-                     return wsInvocation.getInvocationContext().getTargetBean();
-                 }
-             };
-             if (component instanceof WSComponent) {
-                 ((WSComponent) component).setReference(reference);
-             }
-         }
-         final Method method = getComponentViewMethod(wsInvocation.getJavaMethod(), componentView.getViewMethods());
-         final InterceptorContext context = new InterceptorContext();
-         prepareForInvocation(context, wsInvocation);
-         context.setMethod(method);
-         context.setParameters(wsInvocation.getArgs());
-         context.putPrivateData(Component.class, component);
-         context.putPrivateData(ComponentView.class, componentView);
-         if(forceTargetBean) {
-             context.putPrivateData(ManagedReference.class, reference);
-         }
-         // invoke method
-         final Object retObj = componentView.invoke(context);
-         // set return value
-         wsInvocation.setReturnValue(retObj);
-      }
-      catch (Throwable t) {
-         handleInvocationException(t);
-      }
-      finally {
-         onAfterInvocation(wsInvocation);
-      }
-   }
+    public void invokeInternal(final Endpoint endpoint, final Invocation wsInvocation) throws Exception {
+        // prepare for invocation
+        onBeforeInvocation(wsInvocation);
+        // prepare invocation data
+        final ComponentView componentView = getComponentView();
+        Component component = componentView.getComponent();
+        final boolean forceTargetBean = (wsInvocation.getInvocationContext().getProperty("forceTargetBean") != null);
+        boolean isWeldDeployment =  endpoint.getProperty(WELD_DEPLOYMENT) == null ? false : (Boolean) endpoint.getProperty(WELD_DEPLOYMENT);
+        if (forceTargetBean || !isWeldDeployment && endpoint.getType() == EndpointType.JAXWS_JSE) {
+                this.reference = new ManagedReference() {
+                    public void release() {
+                    }
+
+                    public Object getInstance() {
+                        return wsInvocation.getInvocationContext().getTargetBean();
+                    }
+                };
+                if (component instanceof WSComponent) {
+                    ((WSComponent) component).setReference(reference);
+                }
+            }
+        final Method method = getComponentViewMethod(wsInvocation.getJavaMethod(), componentView.getViewMethods());
+        final InterceptorContext context = new InterceptorContext();
+        prepareForInvocation(context, wsInvocation);
+        context.setMethod(method);
+        context.setParameters(wsInvocation.getArgs());
+        context.putPrivateData(Component.class, component);
+        context.putPrivateData(ComponentView.class, componentView);
+        // pull in any XTS transaction
+        LocalTransactionContext.getCurrent().importProviderTransaction();
+        context.setTransaction(ContextTransactionManager.getInstance().getTransaction());
+        if (forceTargetBean) {
+            context.putPrivateData(ManagedReference.class, reference);
+        }
+        // invoke method
+        final Object retObj = componentView.invoke(context);
+        // set return value
+        wsInvocation.setReturnValue(retObj);
+    }
 
    protected void prepareForInvocation(final InterceptorContext context, final Invocation wsInvocation) {
       // does nothing

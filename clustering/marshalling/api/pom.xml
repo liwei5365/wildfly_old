@@ -29,12 +29,33 @@
     <parent>
         <groupId>org.wildfly</groupId>
         <artifactId>wildfly-clustering-marshalling</artifactId>
-        <version>10.0.0.CR5-SNAPSHOT</version>
+        <!--
+        Maintain separation between the artifact id and the version to help prevent
+        merge conflicts between commits changing the GA and those changing the V.
+        -->
+        <version>25.0.0.Beta1-SNAPSHOT</version>
     </parent>
 
     <artifactId>wildfly-clustering-marshalling-api</artifactId>
     <packaging>jar</packaging>
 
     <name>WildFly: Clustering marshalling API</name>
+    <description>
+        Public module containing interfaces to be implemented by applications and internal modules to optimize marshalling behavior for both distributable @Stateful Jakarta Enterprise Beans and HTTP sessions.
+        The API is independent of the backing marshalling framework.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.kohsuke.metainf-services</groupId>
+            <artifactId>metainf-services</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
 </project>

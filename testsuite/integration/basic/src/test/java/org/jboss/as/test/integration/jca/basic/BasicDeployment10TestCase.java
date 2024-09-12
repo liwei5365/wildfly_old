@@ -21,8 +21,9 @@
  */
 package org.jboss.as.test.integration.jca.basic;
 
-import java.util.List;
+import static org.junit.Assert.assertNotNull;
 
+import java.util.List;
 import javax.annotation.Resource;
 
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -31,23 +32,16 @@ import org.jboss.as.arquillian.api.ServerSetup;
 import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.connector.subsystems.resourceadapters.Namespace;
 import org.jboss.as.connector.subsystems.resourceadapters.ResourceAdapterSubsystemParser;
+import org.jboss.as.test.integration.jca.rar.MultipleConnectionFactory1;
 import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
-import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
-import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.shared.FileUtils;
-import org.jboss.as.test.integration.jca.rar.MultipleConnectionFactory1;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertNotNull;
 
 
 /**
@@ -56,7 +50,7 @@ import static org.junit.Assert.assertNotNull;
  */
 @RunWith(Arquillian.class)
 @ServerSetup(BasicDeployment10TestCase.BasicDeploymentTestCaseSetup.class)
-public class BasicDeployment10TestCase extends ContainerResourceMgmtTestBase {
+public class BasicDeployment10TestCase {
 
     static class BasicDeploymentTestCaseSetup extends AbstractMgmtServerSetupTask {
 
@@ -84,7 +78,7 @@ public class BasicDeployment10TestCase extends ContainerResourceMgmtTestBase {
      * @return The deployment archive
      */
     @Deployment
-    public static ResourceAdapterArchive createDeployment() throws Exception {
+    public static ResourceAdapterArchive createDeployment() {
 
         String deploymentName = "basic10.rar";
 
@@ -92,22 +86,17 @@ public class BasicDeployment10TestCase extends ContainerResourceMgmtTestBase {
                 ShrinkWrap.create(ResourceAdapterArchive.class, deploymentName);
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "multiple.jar");
         ja.addPackage(MultipleConnectionFactory1.class.getPackage()).
-                addClasses(BasicDeployment10TestCase.class,  MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class,
-                        BasicDeploymentTestCaseSetup.class);
+                addClasses(BasicDeployment10TestCase.class, BasicDeploymentTestCaseSetup.class);
 
-        ja.addPackage(AbstractMgmtTestBase.class.getPackage());
+        ja.addPackage(AbstractMgmtTestBase.class.getPackage()); // needed to process the @ServerSetup annotation on the server side
         raa.addAsLibrary(ja);
 
-        raa.addAsManifestResource(BasicDeployment10TestCase.class.getPackage(), "ra10.xml", "ra.xml")
-                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli\n"), "MANIFEST.MF");
-        ;
+        raa.addAsManifestResource(BasicDeployment10TestCase.class.getPackage(), "ra10.xml", "ra.xml");
         return raa;
     }
 
     @Resource(mappedName = "java:jboss/name1")
     private MultipleConnectionFactory1 connectionFactory1;
-
-
 
 
     /**

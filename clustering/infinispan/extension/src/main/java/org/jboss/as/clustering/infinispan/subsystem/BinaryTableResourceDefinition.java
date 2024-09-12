@@ -23,13 +23,10 @@
 package org.jboss.as.clustering.infinispan.subsystem;
 
 import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.Set;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.Operations;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
-import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.ResourceServiceHandler;
-import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
 import org.jboss.as.clustering.controller.transform.OperationTransformer;
 import org.jboss.as.clustering.controller.transform.SimpleOperationTransformer;
 import org.jboss.as.controller.AttributeDefinition;
@@ -39,7 +36,6 @@ import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.registry.AttributeAccess;
-import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
@@ -60,7 +56,7 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
         Attribute(String name, ModelType type, ModelNode defaultValue) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
@@ -76,15 +72,17 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
     static void buildTransformation(ModelVersion version, ResourceTransformationDescriptionBuilder parent) {
         ResourceTransformationDescriptionBuilder builder = parent.addChildResource(PATH);
 
+        TableResourceDefinition.buildTransformation(version, builder);
+
         if (InfinispanModel.VERSION_4_0_0.requiresTransformation(version)) {
             OperationTransformer addTransformer = new OperationTransformer() {
                 @Override
                 public ModelNode transformOperation(ModelNode operation) {
                     PathAddress storeAddress = Operations.getPathAddress(operation).getParent();
                     ModelNode value = new ModelNode();
-                    for (Class<? extends org.jboss.as.clustering.controller.Attribute> attributeClass : Arrays.asList(Attribute.class, TableResourceDefinition.Attribute.class, TableResourceDefinition.ColumnAttribute.class)) {
-                        for (org.jboss.as.clustering.controller.Attribute attribute : attributeClass.getEnumConstants()) {
-                            String name = attribute.getDefinition().getName();
+                    for (Set<? extends org.jboss.as.clustering.controller.Attribute> attributes : Arrays.asList(EnumSet.allOf(Attribute.class), EnumSet.complementOf(EnumSet.of(TableResourceDefinition.Attribute.CREATE_ON_START, TableResourceDefinition.Attribute.DROP_ON_STOP)), EnumSet.complementOf(EnumSet.of(TableResourceDefinition.ColumnAttribute.SEGMENT)))) {
+                        for (org.jboss.as.clustering.controller.Attribute attribute : attributes) {
+                            String name = attribute.getName();
                             if (operation.hasDefined(name)) {
                                 value.get(name).set(operation.get(name));
                             }
@@ -107,20 +105,7 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
     }
 
     BinaryTableResourceDefinition() {
-        super(PATH, new InfinispanResourceDescriptionResolver(PATH, WILDCARD_PATH));
-    }
-
-    @Override
-    public void register(ManagementResourceRegistration parentRegistration) {
-        ManagementResourceRegistration registration = parentRegistration.registerSubModel(this);
-
-        ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver())
-                .addAttributes(Attribute.class)
-                .addAttributes(TableResourceDefinition.Attribute.class)
-                .addAttributes(TableResourceDefinition.ColumnAttribute.class)
-                ;
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new BinaryTableBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        super(PATH, Attribute.PREFIX);
+        this.setDeprecated(InfinispanModel.VERSION_5_0_0.getVersion());
     }
 }

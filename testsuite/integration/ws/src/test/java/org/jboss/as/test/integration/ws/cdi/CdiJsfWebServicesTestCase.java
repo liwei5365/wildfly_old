@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2010, Red Hat Inc., and individual contributors as indicated
+ * Copyright 2021, Red Hat Inc., and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for a
  * full listing of individual contributors.
  *
@@ -32,6 +32,7 @@ import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.test.integration.common.HttpRequest;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
@@ -44,7 +45,7 @@ import org.junit.runner.RunWith;
 /**
  * AS7-1429
  * <p/>
- * Tests that adding a web service does not break CDI + JSF
+ * Tests that adding a web service does not break CDI + Jakarta Server Faces
  *
  * @author Stuart Douglas
  */
@@ -72,7 +73,8 @@ public class CdiJsfWebServicesTestCase {
     @Test
     public void testWebServicesDoNotBreakCDI() throws IOException, ExecutionException, TimeoutException {
         URL webRoot = new URL(baseUrl, "/");
-        Assert.assertEquals("<html><body>" + MyBean.MESSAGE + "</body></html>", HttpRequest.get(webRoot.toString() + ARCHIVE_NAME + "/index.jsf", 20, TimeUnit.SECONDS));
+        Assert.assertEquals("<html><body>" + MyBean.MESSAGE + "</body></html>",
+                HttpRequest.get(webRoot.toString() + ARCHIVE_NAME + "/index.jsf", TimeoutUtil.adjust(20), TimeUnit.SECONDS));
     }
 
 

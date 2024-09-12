@@ -22,7 +22,6 @@
 package org.jboss.as.test.manualmode.security;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -52,6 +51,9 @@ import org.apache.directory.server.core.factory.DSAnnotationProcessor;
 import org.apache.directory.server.core.kerberos.KeyDerivationInterceptor;
 import org.apache.directory.server.factory.ServerAnnotationProcessor;
 import org.apache.directory.server.ldap.LdapServer;
+import org.apache.directory.server.ldap.handlers.ssl.LdapsInitializer;
+import org.apache.directory.server.protocol.shared.transport.TcpTransport;
+import org.apache.directory.server.protocol.shared.transport.Transport;
 import org.jboss.arquillian.container.test.api.ContainerController;
 import org.jboss.arquillian.container.test.api.Deployer;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -65,6 +67,7 @@ import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.test.integration.security.common.AbstractSecurityDomainsServerSetupTask;
 import org.jboss.as.test.integration.security.common.AbstractSecurityRealmsServerSetupTask;
+import org.jboss.as.test.integration.security.common.AbstractSystemPropertiesServerSetupTask;
 import org.jboss.as.test.integration.security.common.ManagedCreateLdapServer;
 import org.jboss.as.test.integration.security.common.ManagedCreateTransport;
 import org.jboss.as.test.integration.security.common.Utils;
@@ -78,18 +81,19 @@ import org.jboss.as.test.integration.security.common.config.realm.RealmKeystore;
 import org.jboss.as.test.integration.security.common.config.realm.SecurityRealm;
 import org.jboss.as.test.integration.security.common.config.realm.ServerIdentity;
 import org.jboss.as.test.shared.TestSuiteEnvironment;
-import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
  * A testcase which tests a SecurityRealm used as a SSL configuration source for LDAPs.<br/>
- * This test uses a simple re-implementation of ApacheDS {@link org.apache.directory.server.ldap.handlers.ssl.LdapsInitializer} class, which enables to set our own
+ * This test uses a simple re-implementation of ApacheDS {@link LdapsInitializer} class, which enables to set our own
  * TrustManager and ask for client authentication.<br/>
  * Test scenario:
  * <ol>
@@ -111,8 +115,6 @@ import org.junit.runner.RunWith;
 @RunWith(Arquillian.class)
 @RunAsClient
 public class OutboundLdapConnectionTestCase {
-
-    private static Logger LOGGER = Logger.getLogger(OutboundLdapConnectionTestCase.class);
 
     private static final String KEYSTORE_PASSWORD = "123456";
     private static final String KEYSTORE_FILENAME_LDAPS = "ldaps.keystore";
@@ -143,6 +145,7 @@ public class OutboundLdapConnectionTestCase {
     private final LDAPServerSetupTask ldapsSetup = new LDAPServerSetupTask();
     private final SecurityRealmsSetup realmsSetup = new SecurityRealmsSetup();
     private final SecurityDomainsSetup domainsSetup = new SecurityDomainsSetup();
+    private final SystemPropertiesSetup systemPropertiesSetup = new SystemPropertiesSetup();
     private static boolean serverConfigured = false;
 
     @ArquillianResource
@@ -151,12 +154,22 @@ public class OutboundLdapConnectionTestCase {
     @ArquillianResource
     Deployer deployer;
 
+    @BeforeClass
+    public static void beforeTests() throws Exception {
+        GenerateLdapConnectionStores.setUpKeyStores();
+    }
+
+    @AfterClass
+    public static void afterTests() {
+        GenerateLdapConnectionStores.removeKeyStores();
+    }
+
     @Before
     public void initializeRoleConfiguration() throws Exception {
         if (containerController.isStarted(CONTAINER) && !serverConfigured) {
             final ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
             ManagementClient mgmtClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                    TestSuiteEnvironment.getServerPort(), "http-remoting");
+                    TestSuiteEnvironment.getServerPort(), "remote+http");
             prepareServer(mgmtClient);
         }
     }
@@ -166,7 +179,7 @@ public class OutboundLdapConnectionTestCase {
         if (serverConfigured && containerController.isStarted(CONTAINER)) {
             final ModelControllerClient client = TestSuiteEnvironment.getModelControllerClient();
             ManagementClient mgmtClient = new ManagementClient(client, TestSuiteEnvironment.getServerAddress(),
-                    TestSuiteEnvironment.getServerPort(), "http-remoting");
+                    TestSuiteEnvironment.getServerPort(), "remote+http");
             cleanUpServer(mgmtClient);
         }
     }
@@ -179,6 +192,7 @@ public class OutboundLdapConnectionTestCase {
         ldapsSetup.startLdapServer();
         realmsSetup.setup(mgmtClient, CONTAINER);
         domainsSetup.setup(mgmtClient, CONTAINER);
+        systemPropertiesSetup.setup(mgmtClient, CONTAINER);
     }
 
     private void createTempKS(final String keystoreFilename, final File keystoreFile) throws IOException {
@@ -195,6 +209,7 @@ public class OutboundLdapConnectionTestCase {
         realmsSetup.tearDown(mgmtClient, CONTAINER);
         ldapsSetup.shutdownLdapServer();
         domainsSetup.tearDown(mgmtClient, CONTAINER);
+        systemPropertiesSetup.tearDown(mgmtClient, CONTAINER);
     }
 
     @Deployment(name = LDAPS_AUTHN_SD, managed = false, testable = false)
@@ -217,23 +232,23 @@ public class OutboundLdapConnectionTestCase {
     @InSequence(0)
     @OperateOnDeployment(LDAPS_AUTHN_SD)
     public void test(@ArquillianResource ManagementClient mgmtClient) throws Exception {
+        final SslCertChainRecorder recorder = ldapsSetup.recorder;
         try {
             deployer.deploy(LDAPS_AUTHN_SD);
             deployer.deploy(LDAPS_AUTHN_SD_NO_SSL);
 
             final URL appUrlNoSsl = new URL(mgmtClient.getWebUri().toString() + "/" + LDAPS_AUTHN_SD_NO_SSL + "/" + TEST_FILE);
             Utils.makeCallWithBasicAuthn(appUrlNoSsl, "jduke", "theduke", HttpServletResponse.SC_UNAUTHORIZED);
-            assertFalse("Certificate (client key) from SecurityRealm already known to LDAP server.",
-                    TrustAndStoreTrustManager.isSubjectInClientCertChain("CN=JBAS"));
+            assertEquals("Number of connections with CN=JBAS client cert", 0, recorder.countCerts("CN=JBAS"));
 
             final URL appUrl = new URL(mgmtClient.getWebUri().toString() + "/" + LDAPS_AUTHN_SD + "/" + TEST_FILE);
             final String resp = Utils.makeCallWithBasicAuthn(appUrl, "jduke", "theduke", HttpServletResponse.SC_OK);
             assertEquals(TEST_FILE_CONTENT, resp);
-            assertTrue("Certificate (client key) from SecurityRealm was not used.",
-                    TrustAndStoreTrustManager.isSubjectInClientCertChain("CN=JBAS"));
+            assertEquals("Number of connections with CN=JBAS client cert", 1, recorder.countCerts("CN=JBAS"));
         } finally {
             deployer.undeploy(LDAPS_AUTHN_SD);
             deployer.undeploy(LDAPS_AUTHN_SD_NO_SSL);
+            recorder.clear();
         }
 
     }
@@ -252,16 +267,12 @@ public class OutboundLdapConnectionTestCase {
      * @return
      */
     private static WebArchive createDeployment(final String securityDomain) {
-        LOGGER.info("Creating deployment.");
         final WebArchive war = ShrinkWrap.create(WebArchive.class, securityDomain + ".war");
         war.add(new StringAsset(TEST_FILE_CONTENT), TEST_FILE);
         war.addAsWebInfResource(OutboundLdapConnectionTestCase.class.getPackage(), OutboundLdapConnectionTestCase.class
                 .getSimpleName() + "-web.xml", "web.xml");
         war.addAsWebInfResource(Utils.getJBossWebXmlAsset(securityDomain), "jboss-web.xml");
         war.addAsResource(new StringAsset("jduke=Admin"), "roles.properties");
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(war.toString(true));
-        }
         return war;
     }
 
@@ -328,6 +339,20 @@ public class OutboundLdapConnectionTestCase {
     }
 
     /**
+     * This setup task disables hostname verification truststore file.
+     */
+    static class SystemPropertiesSetup extends AbstractSystemPropertiesServerSetupTask {
+
+        /**
+         * @see org.jboss.as.test.integration.security.common.AbstractSystemPropertiesServerSetupTask#getSystemProperties()
+         */
+        @Override
+        protected SystemProperty[] getSystemProperties() {
+            return new SystemProperty[]{new DefaultSystemProperty("com.sun.jndi.ldap.object.disableEndpointIdentification","")};
+        }
+    }
+
+    /**
      * A server setup task which configures and starts LDAP server.
      */
     //@formatter:off
@@ -361,11 +386,13 @@ public class OutboundLdapConnectionTestCase {
 
         private DirectoryService directoryService;
         private LdapServer ldapServer;
+        private final SslCertChainRecorder recorder = new SslCertChainRecorder();
 
         /**
          * Creates directory services, starts LDAP server and KDCServer.
          */
         public void startLdapServer() throws Exception {
+            LdapsInitializer.setAndLockRecorder(recorder);
             directoryService = DSAnnotationProcessor.getDirectoryService();
             final SchemaManager schemaManager = directoryService.getSchemaManager();
             try (LdifReader ldifReader = new LdifReader(OutboundLdapConnectionTestCase.class.getResourceAsStream(
@@ -379,6 +406,15 @@ public class OutboundLdapConnectionTestCase {
             createLdapServer.setKeyStore(KEYSTORE_FILE_LDAPS.getAbsolutePath());
             fixTransportAddress(createLdapServer, StringUtils.strip(TestSuiteEnvironment.getSecondaryTestAddress(false)));
             ldapServer = ServerAnnotationProcessor.instantiateLdapServer(createLdapServer, directoryService);
+
+            /* set setWantClientAuth(true) manually as there is no way to do this via annotation */
+            Transport[] transports = ldapServer.getTransports();
+            assertTrue("The LDAP server configured via annotations should have just one transport", transports.length == 1);
+            final TcpTransport transport = (TcpTransport) transports[0];
+            transport.setWantClientAuth(true);
+            TcpTransport newTransport = new InitializedTcpTransport(transport);
+            ldapServer.setTransports(newTransport);
+
             assertEquals(ldapServer.getCertificatePassword(),KEYSTORE_PASSWORD);
             ldapServer.start();
         }
@@ -404,6 +440,7 @@ public class OutboundLdapConnectionTestCase {
             ldapServer.stop();
             directoryService.shutdown();
             FileUtils.deleteDirectory(directoryService.getInstanceLayout().getInstanceDirectory());
+            LdapsInitializer.unsetAndUnlockRecorder();
         }
     }
 }

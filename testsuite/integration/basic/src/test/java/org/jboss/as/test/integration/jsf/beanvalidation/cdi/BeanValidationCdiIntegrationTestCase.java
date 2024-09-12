@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2013, Red Hat Inc., and individual contributors as indicated
+ * Copyright 2021, Red Hat Inc., and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for a
  * full listing of individual contributors.
  *
@@ -25,13 +25,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.IOUtils;
-import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.methods.HttpGet;
@@ -54,7 +54,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests for the integration of JSF, CDI, and Bean Validation.
+ * Tests for the integration of Jakarta Server Faces, CDI, and Jakarta Bean Validation.
  *
  * @author Farah Juma
  */
@@ -63,11 +63,11 @@ import org.junit.runner.RunWith;
 public class BeanValidationCdiIntegrationTestCase {
     @ArquillianResource
     private URL url;
-    
+
     private final Pattern viewStatePattern = Pattern.compile("id=\".*javax.faces.ViewState.*\" value=\"([^\"]*)\"");
     private final Pattern nameErrorPattern = Pattern.compile("<div id=\"nameError\">([^<]+)</div>");
     private final Pattern numberErrorPattern = Pattern.compile("<div id=\"numberError\">([^<]+)</div>");
-    
+
     @Deployment(testable = false)
     public static Archive<?> deploy() {
         WebArchive war = ShrinkWrap.create(WebArchive.class, "registration-jsf.war");
@@ -77,11 +77,11 @@ public class BeanValidationCdiIntegrationTestCase {
         war.addAsWebInfResource(EmptyAsset.INSTANCE, "beans.xml");
         return war;
     }
-    
+
     @Test
     public void testSuccessfulBeanValidation() throws Exception {
         String responseString = registerTeam("Team1", 6);
-        
+
         Matcher errorMatcher = nameErrorPattern.matcher(responseString);
         assertTrue(!errorMatcher.find());
 
@@ -99,16 +99,16 @@ public class BeanValidationCdiIntegrationTestCase {
         if (errorMatcher.find()) {
             nameError = errorMatcher.group(1).trim();
         }
-        
+
         errorMatcher = numberErrorPattern.matcher(responseString);
         if (errorMatcher.find()) {
             numberError = errorMatcher.group(1).trim();
         }
-        
+
         assertEquals("Team name must be at least 3 characters.", nameError);
         assertEquals("Not enough people for a team.", numberError);
     }
-    
+
     private String registerTeam(String name, int numberOfPeople) throws Exception {
         DefaultHttpClient client = new DefaultHttpClient();
 
@@ -119,9 +119,9 @@ public class BeanValidationCdiIntegrationTestCase {
             HttpGet getRequest = new HttpGet(requestUrl);
             HttpResponse response = client.execute(getRequest);
             try {
-                String responseString = IOUtils.toString(response.getEntity().getContent(), "UTF-8");
+                String responseString = IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
 
-                // Get the JSF view state
+                // Get the Jakarta Server Faces view state
                 Matcher jsfViewMatcher = viewStatePattern.matcher(responseString);
                 if (jsfViewMatcher.find()) {
                     jsfViewState = jsfViewMatcher.group(1);
@@ -130,7 +130,7 @@ public class BeanValidationCdiIntegrationTestCase {
                 HttpClientUtils.closeQuietly(response);
             }
 
-            // Create and execute a POST request with the given team name and 
+            // Create and execute a POST request with the given team name and
             // the given number of people
             HttpPost post = new HttpPost(requestUrl);
 
@@ -141,11 +141,11 @@ public class BeanValidationCdiIntegrationTestCase {
             list.add(new BasicNameValuePair("register:inputNumber", Integer.toString(numberOfPeople)));
             list.add(new BasicNameValuePair("register:registerButton", "Register"));
 
-            post.setEntity(new StringEntity(URLEncodedUtils.format(list, "UTF-8"), ContentType.APPLICATION_FORM_URLENCODED));            
+            post.setEntity(new StringEntity(URLEncodedUtils.format(list, StandardCharsets.UTF_8), ContentType.APPLICATION_FORM_URLENCODED));
             response = client.execute(post);
 
             try {
-                return IOUtils.toString(response.getEntity().getContent(), "UTF-8");
+                return IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
             } finally {
                 HttpClientUtils.closeQuietly(response);
             }

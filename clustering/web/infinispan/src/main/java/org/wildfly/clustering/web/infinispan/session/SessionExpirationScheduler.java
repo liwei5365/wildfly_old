@@ -21,25 +21,19 @@
  */
 package org.wildfly.clustering.web.infinispan.session;
 
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
-import org.jboss.threads.JBossThreadFactory;
 import org.wildfly.clustering.ee.Batch;
 import org.wildfly.clustering.ee.Batcher;
-import org.wildfly.clustering.ee.infinispan.Remover;
-import org.wildfly.clustering.ee.infinispan.TransactionBatch;
+import org.wildfly.clustering.ee.Remover;
+import org.wildfly.clustering.ee.cache.scheduler.LocalScheduler;
+import org.wildfly.clustering.ee.cache.scheduler.SortedScheduledEntries;
+import org.wildfly.clustering.ee.cache.tx.TransactionBatch;
+import org.wildfly.clustering.ee.infinispan.GroupedKey;
+import org.wildfly.clustering.ee.infinispan.scheduler.Scheduler;
 import org.wildfly.clustering.infinispan.spi.distribution.Locality;
+import org.wildfly.clustering.web.cache.session.ImmutableSessionMetaDataFactory;
 import org.wildfly.clustering.web.infinispan.logging.InfinispanWebLogger;
 import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 
@@ -48,44 +42,26 @@ import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
  * If/When Infinispan implements expiration notifications (ISPN-694), this will be obsolete.
  * @author Paul Ferraro
  */
-public class SessionExpirationScheduler implements Scheduler {
+public class SessionExpirationScheduler<MV> implements Scheduler<String, ImmutableSessionMetaData>, Predicate<String> {
 
-    final Map<String, Future<?>> expirationFutures = new ConcurrentHashMap<>();
-    final Batcher<TransactionBatch> batcher;
-    final Remover<String> remover;
-    private final ScheduledExecutorService executor;
+    private final LocalScheduler<String> scheduler;
+    private final Batcher<TransactionBatch> batcher;
+    private final Remover<String> remover;
+    private final ImmutableSessionMetaDataFactory<MV> metaDataFactory;
 
-    public SessionExpirationScheduler(Batcher<TransactionBatch> batcher, Remover<String> remover) {
-        this(batcher, remover, createScheduledExecutor(createThreadFactory()));
-    }
-
-    private static ThreadFactory createThreadFactory() {
-        return AccessController.doPrivileged(new PrivilegedAction<ThreadFactory>() {
-            @Override
-            public ThreadFactory run() {
-                return new JBossThreadFactory(new ThreadGroup(SessionExpirationScheduler.class.getSimpleName()), Boolean.FALSE, null, "%G - %t", null, null);
-            }
-        });
-    }
-
-    private static ScheduledExecutorService createScheduledExecutor(ThreadFactory factory) {
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, factory);
-        executor.setRemoveOnCancelPolicy(true);
-        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
-        return executor;
-    }
-
-    public SessionExpirationScheduler(Batcher<TransactionBatch> batcher, Remover<String> remover, ScheduledExecutorService executor) {
+    public SessionExpirationScheduler(Batcher<TransactionBatch> batcher, ImmutableSessionMetaDataFactory<MV> metaDataFactory, Remover<String> remover, Duration closeTimeout) {
+        this.scheduler = new LocalScheduler<>(new SortedScheduledEntries<>(), this, closeTimeout);
         this.batcher = batcher;
+        this.metaDataFactory = metaDataFactory;
         this.remover = remover;
-        this.executor = executor;
     }
 
     @Override
-    public void cancel(String sessionId) {
-        Future<?> future = this.expirationFutures.remove(sessionId);
-        if (future != null) {
-            future.cancel(false);
+    public void schedule(String sessionId) {
+        MV value = this.metaDataFactory.findValue(sessionId);
+        if (value != null) {
+            ImmutableSessionMetaData metaData = this.metaDataFactory.createImmutableSessionMetaData(sessionId, value);
+            this.schedule(sessionId, metaData);
         }
     }
 
@@ -93,68 +69,44 @@ public class SessionExpirationScheduler implements Scheduler {
     public void schedule(String sessionId, ImmutableSessionMetaData metaData) {
         Duration maxInactiveInterval = metaData.getMaxInactiveInterval();
         if (!maxInactiveInterval.isZero()) {
-            Instant lastAccessed = metaData.getLastAccessedTime();
-            Duration delay = Duration.between(Instant.now(), lastAccessed.plus(maxInactiveInterval));
-            Runnable task = new ExpirationTask(sessionId);
-            long seconds = !delay.isNegative() ? delay.getSeconds() + 1 : 0;
-            InfinispanWebLogger.ROOT_LOGGER.tracef("Session %s will expire in %d sec", sessionId, seconds);
-            synchronized (task) {
-                this.expirationFutures.put(sessionId, this.executor.schedule(task, seconds, TimeUnit.SECONDS));
-            }
+            this.scheduler.schedule(sessionId, metaData.getLastAccessEndTime().plus(maxInactiveInterval));
         }
+    }
+
+    @Override
+    public void cancel(String sessionId) {
+        this.scheduler.cancel(sessionId);
     }
 
     @Override
     public void cancel(Locality locality) {
-        this.expirationFutures.keySet().stream().filter(sessionId -> !locality.isLocal(sessionId)).forEach(sessionId -> this.cancel(sessionId));
+        for (String sessionId : this.scheduler) {
+            if (Thread.currentThread().isInterrupted()) break;
+            if (!locality.isLocal(new GroupedKey<>(sessionId))) {
+                this.cancel(sessionId);
+            }
+        }
     }
 
     @Override
     public void close() {
-        this.executor.shutdown();
-        this.expirationFutures.values().forEach(future -> future.cancel(false));
-        this.expirationFutures.values().stream().filter(future -> !future.isDone()).forEach(future -> {
-            try {
-                future.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException e) {
-                // Ignore
-            }
-        });
-        this.expirationFutures.clear();
+        this.scheduler.close();
     }
 
-    private class ExpirationTask implements Runnable {
-        private final String id;
-
-        public ExpirationTask(String id) {
-            this.id = id;
-        }
-
-        @Override
-        public void run() {
-            InfinispanWebLogger.ROOT_LOGGER.tracef("Expiring session %s", this.id);
+    @Override
+    public boolean test(String sessionId) {
+        InfinispanWebLogger.ROOT_LOGGER.debugf("Expiring web session %s", sessionId);
+        try (Batch batch = this.batcher.createBatch()) {
             try {
-                Batch batch = SessionExpirationScheduler.this.batcher.createBatch();
-                boolean success = false;
-                try {
-                    SessionExpirationScheduler.this.remover.remove(this.id);
-                    success = true;
-                } catch (Throwable e) {
-                    InfinispanWebLogger.ROOT_LOGGER.failedToExpireSession(e, this.id);
-                } finally {
-                    if (success) {
-                        batch.close();
-                    } else {
-                        batch.discard();
-                    }
-                }
-            } finally {
-                synchronized (this) {
-                    SessionExpirationScheduler.this.expirationFutures.remove(this.id);
-                }
+                this.remover.remove(sessionId);
+                return true;
+            } catch (RuntimeException e) {
+                batch.discard();
+                throw e;
             }
+        } catch (RuntimeException e) {
+            InfinispanWebLogger.ROOT_LOGGER.failedToExpireSession(e, sessionId);
+            return false;
         }
     }
 }

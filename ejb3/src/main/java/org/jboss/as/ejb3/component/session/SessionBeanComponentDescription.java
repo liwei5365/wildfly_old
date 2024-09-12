@@ -54,13 +54,13 @@ import org.jboss.as.ejb3.deployment.EjbJarDescription;
 import org.jboss.as.ejb3.tx.CMTTxInterceptor;
 import org.jboss.as.server.deployment.Attachments;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
+import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.reflect.ClassReflectionIndexUtil;
 import org.jboss.as.server.deployment.reflect.DeploymentReflectionIndex;
 import org.jboss.invocation.ImmediateInterceptorFactory;
 import org.jboss.invocation.proxy.MethodIdentifier;
 import org.jboss.metadata.ejb.spec.SessionBeanMetaData;
-import org.jboss.msc.service.ServiceName;
 
 /**
  * @author Jaikiran Pai
@@ -127,19 +127,10 @@ public abstract class SessionBeanComponentDescription extends EJBComponentDescri
      * @param ejbJarDescription  the module description
      */
     public SessionBeanComponentDescription(final String componentName, final String componentClassName,
-                                           final EjbJarDescription ejbJarDescription, final ServiceName deploymentUnitServiceName,
+                                           final EjbJarDescription ejbJarDescription, final DeploymentUnit deploymentUnit,
                                            final SessionBeanMetaData descriptorData) {
-        super(componentName, componentClassName, ejbJarDescription, deploymentUnitServiceName, descriptorData);
+        super(componentName, componentClassName, ejbJarDescription, deploymentUnit, descriptorData);
     }
-
-    /**
-     * Returns true if this session bean component type allows concurrent access to the component instances.
-     * <p/>
-     * For example: Singleton and stateful beans allow concurrent access to the bean instances, whereas stateless beans don't.
-     *
-     * @return
-     */
-    public abstract boolean allowsConcurrentAccess();
 
     public void addLocalBusinessInterfaceViews(final Collection<String> classNames) {
         for (final String viewClassName : classNames) {
@@ -172,10 +163,6 @@ public abstract class SessionBeanComponentDescription extends EJBComponentDescri
 
     public EJBViewDescription addWebserviceEndpointView() {
         return registerView(getEJBClassName(), MethodIntf.SERVICE_ENDPOINT);
-    }
-
-    public EJBViewDescription addWebserviceEndpointView(final String wsEndpointViewName) {
-        return registerView(wsEndpointViewName, MethodIntf.SERVICE_ENDPOINT);
     }
 
     public void addRemoteBusinessInterfaceViews(final Collection<String> classNames) {
@@ -358,7 +345,6 @@ public abstract class SessionBeanComponentDescription extends EJBComponentDescri
         if(view.isEjb2xView()) {
             view.getConfigurators().add(getSessionBeanObjectViewConfigurator());
         }
-
     }
 
     protected abstract ViewConfigurator getSessionBeanObjectViewConfigurator();
@@ -407,7 +393,6 @@ public abstract class SessionBeanComponentDescription extends EJBComponentDescri
                 configuration.addViewInterceptor(CurrentInvocationContextInterceptor.FACTORY, InterceptorOrder.View.INVOCATION_CONTEXT_INTERCEPTOR);
             }
         });
-
     }
 
     @Override

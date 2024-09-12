@@ -24,12 +24,28 @@ package org.jboss.as.clustering.controller;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
+import org.jboss.as.clustering.function.Predicates;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.CapabilityReferenceRecorder;
+import org.jboss.as.controller.OperationStepHandler;
+import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.ResourceDefinition;
 import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
+import org.jboss.as.controller.registry.Resource;
+import org.jboss.dmr.ModelNode;
 
 /**
  * Describes the properties of resource used by {@link AddStepHandler}.
@@ -39,10 +55,27 @@ import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
  */
 public class ResourceDescriptor implements AddStepHandlerDescriptor {
 
+    private static final Comparator<PathElement> PATH_COMPARATOR = (PathElement path1, PathElement path2) -> {
+        int result = path1.getKey().compareTo(path2.getKey());
+        return (result == 0) ? path1.getValue().compareTo(path2.getValue()) : result;
+    };
+
+    private static final Comparator<AttributeDefinition> ATTRIBUTE_COMPARATOR = Comparator.comparing(AttributeDefinition::getName);
+
     private final ResourceDescriptionResolver resolver;
-    private final List<Capability> capabilities = new LinkedList<>();
+    private final Map<Capability, Predicate<ModelNode>> capabilities = new HashMap<>();
     private final List<AttributeDefinition> attributes = new LinkedList<>();
+    private final Map<AttributeDefinition, OperationStepHandler> customAttributes = new HashMap<>();
+    private final List<AttributeDefinition> ignoredAttributes = new LinkedList<>();
     private final List<AttributeDefinition> parameters = new LinkedList<>();
+    private final Set<PathElement> requiredChildren = new TreeSet<>(PATH_COMPARATOR);
+    private final Set<PathElement> requiredSingletonChildren = new TreeSet<>(PATH_COMPARATOR);
+    private final Map<AttributeDefinition, AttributeTranslation> attributeTranslations = new TreeMap<>(ATTRIBUTE_COMPARATOR);
+    private final List<RuntimeResourceRegistration> runtimeResourceRegistrations = new LinkedList<>();
+    private final Set<CapabilityReferenceRecorder> resourceCapabilityReferences = new HashSet<>();
+    private volatile UnaryOperator<OperationStepHandler> addOperationTransformer = UnaryOperator.identity();
+    private volatile UnaryOperator<OperationStepHandler> operationTransformer = UnaryOperator.identity();
+    private volatile UnaryOperator<Resource> resourceTransformer = UnaryOperator.identity();
 
     public ResourceDescriptor(ResourceDescriptionResolver resolver) {
         this.resolver = resolver;
@@ -54,7 +87,7 @@ public class ResourceDescriptor implements AddStepHandlerDescriptor {
     }
 
     @Override
-    public Collection<Capability> getCapabilities() {
+    public Map<Capability, Predicate<ModelNode>> getCapabilities() {
         return this.capabilities;
     }
 
@@ -64,8 +97,38 @@ public class ResourceDescriptor implements AddStepHandlerDescriptor {
     }
 
     @Override
+    public Collection<AttributeDefinition> getIgnoredAttributes() {
+        return this.ignoredAttributes;
+    }
+
+    @Override
     public Collection<AttributeDefinition> getExtraParameters() {
         return this.parameters;
+    }
+
+    @Override
+    public Set<PathElement> getRequiredChildren() {
+        return this.requiredChildren;
+    }
+
+    @Override
+    public Set<PathElement> getRequiredSingletonChildren() {
+        return this.requiredSingletonChildren;
+    }
+
+    @Override
+    public Map<AttributeDefinition, AttributeTranslation> getAttributeTranslations() {
+        return this.attributeTranslations;
+    }
+
+    @Override
+    public Map<AttributeDefinition, OperationStepHandler> getCustomAttributes() {
+        return this.customAttributes;
+    }
+
+    public ResourceDescriptor addAttribute(Attribute attribute, OperationStepHandler writeAttributeHandler) {
+        this.customAttributes.put(attribute.getDefinition(), writeAttributeHandler);
+        return this;
     }
 
     public <E extends Enum<E> & Attribute> ResourceDescriptor addAttributes(Class<E> enumClass) {
@@ -76,8 +139,35 @@ public class ResourceDescriptor implements AddStepHandlerDescriptor {
         return this.addAttributes(Arrays.asList(attributes));
     }
 
-    public ResourceDescriptor addAttributes(Collection<? extends Attribute> attributes) {
-        attributes.forEach(attribute -> this.attributes.add(attribute.getDefinition()));
+    public ResourceDescriptor addAttributes(Iterable<? extends Attribute> attributes) {
+        for (Attribute attribute : attributes) {
+            this.attributes.add(attribute.getDefinition());
+        }
+        return this;
+    }
+
+    public ResourceDescriptor addAttributes(Collection<AttributeDefinition> attributes) {
+        this.attributes.addAll(attributes);
+        return this;
+    }
+
+    public <E extends Enum<E> & Attribute> ResourceDescriptor addIgnoredAttributes(Class<E> enumClass) {
+        return this.addIgnoredAttributes(EnumSet.allOf(enumClass));
+    }
+
+    public ResourceDescriptor addIgnoredAttributes(Attribute... attributes) {
+        return this.addIgnoredAttributes(Arrays.asList(attributes));
+    }
+
+    public ResourceDescriptor addIgnoredAttributes(Iterable<? extends Attribute> attributes) {
+        for (Attribute attribute : attributes) {
+            this.ignoredAttributes.add(attribute.getDefinition());
+        }
+        return this;
+    }
+
+    public ResourceDescriptor addIgnoredAttributes(Collection<AttributeDefinition> attributes) {
+        this.ignoredAttributes.addAll(attributes);
         return this;
     }
 
@@ -89,8 +179,10 @@ public class ResourceDescriptor implements AddStepHandlerDescriptor {
         return this.addExtraParameters(Arrays.asList(parameters));
     }
 
-    public ResourceDescriptor addExtraParameters(Collection<? extends Attribute> parameters) {
-        parameters.forEach(attribute -> this.parameters.add(attribute.getDefinition()));
+    public ResourceDescriptor addExtraParameters(Iterable<? extends Attribute> parameters) {
+        for (Attribute parameter : parameters) {
+            this.parameters.add(parameter.getDefinition());
+        }
         return this;
     }
 
@@ -100,15 +192,117 @@ public class ResourceDescriptor implements AddStepHandlerDescriptor {
     }
 
     public <E extends Enum<E> & Capability> ResourceDescriptor addCapabilities(Class<E> enumClass) {
-        return this.addCapabilities(EnumSet.allOf(enumClass));
+        return this.addCapabilities(Predicates.always(), enumClass);
     }
 
     public ResourceDescriptor addCapabilities(Capability... capabilities) {
-        return this.addCapabilities(Arrays.asList(capabilities));
+        return this.addCapabilities(Predicates.always(), capabilities);
     }
 
-    public ResourceDescriptor addCapabilities(Collection<? extends Capability> capabilities) {
-        this.capabilities.addAll(capabilities);
+    public ResourceDescriptor addCapabilities(Iterable<? extends Capability> capabilities) {
+        return this.addCapabilities(Predicates.always(), capabilities);
+    }
+
+    public <E extends Enum<E> & Capability> ResourceDescriptor addCapabilities(Predicate<ModelNode> predicate, Class<E> enumClass) {
+        return this.addCapabilities(predicate, EnumSet.allOf(enumClass));
+    }
+
+    public ResourceDescriptor addCapabilities(Predicate<ModelNode> predicate, Capability... capabilities) {
+        return this.addCapabilities(predicate, Arrays.asList(capabilities));
+    }
+
+    public ResourceDescriptor addCapabilities(Predicate<ModelNode> predicate, Iterable<? extends Capability> capabilities) {
+        for (Capability capability : capabilities) {
+            this.capabilities.put(capability, predicate);
+        }
+        return this;
+    }
+
+    public <E extends Enum<E> & ResourceDefinitionProvider> ResourceDescriptor addRequiredChildren(Class<E> enumClass) {
+        return this.addRequiredChildren(EnumSet.allOf(enumClass));
+    }
+
+    public ResourceDescriptor addRequiredChildren(Iterable<? extends ResourceDefinitionProvider> providers) {
+        for (ResourceDefinitionProvider provider : providers) {
+            this.requiredChildren.add(provider.getPathElement());
+        }
+        return this;
+    }
+
+    public ResourceDescriptor addRequiredChildren(PathElement... paths) {
+        this.requiredChildren.addAll(Arrays.asList(paths));
+        return this;
+    }
+
+    public <E extends Enum<E> & ResourceDefinition> ResourceDescriptor addRequiredSingletonChildren(Class<E> enumClass) {
+        for (ResourceDefinition definition : EnumSet.allOf(enumClass)) {
+            this.requiredSingletonChildren.add(definition.getPathElement());
+        }
+        return this;
+    }
+
+    public ResourceDescriptor addRequiredSingletonChildren(PathElement... paths) {
+        this.requiredSingletonChildren.addAll(Arrays.asList(paths));
+        return this;
+    }
+
+    public ResourceDescriptor addAlias(Attribute alias, Attribute target) {
+        this.attributeTranslations.put(alias.getDefinition(), () -> target);
+        return this;
+    }
+
+    public ResourceDescriptor addAttributeTranslation(Attribute sourceAttribute, AttributeTranslation translation) {
+        this.attributeTranslations.put(sourceAttribute.getDefinition(), translation);
+        return this;
+    }
+
+    @Override
+    public Collection<RuntimeResourceRegistration> getRuntimeResourceRegistrations() {
+        return this.runtimeResourceRegistrations;
+    }
+
+    public ResourceDescriptor addRuntimeResourceRegistration(RuntimeResourceRegistration registration) {
+        this.runtimeResourceRegistrations.add(registration);
+        return this;
+    }
+
+    @Override
+    public Set<CapabilityReferenceRecorder> getResourceCapabilityReferences() {
+        return this.resourceCapabilityReferences;
+    }
+
+    public ResourceDescriptor addResourceCapabilityReference(CapabilityReferenceRecorder reference) {
+        this.resourceCapabilityReferences.add(reference);
+        return this;
+    }
+
+    @Override
+    public UnaryOperator<OperationStepHandler> getAddOperationTransformation() {
+        return this.addOperationTransformer;
+    }
+
+    public ResourceDescriptor setAddOperationTransformation(UnaryOperator<OperationStepHandler> transformation) {
+        this.addOperationTransformer = transformation;
+        return this;
+    }
+
+    @Override
+    public UnaryOperator<OperationStepHandler> getOperationTransformation() {
+        return this.operationTransformer;
+    }
+
+    public ResourceDescriptor setOperationTransformation(UnaryOperator<OperationStepHandler> transformation) {
+        this.operationTransformer = transformation;
+        return this;
+    }
+
+    @Override
+    public UnaryOperator<Resource> getResourceTransformation() {
+        return this.resourceTransformer;
+    }
+
+    public ResourceDescriptor setResourceTransformation(UnaryOperator<Resource> transformation) {
+        this.resourceTransformer = transformation;
         return this;
     }
 }

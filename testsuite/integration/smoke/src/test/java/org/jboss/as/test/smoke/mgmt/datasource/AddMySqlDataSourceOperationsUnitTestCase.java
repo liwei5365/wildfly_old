@@ -31,6 +31,8 @@ import java.util.List;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.as.connector.subsystems.datasources.DataSourcesExtension;
+import org.jboss.as.connector.subsystems.datasources.Namespace;
 import org.jboss.as.test.integration.management.jca.DsMgmtTestBase;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.Archive;
@@ -53,10 +55,11 @@ public class AddMySqlDataSourceOperationsUnitTestCase extends DsMgmtTestBase{
 
     @Deployment(testable = false)
     public static Archive<?> getDeployment() {
-				File jdbcJar = new File( System.getProperty("jbossas.ts.integ.dir", "."),
-                                 "/smoke/src/test/resources/mysql-connector-java-5.1.15.jar");
-        if( ! jdbcJar.exists() )
-            throw new IllegalStateException("Can't find " + jdbcJar + " using ${jbossas.ts.integ.dir} == " + System.getProperty("jbossas.ts.integ.dir") );
+        File jdbcJar = new File(System.getProperty("jbossas.ts.integ.dir", "."),
+                "/smoke/src/test/resources/mysql-connector-java-5.1.15.jar");
+        if (!jdbcJar.exists()) {
+            throw new IllegalStateException("Can't find " + jdbcJar + " using ${jbossas.ts.integ.dir} == " + System.getProperty("jbossas.ts.integ.dir"));
+        }
         Archive<?> archive = ShrinkWrap.createFromZipFile(JavaArchive.class, jdbcJar);
         return archive;
     }
@@ -94,5 +97,10 @@ public class AddMySqlDataSourceOperationsUnitTestCase extends DsMgmtTestBase{
 
         Assert.assertNotNull(findNodeWithProperty(newList,"jndi-name","java:jboss/datasources/MySqlDs"));
    }
+
+    private List<ModelNode> marshalAndReparseDsResources(String childType) throws Exception {
+        DataSourcesExtension.DataSourceSubsystemParser parser = new DataSourcesExtension.DataSourceSubsystemParser();
+        return xmlToModelOperations(modelToXml("datasources", childType, parser), Namespace.CURRENT.getUriString(), parser);
+    }
 
 }

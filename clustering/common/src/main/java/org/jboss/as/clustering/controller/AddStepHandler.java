@@ -22,92 +22,259 @@
 
 package org.jboss.as.clustering.controller;
 
+import java.util.Collection;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
+
 import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.CapabilityReferenceRecorder;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.OperationStepHandler;
 import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
+import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
+import org.jboss.as.controller.logging.ControllerLogger;
+import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.controller.registry.AttributeAccess;
+import org.jboss.as.controller.registry.ImmutableManagementResourceRegistration;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.as.controller.registry.Resource;
 import org.jboss.dmr.ModelNode;
+import org.jboss.dmr.ModelType;
 
 /**
  * Generic add operation step handler that delegates service installation/rollback to a {@link ResourceServiceHandler}.
  * @author Paul Ferraro
  */
-public class AddStepHandler extends AbstractAddStepHandler implements Registration<ManagementResourceRegistration> {
+public class AddStepHandler extends AbstractAddStepHandler implements Registration<ManagementResourceRegistration>, DescribedAddStepHandler {
 
     private final AddStepHandlerDescriptor descriptor;
     private final ResourceServiceHandler handler;
-    private final OperationStepHandler writeAttributeHandler;
 
     public AddStepHandler(AddStepHandlerDescriptor descriptor) {
         this(descriptor, null);
     }
 
     public AddStepHandler(AddStepHandlerDescriptor descriptor, ResourceServiceHandler handler) {
-        this(descriptor, handler, new ReloadRequiredWriteAttributeHandler(descriptor.getAttributes()));
-    }
-
-    AddStepHandler(AddStepHandlerDescriptor descriptor, ResourceServiceHandler handler, OperationStepHandler writeAttributeHandler) {
-        super(descriptor.getAttributes());
         this.descriptor = descriptor;
         this.handler = handler;
-        this.writeAttributeHandler = writeAttributeHandler;
     }
 
     @Override
-    protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
+    protected boolean requiresRuntime(OperationContext context) {
+        return super.requiresRuntime(context) && (this.handler != null);
+    }
+
+    @Override
+    public AddStepHandlerDescriptor getDescriptor() {
+        return this.descriptor;
+    }
+
+    @Override
+    public void execute(OperationContext context, ModelNode operation) throws OperationFailedException {
+        PathAddress address = context.getCurrentAddress();
+        PathAddress parentAddress = address.getParent();
+        PathElement path = address.getLastElement();
+
+        OperationStepHandler parentHandler = context.getRootResourceRegistration().getOperationHandler(parentAddress, ModelDescriptionConstants.ADD);
+        if (parentHandler instanceof DescribedAddStepHandler) {
+            AddStepHandlerDescriptor parentDescriptor = ((DescribedAddStepHandler) parentHandler).getDescriptor();
+
+            if (parentDescriptor.getRequiredChildren().contains(path)) {
+                if (context.readResourceFromRoot(parentAddress, false).hasChild(path)) {
+                    // If we are a required child resource of our parent, we need to remove the auto-created resource first
+                    context.addStep(Util.createRemoveOperation(address), context.getRootResourceRegistration().getOperationHandler(address, ModelDescriptionConstants.REMOVE), OperationContext.Stage.MODEL);
+                    context.addStep(operation, this, OperationContext.Stage.MODEL);
+                    return;
+                }
+            }
+            for (PathElement requiredPath : parentDescriptor.getRequiredSingletonChildren()) {
+                String requiredPathKey = requiredPath.getKey();
+                if (requiredPath.getKey().equals(path.getKey())) {
+                    Set<String> childrenNames = context.readResourceFromRoot(parentAddress, false).getChildrenNames(requiredPathKey);
+                    if (!childrenNames.isEmpty()) {
+                        // If there is a required singleton sibling resource, we need to remove it first
+                        for (String childName : childrenNames) {
+                            PathAddress singletonAddress = parentAddress.append(requiredPathKey, childName);
+                            context.addStep(Util.createRemoveOperation(singletonAddress), context.getRootResourceRegistration().getOperationHandler(singletonAddress, ModelDescriptionConstants.REMOVE), OperationContext.Stage.MODEL);
+                        }
+                        context.addStep(operation, this, OperationContext.Stage.MODEL);
+                        return;
+                    }
+                }
+            }
+        }
+
+        super.execute(context, operation);
+
+        if (this.requiresRuntime(context)) {
+            for (RuntimeResourceRegistration registration : this.descriptor.getRuntimeResourceRegistrations()) {
+                context.addStep(new RuntimeResourceRegistrationStepHandler(registration), OperationContext.Stage.MODEL);
+            }
+        }
+    }
+
+    @Override
+    protected Resource createResource(OperationContext context) {
+        Resource resource = Resource.Factory.create(context.getResourceRegistration().isRuntimeOnly());
+        if (context.isDefaultRequiresRuntime()) {
+            resource = this.descriptor.getResourceTransformation().apply(resource);
+        }
+        context.addResource(PathAddress.EMPTY_ADDRESS, resource);
+        return resource;
+    }
+
+    @Override
+    protected Resource createResource(OperationContext context, ModelNode operation) {
+        UnaryOperator<Resource> transformation = context.isDefaultRequiresRuntime() ? this.descriptor.getResourceTransformation() : UnaryOperator.identity();
+        ImmutableManagementResourceRegistration registration = context.getResourceRegistration();
+        Resource resource = transformation.apply(Resource.Factory.create(registration.isRuntimeOnly(), registration.getOrderedChildTypes()));
+        Integer index = registration.isOrderedChildResource() && operation.hasDefined(ModelDescriptionConstants.ADD_INDEX) ? operation.get(ModelDescriptionConstants.ADD_INDEX).asIntOrNull() : null;
+        if (index == null) {
+            context.addResource(PathAddress.EMPTY_ADDRESS, resource);
+        } else {
+            context.addResource(PathAddress.EMPTY_ADDRESS, index, resource);
+        }
+        return resource;
+    }
+
+    @Override
+    protected void populateModel(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
+        // Validate extra add operation parameters
         for (AttributeDefinition definition : this.descriptor.getExtraParameters()) {
             definition.validateOperation(operation);
         }
-        super.populateModel(operation, model);
+        PathAddress currentAddress = context.getCurrentAddress();
+        // Validate and apply attribute translations
+        Map<AttributeDefinition, AttributeTranslation> translations = this.descriptor.getAttributeTranslations();
+        for (Map.Entry<AttributeDefinition, AttributeTranslation> entry : translations.entrySet()) {
+            AttributeDefinition sourceParameter = entry.getKey();
+            AttributeTranslation translation = entry.getValue();
+            if (operation.hasDefined(sourceParameter.getName())) {
+                ModelNode value = sourceParameter.validateOperation(operation);
+                ModelNode targetValue = translation.getWriteTranslator().translate(context, value);
+                Attribute targetAttribute = translation.getTargetAttribute();
+                PathAddress targetAddress = translation.getPathAddressTransformation().apply(currentAddress);
+                // If target attribute exists in the current resource, just fix the operation
+                // Otherwise, we need a separate write-attribute operation
+                if (targetAddress == currentAddress) {
+                    String targetName = targetAttribute.getName();
+                    if (!operation.hasDefined(targetName)) {
+                        operation.get(targetName).set(targetValue);
+                    }
+                } else {
+                    ModelNode writeAttributeOperation = Operations.createWriteAttributeOperation(targetAddress, targetAttribute, targetValue);
+                    ImmutableManagementResourceRegistration registration = (currentAddress == targetAddress) ? context.getResourceRegistration() : context.getRootResourceRegistration().getSubModel(targetAddress);
+                    if (registration == null) {
+                        throw new OperationFailedException(ControllerLogger.MGMT_OP_LOGGER.noSuchResourceType(targetAddress));
+                    }
+                    OperationStepHandler writeAttributeHandler = registration.getAttributeAccess(PathAddress.EMPTY_ADDRESS, targetAttribute.getName()).getWriteHandler();
+                    context.addStep(writeAttributeOperation, writeAttributeHandler, OperationContext.Stage.MODEL);
+                }
+            }
+        }
+        // Validate proper attributes
+        ModelNode model = resource.getModel();
+        ImmutableManagementResourceRegistration registration = context.getResourceRegistration();
+        for (String attributeName : registration.getAttributeNames(PathAddress.EMPTY_ADDRESS)) {
+            AttributeAccess attribute = registration.getAttributeAccess(PathAddress.EMPTY_ADDRESS, attributeName);
+            AttributeDefinition definition = attribute.getAttributeDefinition();
+            if ((attribute.getStorageType() == AttributeAccess.Storage.CONFIGURATION) && !translations.containsKey(definition)) {
+                OperationStepHandler writeHandler = this.descriptor.getCustomAttributes().get(definition);
+                if (writeHandler != null) {
+                    // If attribute has custom handling, perform a separate write-attribute operation
+                    ModelNode writeAttributeOperation = Util.getWriteAttributeOperation(currentAddress, definition.getName(), definition.validateOperation(operation));
+                    context.addStep(writeAttributeOperation, writeHandler, OperationContext.Stage.MODEL);
+                } else {
+                    definition.validateAndSet(operation, model);
+                }
+            }
+        }
+
+        // Auto-create required child resources as necessary
+        addRequiredChildren(context, this.descriptor.getRequiredChildren(), (Resource parent, PathElement path) -> parent.hasChild(path));
+        addRequiredChildren(context, this.descriptor.getRequiredSingletonChildren(), (Resource parent, PathElement path) -> parent.hasChildren(path.getKey()));
+
+        // Don't leave model undefined
+        if (!model.isDefined()) {
+            model.setEmptyObject();
+        }
+    }
+
+    private static void addRequiredChildren(OperationContext context, Collection<PathElement> paths, BiPredicate<Resource, PathElement> present) {
+        for (PathElement path : paths) {
+            context.addStep(Util.createAddOperation(context.getCurrentAddress().append(path)), new AddIfAbsentStepHandler(present), OperationContext.Stage.MODEL);
+        }
     }
 
     @Override
     protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
-        if (this.handler != null) {
-            this.handler.installServices(context, model);
-        }
+        this.handler.installServices(context, model);
     }
 
     @Override
     protected void rollbackRuntime(OperationContext context, ModelNode operation, Resource resource) {
-        if (this.handler != null) {
-            try {
-                this.handler.removeServices(context, resource.getModel());
-            } catch (OperationFailedException e) {
-                throw new IllegalStateException(e);
-            }
+        try {
+            this.handler.removeServices(context, resource.getModel());
+        } catch (OperationFailedException e) {
+            throw new IllegalStateException(e);
         }
     }
 
     @Override
     protected void recordCapabilitiesAndRequirements(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
         PathAddress address = context.getCurrentAddress();
-        // The super implementation assumes that the capability name is a simple extension of the base name - we do not.
-        this.descriptor.getCapabilities().forEach(capability -> context.registerCapability(capability.getRuntimeCapability(address)));
-
         ModelNode model = resource.getModel();
-        this.attributes.stream()
-                .filter(attribute -> model.hasDefined(attribute.getName()) || attribute.hasCapabilityRequirements())
-                .forEach(attribute -> attribute.addCapabilityRequirements(context, model.get(attribute.getName())));
+        // The super implementation assumes that the capability name is a simple extension of the base name - we do not.
+        // Only register capabilities when allowed by the associated predicate
+        for (Map.Entry<Capability, Predicate<ModelNode>> entry : this.descriptor.getCapabilities().entrySet()) {
+            if (entry.getValue().test(model)) {
+                context.registerCapability(entry.getKey().resolve(address));
+            }
+        }
+
+        ImmutableManagementResourceRegistration registration = context.getResourceRegistration();
+        for (String attributeName : registration.getAttributeNames(PathAddress.EMPTY_ADDRESS)) {
+            AttributeDefinition attribute = registration.getAttributeAccess(PathAddress.EMPTY_ADDRESS, attributeName).getAttributeDefinition();
+            if (attribute.hasCapabilityRequirements()) {
+                attribute.addCapabilityRequirements(context, resource, model.get(attributeName));
+            }
+        }
+
+        for (CapabilityReferenceRecorder recorder : registration.getRequirements()) {
+            recorder.addCapabilityRequirements(context, resource, null);
+        }
     }
 
     @Override
     public void register(ManagementResourceRegistration registration) {
         SimpleOperationDefinitionBuilder builder = new SimpleOperationDefinitionBuilder(ModelDescriptionConstants.ADD, this.descriptor.getDescriptionResolver()).withFlag(OperationEntry.Flag.RESTART_NONE);
-        this.descriptor.getAttributes().forEach(attribute -> builder.addParameter(attribute));
-        this.descriptor.getExtraParameters().forEach(attribute -> builder.addParameter(attribute));
-        registration.registerOperationHandler(builder.build(), this);
-
-        this.descriptor.getAttributes().forEach(attribute -> registration.registerReadWriteAttribute(attribute, null, this.writeAttributeHandler));
-
-        new CapabilityRegistration(this.descriptor.getCapabilities()).register(registration);
+        if (registration.isOrderedChildResource()) {
+            builder.addParameter(SimpleAttributeDefinitionBuilder.create(ModelDescriptionConstants.ADD_INDEX, ModelType.INT, true).build());
+        }
+        for (AttributeDefinition attribute : this.descriptor.getAttributes()) {
+            builder.addParameter(attribute);
+        }
+        for (AttributeDefinition attribute : this.descriptor.getCustomAttributes().keySet()) {
+            builder.addParameter(attribute);
+        }
+        for (AttributeDefinition attribute : this.descriptor.getIgnoredAttributes()) {
+            builder.addParameter(attribute);
+        }
+        for (AttributeDefinition parameter : this.descriptor.getExtraParameters()) {
+            builder.addParameter(parameter);
+        }
+        for (AttributeDefinition attribute : this.descriptor.getAttributeTranslations().keySet()) {
+            builder.addParameter(attribute);
+        }
+        registration.registerOperationHandler(builder.build(), this.descriptor.getAddOperationTransformation().apply(this));
     }
 }

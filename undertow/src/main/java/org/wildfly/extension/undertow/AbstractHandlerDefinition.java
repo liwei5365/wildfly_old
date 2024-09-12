@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -33,6 +33,7 @@ import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.PersistentResourceDefinition;
+import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.access.constraint.SensitivityClassification;
 import org.jboss.as.controller.access.management.AccessConstraintDefinition;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
@@ -49,9 +50,6 @@ public abstract class AbstractHandlerDefinition extends PersistentResourceDefini
             new SensitivityClassification(UndertowExtension.SUBSYSTEM_NAME, "undertow-filter", false, false, false)
     ).wrapAsList();
 
-
-    protected final String name;
-
     protected AbstractHandlerDefinition(final String name, AbstractAddStepHandler addHandler, AbstractRemoveStepHandler removeHandler) {
         this(name, Constants.HANDLER, addHandler, removeHandler);
     }
@@ -60,17 +58,25 @@ public abstract class AbstractHandlerDefinition extends PersistentResourceDefini
         this(name, Constants.HANDLER);
     }
 
-
     protected AbstractHandlerDefinition(final String name, String prefix, AbstractAddStepHandler addHandler, AbstractRemoveStepHandler removeHandler) {
         super(PathElement.pathElement(name), UndertowExtension.getResolver(prefix, name), addHandler, removeHandler);
-        this.name = name;
     }
 
     protected AbstractHandlerDefinition(final String name, String prefix) {
         super(PathElement.pathElement(name), UndertowExtension.getResolver(prefix, name));
-        this.name = name;
     }
 
+    /**
+     * @deprecated Use {@link AbstractHandlerDefinition#AbstractHandlerDefinition(org.jboss.as.controller.SimpleResourceDefinition.Parameters)} instead.
+     */
+    @Deprecated
+    protected AbstractHandlerDefinition(final Parameters parameters) {
+        super(parameters);
+    }
+
+    protected AbstractHandlerDefinition(final SimpleResourceDefinition.Parameters parameters) {
+        super(parameters);
+    }
 
     @Override
     public void registerOperations(ManagementResourceRegistration resourceRegistration) {
@@ -96,11 +102,6 @@ public abstract class AbstractHandlerDefinition extends PersistentResourceDefini
     @Override
     public Collection<AttributeDefinition> getAttributes() {
         return Collections.emptyList();
-    }
-
-    @Override
-    public String getXmlElementName() {
-        return this.name;
     }
 
     protected static class DefaultHandlerRemove extends AbstractRemoveStepHandler {

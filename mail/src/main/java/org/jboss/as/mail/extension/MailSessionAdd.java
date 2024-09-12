@@ -22,7 +22,10 @@
 
 package org.jboss.as.mail.extension;
 
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
+import static org.jboss.as.controller.security.CredentialReference.KEY_DELIMITER;
+import static org.jboss.as.mail.extension.MailServerDefinition.OUTBOUND_SOCKET_BINDING_CAPABILITY_NAME;
+import static org.jboss.as.mail.extension.MailSessionDefinition.ATTRIBUTES;
+import static org.jboss.as.mail.extension.MailSessionDefinition.SESSION_CAPABILITY;
 import static org.jboss.as.mail.extension.MailSubsystemModel.CUSTOM;
 import static org.jboss.as.mail.extension.MailSubsystemModel.IMAP;
 import static org.jboss.as.mail.extension.MailSubsystemModel.POP3;
@@ -33,10 +36,13 @@ import static org.jboss.as.mail.extension.MailSubsystemModel.USER_NAME;
 import java.util.Map;
 
 import org.jboss.as.controller.AbstractAddStepHandler;
+import org.jboss.as.controller.CapabilityServiceBuilder;
+import org.jboss.as.controller.CapabilityServiceTarget;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.registry.Resource;
+import org.jboss.as.controller.security.CredentialReference;
 import org.jboss.as.naming.ManagedReferenceFactory;
 import org.jboss.as.naming.ServiceBasedNamingStore;
 import org.jboss.as.naming.deployment.ContextNames;
@@ -44,34 +50,26 @@ import org.jboss.as.naming.service.BinderService;
 import org.jboss.as.network.OutboundSocketBinding;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.Property;
-import org.jboss.msc.service.AbstractServiceListener;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
-import org.jboss.msc.service.ServiceTarget;
 
 /**
  * @author Tomaz Cerar
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  * @created 27.7.11 0:55
  */
 class MailSessionAdd extends AbstractAddStepHandler {
 
     static final MailSessionAdd INSTANCE = new MailSessionAdd();
-    public static final ServiceName MAIL_SESSION_SERVICE_NAME = ServiceName.JBOSS.append("mail-session");
+    @Deprecated
+    static final ServiceName MAIL_SESSION_SERVICE_NAME = ServiceName.JBOSS.append("mail-session");
 
     protected MailSessionAdd() {
+        super(ATTRIBUTES);
     }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
-        MailSessionDefinition.JNDI_NAME.validateAndSet(operation, model);
-        MailSessionDefinition.DEBUG.validateAndSet(operation, model);
-        MailSessionDefinition.FROM.validateAndSet(operation, model);
-    }
-
 
     /**
      * Make any runtime changes necessary to effect the changes indicated by the given {@code operation}. E
@@ -87,50 +85,78 @@ class MailSessionAdd extends AbstractAddStepHandler {
      */
     @Override
     protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
-        final PathAddress address = PathAddress.pathAddress(operation.get(OP_ADDR));
+        final PathAddress address = context.getCurrentAddress();
         ModelNode fullTree = Resource.Tools.readModel(context.readResource(PathAddress.EMPTY_ADDRESS));
         installRuntimeServices(context, address, fullTree);
     }
 
+    private static void addCredentialStoreReference(ServerConfig serverConfig, OperationContext context, ModelNode model, ServiceBuilder serviceBuilder, String... modelFilter) throws OperationFailedException {
+        if (serverConfig != null) {
+            ModelNode filteredModelNode = model;
+            if (modelFilter != null && modelFilter.length > 0) {
+                for (String path : modelFilter) {
+                    if (filteredModelNode.get(path).isDefined())
+                        filteredModelNode = filteredModelNode.get(path);
+                    else
+                        break;
+                }
+            }
+            ModelNode value = MailServerDefinition.CREDENTIAL_REFERENCE.resolveModelAttribute(context, filteredModelNode);
+            String keySuffix = modelFilter[0] + KEY_DELIMITER + modelFilter[1];
+            if (value.isDefined()) {
+                serverConfig.getCredentialSourceSupplierInjector()
+                        .inject(
+                                CredentialReference.getCredentialSourceSupplier(context, MailServerDefinition.CREDENTIAL_REFERENCE, filteredModelNode, serviceBuilder, keySuffix));
+            }
+        }
+    }
 
     static void installRuntimeServices(OperationContext context, PathAddress address, ModelNode fullModel) throws OperationFailedException {
-        String name = address.getLastElement().getValue();
-
         final String jndiName = getJndiName(fullModel, context);
-        final ServiceTarget serviceTarget = context.getServiceTarget();
-
+        final CapabilityServiceTarget serviceTarget = context.getCapabilityServiceTarget();
 
         final MailSessionConfig config = from(context, fullModel);
         final MailSessionService service = new MailSessionService(config);
-        final ServiceName serviceName = MAIL_SESSION_SERVICE_NAME.append(name);
-        final ServiceBuilder<?> mailSessionBuilder = serviceTarget.addService(serviceName, service);
+
+        final CapabilityServiceBuilder mailSessionBuilder = serviceTarget.addCapability(SESSION_CAPABILITY.fromBaseCapability(address.getLastElement().getValue())).setInstance(service);
         addOutboundSocketDependency(service, mailSessionBuilder, config.getImapServer());
+        addCredentialStoreReference(config.getImapServer(), context, fullModel, mailSessionBuilder, MailSubsystemModel.IMAP_SERVER_PATH.getKey(), MailSubsystemModel.IMAP_SERVER_PATH.getValue());
         addOutboundSocketDependency(service, mailSessionBuilder, config.getPop3Server());
+        addCredentialStoreReference(config.getPop3Server(), context, fullModel, mailSessionBuilder, MailSubsystemModel.POP3_SERVER_PATH.getKey(), MailSubsystemModel.POP3_SERVER_PATH.getValue());
         addOutboundSocketDependency(service, mailSessionBuilder, config.getSmtpServer());
+        addCredentialStoreReference(config.getSmtpServer(), context, fullModel, mailSessionBuilder, MailSubsystemModel.SMTP_SERVER_PATH.getKey(), MailSubsystemModel.SMTP_SERVER_PATH.getValue());
         for (CustomServerConfig server : config.getCustomServers()) {
             if (server.getOutgoingSocketBinding() != null) {
                 addOutboundSocketDependency(service, mailSessionBuilder, server);
             }
+            addCredentialStoreReference(server, context, fullModel, mailSessionBuilder, MailSubsystemModel.CUSTOM_SERVER_PATH.getKey(), server.getProtocol());
         }
+        mailSessionBuilder.addAliases(MAIL_SESSION_SERVICE_NAME.append(address.getLastElement().getValue()));
+
 
         final ManagedReferenceFactory valueManagedReferenceFactory = new MailSessionManagedReferenceFactory(service);
         final ContextNames.BindInfo bindInfo = ContextNames.bindInfoFor(jndiName);
         final BinderService binderService = new BinderService(bindInfo.getBindName());
+        binderService.getManagedObjectInjector().inject(valueManagedReferenceFactory);
         final ServiceBuilder<?> binderBuilder = serviceTarget
                 .addService(bindInfo.getBinderServiceName(), binderService)
-                .addInjection(binderService.getManagedObjectInjector(), valueManagedReferenceFactory)
-                .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class, binderService.getNamingStoreInjector()).addListener(new AbstractServiceListener<Object>() {
-                    public void transition(final ServiceController<? extends Object> controller, final ServiceController.Transition transition) {
-                        switch (transition) {
-                            case STARTING_to_UP: {
+                .addDependency(bindInfo.getParentContextServiceName(), ServiceBasedNamingStore.class, binderService.getNamingStoreInjector()).addListener(new LifecycleListener() {
+                    private volatile boolean bound;
+                    @Override
+                    public void handleEvent(final ServiceController<?> controller, final LifecycleEvent event) {
+                        switch (event) {
+                            case UP: {
                                 MailLogger.ROOT_LOGGER.boundMailSession(jndiName);
+                                bound = true;
                                 break;
                             }
-                            case START_REQUESTED_to_DOWN: {
-                                MailLogger.ROOT_LOGGER.unboundMailSession(jndiName);
+                            case DOWN: {
+                                if (bound) {
+                                    MailLogger.ROOT_LOGGER.unboundMailSession(jndiName);
+                                }
                                 break;
                             }
-                            case REMOVING_to_REMOVED: {
+                            case REMOVED: {
                                 MailLogger.ROOT_LOGGER.removedMailSession(jndiName);
                                 break;
                             }
@@ -168,12 +194,10 @@ class MailSessionAdd extends AbstractAddStepHandler {
         return jndiName;
     }
 
-
-    private static void addOutboundSocketDependency(MailSessionService service, ServiceBuilder<?> mailSessionBuilder, ServerConfig server) {
+    private static void addOutboundSocketDependency(MailSessionService service, CapabilityServiceBuilder<?> mailSessionBuilder, ServerConfig server) {
         if (server != null) {
             final String ref = server.getOutgoingSocketBinding();
-            mailSessionBuilder.addDependency(OutboundSocketBinding.OUTBOUND_SOCKET_BINDING_BASE_SERVICE_NAME.append(ref),
-                    OutboundSocketBinding.class, service.getSocketBindingInjector(ref));
+            mailSessionBuilder.addCapabilityRequirement(OUTBOUND_SOCKET_BINDING_CAPABILITY_NAME, OutboundSocketBinding.class, service.getSocketBindingInjector(ref), ref);
         }
     }
 
@@ -226,8 +250,17 @@ class MailSessionAdd extends AbstractAddStepHandler {
     private static Credentials readCredentials(final OperationContext operationContext, final ModelNode model) throws OperationFailedException {
         if (model.get(USER_NAME).isDefined()) {
             String un = MailServerDefinition.USERNAME.resolveModelAttribute(operationContext, model).asString();
-            String pw = MailServerDefinition.PASSWORD.resolveModelAttribute(operationContext, model).asString();
-            return new Credentials(un, pw);
+            String pw = MailServerDefinition.PASSWORD.resolveModelAttribute(operationContext, model).asStringOrNull();
+            ModelNode value = MailServerDefinition.CREDENTIAL_REFERENCE.resolveValue(operationContext, model);
+            String secret = null;
+            if (value.isDefined()) {
+                secret = CredentialReference.credentialReferencePartAsStringIfDefined(value, CredentialReference.CLEAR_TEXT);
+            }
+            if (secret != null) {
+                return new Credentials(un, secret);
+            } else {
+                return new Credentials(un, pw);
+            }
         }
         return null;
     }

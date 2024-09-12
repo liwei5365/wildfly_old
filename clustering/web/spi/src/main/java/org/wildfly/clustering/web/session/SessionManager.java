@@ -28,14 +28,13 @@ import org.wildfly.clustering.ee.Batch;
 import org.wildfly.clustering.ee.Batcher;
 import org.wildfly.clustering.web.IdentifierFactory;
 
+/**
+ * SPI for a distributable session manager.
+ * @param <L> the local context type
+ * @param <B> the batch type
+ * @author Paul Ferraro
+ */
 public interface SessionManager<L, B extends Batch> extends IdentifierFactory<String>, ActiveSessionStatistics {
-
-    /**
-     * Indicates whether or not the session with the specified identifier is known to this session manager.
-     * @param id a unique session identifier
-     * @return true, if the session is known to the manager, false otherwise
-     */
-    boolean containsSession(String id);
 
     /**
      * Returns the session with the specified identifier, or null if none exists.
@@ -47,11 +46,11 @@ public interface SessionManager<L, B extends Batch> extends IdentifierFactory<St
     Session<L> findSession(String id);
 
     /**
-     * Returns the session with the specified identifier, creating one if necessary
+     * Creates a session using the specified identifier.
      * Sessions returned by this method must be closed via {@link Session#close()}.
      * This method is intended to be invoked within the context of a batch.
      * @param id a session identifier
-     * @return a new or existing web session
+     * @return a new web session, or null if a session with the specified identifier already exists.
      */
     Session<L> createSession(String id);
 
@@ -91,5 +90,11 @@ public interface SessionManager<L, B extends Batch> extends IdentifierFactory<St
      * @param id a unique session identifier
      * @return a read-only session or null if none exists
      */
-    ImmutableSession viewSession(String id);
+    ImmutableSession readSession(String id);
+
+    /**
+     * The maximum duration of time to wait for the completion of requests before the session manager can be stopped.
+     * @return a duration
+     */
+    Duration getStopTimeout();
 }

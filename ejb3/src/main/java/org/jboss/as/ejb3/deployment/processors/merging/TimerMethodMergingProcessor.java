@@ -42,8 +42,8 @@ import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.reflect.ClassReflectionIndex;
 import org.jboss.as.server.deployment.reflect.DeploymentReflectionIndex;
-import org.jboss.metadata.common.ejb.IScheduleTarget;
-import org.jboss.metadata.common.ejb.ITimeoutTarget;
+import org.jboss.metadata.ejb.common.IScheduleTarget;
+import org.jboss.metadata.ejb.common.ITimeoutTarget;
 import org.jboss.metadata.ejb.spec.EnterpriseBeanMetaData;
 import org.jboss.metadata.ejb.spec.NamedMethodMetaData;
 import org.jboss.metadata.ejb.spec.ScheduleMetaData;
@@ -88,15 +88,14 @@ public class TimerMethodMergingProcessor extends AbstractMergingProcessor<EJBCom
     @Override
     protected void handleDeploymentDescriptor(final DeploymentUnit deploymentUnit, final DeploymentReflectionIndex deploymentReflectionIndex, final Class<?> componentClass, final EJBComponentDescription description) throws DeploymentUnitProcessingException {
         final EnterpriseBeanMetaData descriptorData = description.getDescriptorData();
-        if (descriptorData != null) {
-            if (description.isSession() || description.isMessageDriven()) {
-                assert descriptorData instanceof ITimeoutTarget : descriptorData + " is not an ITimeoutTarget";
-                ITimeoutTarget target = (ITimeoutTarget) descriptorData;
-                if (target.getTimeoutMethod() != null) {
-                    parseTimeoutMethod(target, description, componentClass, deploymentReflectionIndex);
-                }
-                parseScheduleMethods(descriptorData, description, componentClass, deploymentReflectionIndex);
+        if (descriptorData != null
+                && (description.isSession() || description.isMessageDriven())) {
+            assert descriptorData instanceof ITimeoutTarget : descriptorData + " is not an ITimeoutTarget";
+            ITimeoutTarget target = (ITimeoutTarget) descriptorData;
+            if (target.getTimeoutMethod() != null) {
+                parseTimeoutMethod(target, description, componentClass, deploymentReflectionIndex);
             }
+            parseScheduleMethods(descriptorData, description, componentClass, deploymentReflectionIndex);
         }
 
         //now check to see if the class implemented TimedObject
@@ -111,10 +110,8 @@ public class TimerMethodMergingProcessor extends AbstractMergingProcessor<EJBCom
                 if (method != null) {
 
                     final Method otherMethod = description.getTimeoutMethod();
-                    if (otherMethod != null) {
-                        if (!otherMethod.equals(method)) {
-                            throw EjbLogger.ROOT_LOGGER.invalidEjbEntityTimeout("3.1 18.2.5.3", componentClass);
-                        }
+                    if (otherMethod != null && !otherMethod.equals(method)) {
+                        throw EjbLogger.ROOT_LOGGER.invalidEjbEntityTimeout("3.1 18.2.5.3", componentClass);
                     }
                     description.setTimeoutMethod(method);
                     break;

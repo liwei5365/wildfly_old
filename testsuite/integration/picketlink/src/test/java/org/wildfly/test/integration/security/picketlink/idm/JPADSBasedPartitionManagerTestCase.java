@@ -40,8 +40,6 @@ import org.wildfly.test.integration.security.picketlink.idm.util.AbstractIdentit
 import javax.annotation.Resource;
 
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
-import static org.wildfly.extension.picketlink.common.model.ModelElement.JPA_STORE;
-import static org.wildfly.extension.picketlink.common.model.ModelElement.JPA_STORE_DATASOURCE;
 
 /**
  * @author Pedro Igor
@@ -74,11 +72,11 @@ public class JPADSBasedPartitionManagerTestCase extends AbstractBasicIdentityMan
 
     static class IdentityManagementServerSetupTask extends AbstractIdentityManagementServerSetupTask {
 
-        public IdentityManagementServerSetupTask() {
+        IdentityManagementServerSetupTask() {
             this("jpa.ds.idm", PARTITION_MANAGER_JNDI_NAME);
         }
 
-        public IdentityManagementServerSetupTask(String name, String partitionManagerJndiName) {
+        IdentityManagementServerSetupTask(String name, String partitionManagerJndiName) {
             super(name, partitionManagerJndiName);
         }
 
@@ -98,10 +96,10 @@ public class JPADSBasedPartitionManagerTestCase extends AbstractBasicIdentityMan
         }
 
         private ModelNode createIdentityStoreAddOperation(ModelNode identityConfigurationModelNode) {
-            PathAddress pathAddress = PathAddress.pathAddress(identityConfigurationModelNode.get(OP_ADDR)).append(JPA_STORE.getName(), JPA_STORE.getName());
+            PathAddress pathAddress = PathAddress.pathAddress(identityConfigurationModelNode.get(OP_ADDR)).append("jpa-store", "jpa-store");
             ModelNode operationAddIdentityStore = Util.createAddOperation(pathAddress);
 
-            operationAddIdentityStore.get(JPA_STORE_DATASOURCE.getName()).set("jboss/datasources/ExampleDS");
+            operationAddIdentityStore.get("data-source").set("jboss/datasources/ExampleDS");
 
             return operationAddIdentityStore;
         }

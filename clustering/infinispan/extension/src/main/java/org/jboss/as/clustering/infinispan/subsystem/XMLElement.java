@@ -22,10 +22,14 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.jboss.as.clustering.controller.Attribute;
+import org.jboss.as.clustering.infinispan.subsystem.remote.ConnectionPoolResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.RemoteCacheContainerResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.RemoteClusterResourceDefinition;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 
@@ -38,51 +42,72 @@ import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
  */
 public enum XMLElement {
     // must be first
-    UNKNOWN(""),
+    UNKNOWN((String) null),
 
     ALIAS("alias"),
-    ASYNC_OPERATIONS_THREAD_POOL("async-operations-thread-pool"),
+    @Deprecated ASYNC_OPERATIONS_THREAD_POOL("async-operations-thread-pool"),
     BACKUP(BackupResourceDefinition.WILDCARD_PATH),
-    BACKUP_FOR(BackupForResourceDefinition.PATH),
-    BACKUPS("backups"),
+    @Deprecated BACKUP_FOR(BackupForResourceDefinition.PATH),
+    BACKUPS(BackupsResourceDefinition.PATH),
     BINARY_KEYED_TABLE("binary-keyed-table"),
+    BLOCKING_THREAD_POOL("blocking-thread-pool"),
     @Deprecated BUCKET_TABLE("bucket-table"),
     CACHE_CONTAINER(CacheContainerResourceDefinition.WILDCARD_PATH),
     DATA_COLUMN(TableResourceDefinition.ColumnAttribute.DATA),
     DISTRIBUTED_CACHE(DistributedCacheResourceDefinition.WILDCARD_PATH),
+    ENTRIES("entries"),
     @Deprecated ENTRY_TABLE("entry-table"),
-    EVICTION(EvictionResourceDefinition.PATH),
+    @Deprecated EVICTION(HeapMemoryResourceDefinition.EVICTION_PATH),
+    @Deprecated BINARY_MEMORY("binary-memory"),
+    HEAP_MEMORY("heap-memory"),
+    @Deprecated OBJECT_MEMORY("object-memory"),
+    OFF_HEAP_MEMORY("off-heap-memory"),
     EXPIRATION(ExpirationResourceDefinition.PATH),
     EXPIRATION_THREAD_POOL("expiration-thread-pool"),
     FILE_STORE("file-store"),
     ID_COLUMN(TableResourceDefinition.ColumnAttribute.ID),
     INVALIDATION_CACHE(InvalidationCacheResourceDefinition.WILDCARD_PATH),
     LISTENER_THREAD_POOL("listener-thread-pool"),
-    @Deprecated JDBC_STORE("jdbc-store"),
+    JDBC_STORE("jdbc-store"),
     STRING_KEYED_JDBC_STORE("string-keyed-jdbc-store"),
     BINARY_KEYED_JDBC_STORE("binary-keyed-jdbc-store"),
     MIXED_KEYED_JDBC_STORE("mixed-keyed-jdbc-store"),
     @Deprecated INDEXING(CacheResourceDefinition.DeprecatedAttribute.INDEXING),
     LOCAL_CACHE(LocalCacheResourceDefinition.WILDCARD_PATH),
     LOCKING(LockingResourceDefinition.PATH),
+    NON_BLOCKING_THREAD_POOL("non-blocking-thread-pool"),
     PARTITION_HANDLING(PartitionHandlingResourceDefinition.PATH),
-    PERSISTENCE_THREAD_POOL("persistence-thread-pool"),
-    REMOTE_COMMAND_THREAD_POOL("remote-command-thread-pool"),
+    @Deprecated PERSISTENCE_THREAD_POOL("persistence-thread-pool"),
+    @Deprecated REMOTE_COMMAND_THREAD_POOL("remote-command-thread-pool"),
     PROPERTY(ModelDescriptionConstants.PROPERTY),
     @Deprecated REHASHING("rehashing"),
     REMOTE_SERVER("remote-server"),
     REMOTE_STORE("remote-store"),
     REPLICATED_CACHE(ReplicatedCacheResourceDefinition.WILDCARD_PATH),
+    SCATTERED_CACHE(ScatteredCacheResourceDefinition.WILDCARD_PATH),
+    SEGMENT_COLUMN(TableResourceDefinition.ColumnAttribute.SEGMENT),
+    SIZE("size"),
     STATE_TRANSFER(StateTransferResourceDefinition.PATH),
-    STATE_TRANSFER_THREAD_POOL("state-transfer-thread-pool"),
+    @Deprecated STATE_TRANSFER_THREAD_POOL("state-transfer-thread-pool"),
     STORE(StoreResourceDefinition.WILDCARD_PATH),
     STRING_KEYED_TABLE("string-keyed-table"),
+    TABLE(TableResourceDefinition.WILDCARD_PATH),
     TAKE_OFFLINE("take-offline"),
     TIMESTAMP_COLUMN(TableResourceDefinition.ColumnAttribute.TIMESTAMP),
     TRANSACTION(TransactionResourceDefinition.PATH),
     TRANSPORT(TransportResourceDefinition.WILDCARD_PATH),
-    TRANSPORT_THREAD_POOL("transport-thread-pool"),
+    @Deprecated TRANSPORT_THREAD_POOL("transport-thread-pool"),
     WRITE_BEHIND("write-behind"),
+
+    // remote-cache-container
+    REMOTE_CACHE_CONTAINER(RemoteCacheContainerResourceDefinition.WILDCARD_PATH),
+    ASYNC_THREAD_POOL("async-thread-pool"),
+    CONNECTION_POOL(ConnectionPoolResourceDefinition.PATH),
+    INVALIDATION_NEAR_CACHE("invalidation-near-cache"),
+    REMOTE_CLUSTERS("remote-clusters"),
+    REMOTE_CLUSTER(RemoteClusterResourceDefinition.WILDCARD_PATH),
+    SECURITY("security"),
+    HOTROD_STORE("hotrod-store"),
     ;
 
     private final String name;
@@ -112,7 +137,7 @@ public enum XMLElement {
 
     static {
         final Map<String, XMLElement> map = new HashMap<>();
-        for (XMLElement element : values()) {
+        for (XMLElement element : EnumSet.allOf(XMLElement.class)) {
             final String name = element.getLocalName();
             if (name != null) {
                 assert !map.containsKey(name) : element;

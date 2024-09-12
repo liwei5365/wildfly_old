@@ -22,6 +22,11 @@
 
 package org.jboss.as.test.multinode.remotecall;
 
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createFilePermission;
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
+
+import java.security.SecurityPermission;
+import java.util.Arrays;
 import javax.ejb.EJBException;
 import javax.naming.InitialContext;
 
@@ -52,7 +57,7 @@ public class RemoteLocalCallTestCase {
 
     @BeforeClass
     public static void printSysProps() {
-        log.info("System properties:\n" + System.getProperties());
+        log.trace("System properties:\n" + System.getProperties());
     }
 
     @Deployment(name = "server")
@@ -68,6 +73,12 @@ public class RemoteLocalCallTestCase {
         JavaArchive jar = createJar(ARCHIVE_NAME_CLIENT);
         jar.addClasses(RemoteLocalCallTestCase.class);
         jar.addAsManifestResource("META-INF/jboss-ejb-client-receivers.xml", "jboss-ejb-client.xml");
+        jar.addAsManifestResource(
+                createPermissionsXmlAsset(
+                        createFilePermission("delete",
+                                "jbossas.multinode.client", Arrays.asList("standalone", "data", "ejb-xa-recovery", "-")),
+                        new SecurityPermission("putProviderProperty.WildFlyElytron")),
+                "permissions.xml");
         return jar;
     }
 

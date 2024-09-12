@@ -21,6 +21,7 @@
  */
 package org.jboss.as.ejb3.component.messagedriven;
 
+import static org.jboss.as.server.deployment.Attachments.CAPABILITY_SERVICE_SUPPORT;
 
 import java.util.Properties;
 
@@ -29,6 +30,7 @@ import javax.ejb.TransactionManagementType;
 import javax.resource.spi.ResourceAdapter;
 
 import org.jboss.as.connector.util.ConnectorServices;
+import org.jboss.as.controller.capability.CapabilityServiceSupport;
 import org.jboss.as.ee.component.Attachments;
 import org.jboss.as.ee.component.Component;
 import org.jboss.as.ee.component.ComponentConfiguration;
@@ -45,24 +47,24 @@ import org.jboss.as.ee.component.interceptors.InvocationType;
 import org.jboss.as.ee.metadata.MetadataCompleteMarker;
 import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.component.EJBComponentDescription;
-import org.jboss.as.ejb3.component.EJBUtilities;
 import org.jboss.as.ejb3.component.EJBViewDescription;
 import org.jboss.as.ejb3.component.MethodIntf;
 import org.jboss.as.ejb3.component.interceptors.CurrentInvocationContextInterceptor;
 import org.jboss.as.ejb3.component.pool.PoolConfig;
-import org.jboss.as.ejb3.component.pool.StrictMaxPoolConfigService;
 import org.jboss.as.ejb3.deployment.EjbJarDescription;
 import org.jboss.as.ejb3.tx.CMTTxInterceptor;
 import org.jboss.as.ejb3.tx.EjbBMTInterceptor;
 import org.jboss.as.ejb3.tx.LifecycleCMTTxInterceptor;
 import org.jboss.as.ejb3.tx.TimerCMTTxInterceptor;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
+import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.reflect.ClassReflectionIndex;
 import org.jboss.as.server.suspend.SuspendController;
 import org.jboss.invocation.ImmediateInterceptorFactory;
 import org.jboss.invocation.Interceptor;
 import org.jboss.invocation.InterceptorContext;
+import org.jboss.jca.core.spi.rar.ResourceAdapterRepository;
 import org.jboss.metadata.ejb.spec.MessageDrivenBeanMetaData;
 import org.jboss.modules.ModuleLoader;
 import org.jboss.msc.service.Service;
@@ -71,16 +73,21 @@ import org.jboss.msc.service.ServiceName;
 
 /**
  * @author <a href="mailto:cdewolf@redhat.com">Carlo de Wolf</a>
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class MessageDrivenComponentDescription extends EJBComponentDescription {
+
+    private static final String STRICT_MAX_POOL_CONFIG_CAPABILITY_NAME = "org.wildfly.ejb3.pool-config";
+    private static final String DEFAULT_MDB_POOL_CONFIG_CAPABILITY_NAME = "org.wildfly.ejb3.pool-config.mdb-default";
+
     private final Properties activationProps;
     private String resourceAdapterName;
     private boolean deliveryActive;
-    private String deliveryGroup;
+    private String[] deliveryGroups;
     private boolean clusteredSingleton;
-
     private String mdbPoolConfigName;
     private final String messageListenerInterfaceName;
+    private final boolean defaultMdbPoolAvailable;
 
     /**
      * Construct a new instance.
@@ -91,9 +98,9 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
      * @param defaultResourceAdapterName The default resource adapter name for this message driven bean. Cannot be null or empty string.
      */
     public MessageDrivenComponentDescription(final String componentName, final String componentClassName, final EjbJarDescription ejbJarDescription,
-                                             final ServiceName deploymentUnitServiceName, final String messageListenerInterfaceName, final Properties activationProps,
-                                             final String defaultResourceAdapterName, final MessageDrivenBeanMetaData descriptorData) {
-        super(componentName, componentClassName, ejbJarDescription, deploymentUnitServiceName, descriptorData);
+                                             final DeploymentUnit deploymentUnit, final String messageListenerInterfaceName, final Properties activationProps,
+                                             final String defaultResourceAdapterName, final MessageDrivenBeanMetaData descriptorData, final boolean defaultMdbPoolAvailable) {
+        super(componentName, componentClassName, ejbJarDescription, deploymentUnit, descriptorData);
         if (messageListenerInterfaceName == null || messageListenerInterfaceName.isEmpty()) {
             throw EjbLogger.ROOT_LOGGER.stringParamCannotBeNullOrEmpty("Message listener interface");
         }
@@ -103,15 +110,16 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
         this.resourceAdapterName = defaultResourceAdapterName;
         this.deliveryActive = true;
         this.activationProps = activationProps;
-
         this.messageListenerInterfaceName = messageListenerInterfaceName;
+        this.defaultMdbPoolAvailable = defaultMdbPoolAvailable;
+
         registerView(getEJBClassName(), MethodIntf.MESSAGE_ENDPOINT);
         // add the interceptor which will invoke the setMessageDrivenContext() method on a MDB which implements
         // MessageDrivenBean interface
         this.addSetMessageDrivenContextMethodInvocationInterceptor();
         getConfigurators().add(new ComponentConfigurator() {
             @Override
-            public void configure(final DeploymentPhaseContext context, final ComponentDescription description, final ComponentConfiguration configuration) throws DeploymentUnitProcessingException {
+            public void configure(final DeploymentPhaseContext context, final ComponentDescription description, final ComponentConfiguration configuration) {
                 configuration.addTimeoutViewInterceptor(MessageDrivenComponentInstanceAssociatingFactory.instance(), InterceptorOrder.View.ASSOCIATING_INTERCEPTOR);
             }
         });
@@ -129,22 +137,74 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
         }
         mdbComponentConfiguration.setComponentCreateServiceFactory(new MessageDrivenComponentCreateServiceFactory(messageListenerInterface));
 
-        // setup the configurator to inject the PoolConfig in the MessageDrivenComponentCreateService
         final MessageDrivenComponentDescription mdbComponentDescription = (MessageDrivenComponentDescription) mdbComponentConfiguration.getComponentDescription();
-        mdbComponentConfiguration.getCreateDependencies().add(new PoolInjectingConfigurator(mdbComponentDescription));
 
-        // setup the configurator to inject the resource adapter
-        mdbComponentConfiguration.getCreateDependencies().add(new ResourceAdapterInjectingConfiguration());
-
-        mdbComponentConfiguration.getCreateDependencies().add(new DependencyConfigurator<MessageDrivenComponentCreateService>() {
+        // setup a configurator to inject the PoolConfig in the MessageDrivenComponentCreateService
+        getConfigurators().add(new ComponentConfigurator() {
             @Override
-            public void configureDependency(final ServiceBuilder<?> serviceBuilder, final MessageDrivenComponentCreateService mdbComponentCreateService) throws DeploymentUnitProcessingException {
-                serviceBuilder.addDependency(EJBUtilities.SERVICE_NAME, EJBUtilities.class, mdbComponentCreateService.getEJBUtilitiesInjector());
-                serviceBuilder.addDependency(SuspendController.SERVICE_NAME, SuspendController.class, mdbComponentCreateService.getSuspendControllerInjectedValue());
+            public void configure(DeploymentPhaseContext context, ComponentDescription description, ComponentConfiguration configuration) throws DeploymentUnitProcessingException {
+                //get CapabilitySupport to resolve service names
+                final CapabilityServiceSupport support = context.getDeploymentUnit().getAttachment(CAPABILITY_SERVICE_SUPPORT);
+
+                MessageDrivenComponentDescription mdbDescription = (MessageDrivenComponentDescription) description;
+                configuration.getCreateDependencies().add(new DependencyConfigurator<Service<Component>>() {
+                    @Override
+                    public void configureDependency(ServiceBuilder<?> serviceBuilder, Service<Component> service) throws DeploymentUnitProcessingException {
+                        // add any dependencies here
+                        final MessageDrivenComponentCreateService mdbComponentCreateService = (MessageDrivenComponentCreateService) service;
+                        final String poolName = mdbComponentDescription.getPoolConfigName();
+                        // if no pool name has been explicitly set, then inject the *optional* "default mdb pool config"
+                        // If the default mdb pool config itself is not configured, then pooling is disabled for the bean
+                        if (poolName == null) {
+                            if (mdbComponentDescription.isDefaultMdbPoolAvailable()) {
+                                ServiceName defaultPoolConfigServiceName = support.getCapabilityServiceName(DEFAULT_MDB_POOL_CONFIG_CAPABILITY_NAME);
+                                serviceBuilder.addDependency(defaultPoolConfigServiceName, PoolConfig.class, mdbComponentCreateService.getPoolConfigInjector());
+                            }
+                        } else {
+                            // pool name has been explicitly set so the pool config is a required dependency
+                            ServiceName poolConfigServiceName = support.getCapabilityServiceName(STRICT_MAX_POOL_CONFIG_CAPABILITY_NAME, poolName);
+                            serviceBuilder.addDependency(poolConfigServiceName, PoolConfig.class, mdbComponentCreateService.getPoolConfigInjector());
+                        }
+                    }
+                });
             }
         });
 
-        // add the bmt interceptor
+        // set up a configurator to inject ResourceAdapterService dependencies into the MessageDrivenComponentCreateService
+        getConfigurators().add(new ComponentConfigurator() {
+            @Override
+            public void configure(DeploymentPhaseContext context, ComponentDescription description, ComponentConfiguration configuration) throws DeploymentUnitProcessingException {
+                //get CapabilitySupport to resolve service names
+                final CapabilityServiceSupport support = context.getDeploymentUnit().getAttachment(CAPABILITY_SERVICE_SUPPORT);
+                configuration.getCreateDependencies().add(new DependencyConfigurator<MessageDrivenComponentCreateService>() {
+                    @Override
+                    public void configureDependency(ServiceBuilder<?> serviceBuilder, MessageDrivenComponentCreateService service) throws DeploymentUnitProcessingException {
+                        final ServiceName raServiceName =
+                                ConnectorServices.getResourceAdapterServiceName(MessageDrivenComponentDescription.this.resourceAdapterName);
+                        // add the dependency on the RA service
+                        serviceBuilder.addDependency(ConnectorServices.RA_REPOSITORY_SERVICE, ResourceAdapterRepository.class, service.getResourceAdapterRepositoryInjector());
+                        serviceBuilder.addDependency(raServiceName, ResourceAdapter.class, service.getResourceAdapterInjector());
+                    }
+                });
+            }
+        });
+
+        getConfigurators().add(new ComponentConfigurator() {
+            @Override
+            public void configure(DeploymentPhaseContext context, ComponentDescription description, ComponentConfiguration configuration) throws DeploymentUnitProcessingException {
+                final ServiceName suspendControllerName = context.getDeploymentUnit()
+                        .getAttachment(CAPABILITY_SERVICE_SUPPORT)
+                        .getCapabilityServiceName("org.wildfly.server.suspend-controller");
+                configuration.getCreateDependencies().add(new DependencyConfigurator<MessageDrivenComponentCreateService>() {
+                    @Override
+                    public void configureDependency(final ServiceBuilder<?> serviceBuilder, final MessageDrivenComponentCreateService mdbComponentCreateService) throws DeploymentUnitProcessingException {
+                        serviceBuilder.addDependency(suspendControllerName, SuspendController.class, mdbComponentCreateService.getSuspendControllerInjectedValue());
+                    }
+                });
+            }
+        });
+
+        // add the BMT interceptor
         if (TransactionManagementType.BEAN.equals(this.getTransactionManagementType())) {
             getConfigurators().add(new ComponentConfigurator() {
                 @Override
@@ -173,6 +233,9 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
         return mdbComponentConfiguration;
     }
 
+    boolean isDefaultMdbPoolAvailable() {
+        return defaultMdbPoolAvailable;
+    }
 
     public Properties getActivationProps() {
         return activationProps;
@@ -186,12 +249,12 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
         this.deliveryActive = deliveryActive;
     }
 
-    public String getDeliveryGroup() {
-        return deliveryGroup;
+    public String[] getDeliveryGroups() {
+        return deliveryGroups;
     }
 
-    public void setDeliveryGroup(String groupName) {
-        this.deliveryGroup = groupName;
+    public void setDeliveryGroup(String[] groupNames) {
+        this.deliveryGroups = groupNames;
     }
 
     public boolean isClusteredSingleton() {
@@ -203,7 +266,7 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
     }
 
     public boolean isDeliveryControlled() {
-        return deliveryGroup != null || clusteredSingleton;
+        return deliveryGroups != null && deliveryGroups.length > 0 && deliveryGroups[0] != null || clusteredSingleton;
     }
 
     public ServiceName getDeliveryControllerName() {
@@ -304,48 +367,8 @@ public class MessageDrivenComponentDescription extends EJBComponentDescription {
         return this.mdbPoolConfigName;
     }
 
-    private String getMessageListenerInterfaceName() {
+    public String getMessageListenerInterfaceName() {
         return messageListenerInterfaceName;
-    }
-
-    private class PoolInjectingConfigurator implements DependencyConfigurator<Service<Component>> {
-
-        private final MessageDrivenComponentDescription mdbComponentDescription;
-
-        PoolInjectingConfigurator(final MessageDrivenComponentDescription mdbComponentDescription) {
-            this.mdbComponentDescription = mdbComponentDescription;
-        }
-
-        @Override
-        public void configureDependency(ServiceBuilder<?> serviceBuilder, Service<Component> service) throws DeploymentUnitProcessingException {
-            final MessageDrivenComponentCreateService mdbComponentCreateService = (MessageDrivenComponentCreateService) service;
-            final String poolName = this.mdbComponentDescription.getPoolConfigName();
-            // if no pool name has been explicitly set, then inject the *optional* "default mdb pool config"
-            // If the default mdb pool config itself is not configured, then pooling is disabled for the bean
-            if (poolName == null) {
-                serviceBuilder.addDependency(ServiceBuilder.DependencyType.OPTIONAL, StrictMaxPoolConfigService.DEFAULT_MDB_POOL_CONFIG_SERVICE_NAME,
-                        PoolConfig.class, mdbComponentCreateService.getPoolConfigInjector());
-            } else {
-                // pool name has been explicitly set so the pool config is a required dependency
-                serviceBuilder.addDependency(StrictMaxPoolConfigService.EJB_POOL_CONFIG_BASE_SERVICE_NAME.append(poolName),
-                        PoolConfig.class, mdbComponentCreateService.getPoolConfigInjector());
-            }
-        }
-    }
-
-    /**
-     * A dependency configurator which adds a dependency/injection into the {@link MessageDrivenComponentCreateService}
-     * for the appropriate resource adapter service
-     */
-    private class ResourceAdapterInjectingConfiguration implements DependencyConfigurator<MessageDrivenComponentCreateService> {
-
-        @Override
-        public void configureDependency(ServiceBuilder<?> serviceBuilder, MessageDrivenComponentCreateService service) throws DeploymentUnitProcessingException {
-            final ServiceName raServiceName =
-                ConnectorServices.getResourceAdapterServiceName(MessageDrivenComponentDescription.this.resourceAdapterName);
-            // add the dependency on the RA service
-            serviceBuilder.addDependency(raServiceName, ResourceAdapter.class, service.getResourceAdapterInjector());
-        }
     }
 
     @Override

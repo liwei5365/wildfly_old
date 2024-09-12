@@ -1,25 +1,23 @@
 /*
+ * JBoss, Home of Professional Open Source.
+ * Copyright 2017, Red Hat, Inc., and individual contributors
+ * as indicated by the @author tags. See the copyright.txt file in the
+ * distribution for a full listing of individual contributors.
  *
- *  JBoss, Home of Professional Open Source.
- *  Copyright 2013, Red Hat, Inc., and individual contributors
- *  as indicated by the @author tags. See the copyright.txt file in the
- *  distribution for a full listing of individual contributors.
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
  *
- *  This is free software; you can redistribute it and/or modify it
- *  under the terms of the GNU Lesser General Public License as
- *  published by the Free Software Foundation; either version 2.1 of
- *  the License, or (at your option) any later version.
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
  *
- *  This software is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- *  Lesser General Public License for more details.
- *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this software; if not, write to the Free
- *  Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- *  02110-1301 USA, or see the FSF site: http://www.fsf.org.
- * /
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
 package org.wildfly.extension.undertow;
@@ -38,21 +36,26 @@ import org.jboss.msc.service.Service;
 import org.jboss.msc.service.StartContext;
 import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
-import org.jboss.msc.value.InjectedValue;
 import org.wildfly.extension.undertow.logging.UndertowLogger;
+import org.xnio.IoUtils;
 import org.xnio.XnioWorker;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * @author Tomaz Cerar (c) 2013 Red Hat Inc.
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
-class AccessLogService implements Service<AccessLogService> {
-    private final InjectedValue<Host> host = new InjectedValue<>();
-    protected final InjectedValue<XnioWorker> worker = new InjectedValue<>();
+final class AccessLogService implements Service<AccessLogService> {
+    private final Consumer<AccessLogService> serviceConsumer;
+    private final Supplier<Host> host;
+    private final Supplier<XnioWorker> worker;
+    private final Supplier<PathManager> pathManager;
     private final String pattern;
     private final String path;
     private final String pathRelativeTo;
@@ -64,28 +67,25 @@ class AccessLogService implements Service<AccessLogService> {
     private final Predicate predicate;
     private volatile AccessLogReceiver logReceiver;
 
-
     private PathManager.Callback.Handle callbackHandle;
-
     private Path directory;
     private ExchangeAttribute extendedPattern;
 
-    private final InjectedValue<PathManager> pathManager = new InjectedValue<PathManager>();
-
-
-    AccessLogService(String pattern, boolean extended, Predicate predicate) {
-        this.pattern = pattern;
-        this.extended = extended;
-        this.path = null;
-        this.pathRelativeTo = null;
-        this.filePrefix = null;
-        this.fileSuffix = null;
-        this.useServerLog = true;
-        this.rotate = false; //doesn't really matter
-        this.predicate = predicate == null ? Predicates.truePredicate() : predicate;
+    AccessLogService(final Consumer<AccessLogService> serviceConsumer, final Supplier<Host> host,
+                     final Supplier<XnioWorker> worker, final Supplier<PathManager> pathManager,
+                     final String pattern, final boolean extended, final Predicate predicate) {
+        this(serviceConsumer, host, worker, pathManager, pattern, null, null, null, null, false, extended, predicate);
     }
 
-    AccessLogService(String pattern, String path, String pathRelativeTo, String filePrefix, String fileSuffix, boolean rotate, boolean extended, Predicate predicate) {
+    AccessLogService(final Consumer<AccessLogService> serviceConsumer, final Supplier<Host> host,
+                     final Supplier<XnioWorker> worker, final Supplier<PathManager> pathManager,
+                     final String pattern, final String path, final String pathRelativeTo,
+                     final String filePrefix, final String fileSuffix, final boolean rotate,
+                     final boolean extended, final Predicate predicate) {
+        this.serviceConsumer = serviceConsumer;
+        this.host = host;
+        this.worker = worker;
+        this.pathManager = pathManager;
         this.pattern = pattern;
         this.path = path;
         this.pathRelativeTo = pathRelativeTo;
@@ -103,9 +103,9 @@ class AccessLogService implements Service<AccessLogService> {
             logReceiver = new JBossLoggingAccessLogReceiver();
         } else {
             if (pathRelativeTo != null) {
-                callbackHandle = pathManager.getValue().registerCallback(pathRelativeTo, PathManager.ReloadServerCallback.create(), PathManager.Event.UPDATED, PathManager.Event.REMOVED);
+                callbackHandle = pathManager.get().registerCallback(pathRelativeTo, PathManager.ReloadServerCallback.create(), PathManager.Event.UPDATED, PathManager.Event.REMOVED);
             }
-            directory = Paths.get(pathManager.getValue().resolveRelativePathEntry(path, pathRelativeTo));
+            directory = Paths.get(pathManager.get().resolveRelativePathEntry(path, pathRelativeTo));
             if (!Files.exists(directory)) {
                 try {
                     Files.createDirectories(directory);
@@ -114,7 +114,7 @@ class AccessLogService implements Service<AccessLogService> {
                 }
             }
             try {
-                DefaultAccessLogReceiver.Builder builder = DefaultAccessLogReceiver.builder().setLogWriteExecutor(worker.getValue())
+                DefaultAccessLogReceiver.Builder builder = DefaultAccessLogReceiver.builder().setLogWriteExecutor(worker.get())
                         .setOutputDirectory(directory)
                         .setLogBaseName(filePrefix)
                         .setLogNameSuffix(fileSuffix)
@@ -130,29 +130,22 @@ class AccessLogService implements Service<AccessLogService> {
                 throw new StartException(e);
             }
         }
-        host.getValue().setAccessLogService(this);
+        host.get().setAccessLogService(this);
+        serviceConsumer.accept(this);
     }
 
     @Override
     public void stop(StopContext context) {
-        host.getValue().setAccessLogService(null);
+        serviceConsumer.accept(null);
+        host.get().setAccessLogService(null);
         if (callbackHandle != null) {
             callbackHandle.remove();
             callbackHandle = null;
         }
-    }
-
-    @Override
-    public AccessLogService getValue() throws IllegalStateException, IllegalArgumentException {
-        return this;
-    }
-
-    InjectedValue<XnioWorker> getWorker() {
-        return worker;
-    }
-
-    InjectedValue<PathManager> getPathManager() {
-        return pathManager;
+        if( logReceiver instanceof DefaultAccessLogReceiver ) {
+            IoUtils.safeClose((DefaultAccessLogReceiver) logReceiver);
+        }
+        logReceiver = null;
     }
 
     protected AccessLogHandler configureAccessLogHandler(HttpHandler handler) {
@@ -163,15 +156,16 @@ class AccessLogService implements Service<AccessLogService> {
         }
     }
 
-    public InjectedValue<Host> getHost() {
-        return host;
-    }
-
     boolean isRotate() {
         return rotate;
     }
 
     String getPath() {
         return path;
+    }
+
+    @Override
+    public AccessLogService getValue() throws IllegalStateException, IllegalArgumentException {
+        return this;
     }
 }

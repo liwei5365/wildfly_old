@@ -41,10 +41,9 @@ import org.jboss.as.jpa.service.PersistenceUnitServiceImpl;
 import org.jboss.as.jpa.transaction.TransactionUtil;
 import org.jboss.as.jpa.util.JPAServiceNames;
 import org.jboss.as.server.CurrentServiceContainer;
-import org.jboss.as.txn.service.TransactionManagerService;
-import org.jboss.as.txn.service.TransactionSynchronizationRegistryService;
 import org.jboss.msc.service.ServiceContainer;
 import org.jboss.msc.service.ServiceController;
+import org.wildfly.transaction.client.ContextTransactionManager;
 
 /**
  * Transaction scoped entity manager will be injected into SLSB or SFSB beans.  At bean invocation time, they
@@ -66,6 +65,7 @@ public class TransactionScopedEntityManager extends AbstractEntityManager implem
     private transient TransactionSynchronizationRegistry transactionSynchronizationRegistry;
     private transient TransactionManager transactionManager;
     private transient Boolean deferDetach;
+    private transient Boolean skipQueryDetach;
 
     public TransactionScopedEntityManager(String puScopedName, Map properties, EntityManagerFactory emf, SynchronizationType synchronizationType, TransactionSynchronizationRegistry transactionSynchronizationRegistry, TransactionManager transactionManager) {
         this.puScopedName = puScopedName;
@@ -119,8 +119,8 @@ public class TransactionScopedEntityManager extends AbstractEntityManager implem
         in.defaultReadObject();
         final ServiceController<?> controller = currentServiceContainer().getService(JPAServiceNames.getPUServiceName(puScopedName));
         final PersistenceUnitServiceImpl persistenceUnitService = (PersistenceUnitServiceImpl) controller.getService();
-        transactionManager = (TransactionManager) currentServiceContainer().getService(TransactionManagerService.SERVICE_NAME).getValue();
-        transactionSynchronizationRegistry = (TransactionSynchronizationRegistry) currentServiceContainer().getService(TransactionSynchronizationRegistryService.SERVICE_NAME).getValue();
+        transactionManager = ContextTransactionManager.getInstance();
+        transactionSynchronizationRegistry = (TransactionSynchronizationRegistry) currentServiceContainer().getService(JPAServiceNames.TRANSACTION_SYNCHRONIZATION_REGISTRY_SERVICE).getValue();
 
         emf = persistenceUnitService.getEntityManagerFactory();
     }
@@ -163,7 +163,7 @@ public class TransactionScopedEntityManager extends AbstractEntityManager implem
             TransactionUtil.putEntityManagerInTransactionRegistry(scopedPuName, entityManager, transactionSynchronizationRegistry);
         }
         else {
-            testForMixedSynchronizationTypes(entityManager, puScopedName, synchronizationType);
+            testForMixedSynchronizationTypes(emf, entityManager, puScopedName, synchronizationType, properties);
             if (ROOT_LOGGER.isDebugEnabled()) {
                 ROOT_LOGGER.debugf("%s: reuse entity manager session already in tx %s", TransactionUtil.getEntityManagerDetails(entityManager, scopedPuName),
                         TransactionUtil.getTransaction(transactionManager).toString());
@@ -177,13 +177,18 @@ public class TransactionScopedEntityManager extends AbstractEntityManager implem
         // only JPA 2.1 applications can specify UNSYNCHRONIZED.
         // Default is SYNCHRONIZED if synchronizationType is not passed to createEntityManager
         if (SynchronizationType.UNSYNCHRONIZED.equals(synchronizationType)) {
-            return emf.createEntityManager(synchronizationType, properties); // properties may be null in jpa 2.1
+            // properties are allowed to be be null in jpa 2.1
+            return unsynchronizedEntityManagerWrapper(emf.createEntityManager(synchronizationType, properties));
         }
 
         if (properties != null && properties.size() > 0) {
             return emf.createEntityManager(properties);
         }
         return emf.createEntityManager();
+    }
+
+    private EntityManager unsynchronizedEntityManagerWrapper(EntityManager entityManager) {
+        return new UnsynchronizedEntityManagerWrapper(entityManager);
     }
 
     /**
@@ -199,13 +204,36 @@ public class TransactionScopedEntityManager extends AbstractEntityManager implem
     }
 
     /**
-     * throw error if jta transaction already has an UNSYNCHRONIZED persistence context and a SYNCHRONIZED persistence context
-     * is requested.  We are only fussy in this test, if the target component persistence context is SYNCHRONIZED.
+     * return true if non-tx invocations should defer detaching of query results until entity manager is closed.
+     * Note that this is an extension for compatibility with JBoss application server 5.0/6.0 (see WFLY-12674)
      */
-    private static void testForMixedSynchronizationTypes(EntityManager entityManager, String scopedPuName, final SynchronizationType targetSynchronizationType) {
-        if (SynchronizationType.SYNCHRONIZED.equals(targetSynchronizationType)
-                && entityManager instanceof AbstractEntityManager
-                && SynchronizationType.UNSYNCHRONIZED.equals( ((AbstractEntityManager)entityManager).getSynchronizationType())) {
+    @Override
+    protected boolean skipQueryDetach() {
+        if (skipQueryDetach == null)
+            skipQueryDetach =
+                    (true == Configuration.skipQueryDetach(emf.getProperties())? Boolean.TRUE : Boolean.FALSE);
+        return skipQueryDetach.booleanValue();
+    }
+
+
+
+    /**
+     * throw error if Jakarta Transactions transaction already has an UNSYNCHRONIZED persistence context and a SYNCHRONIZED persistence context
+     * is requested.  We are only fussy in this test, if the target component persistence context is SYNCHRONIZED.
+     *
+     * WFLY-7075 introduces two extensions, allow a (transaction) joined UNSYNCHRONIZED persistence context to be treated as SYNCHRONIZED,
+     * allow the checking for mixed SynchronizationType to be skipped.
+     */
+    private static void testForMixedSynchronizationTypes(EntityManagerFactory emf, EntityManager entityManagerFromJTA, String scopedPuName, final SynchronizationType targetSynchronizationType, Map targetProperties) {
+
+        boolean skipMixedSyncTypeChecking = Configuration.skipMixedSynchronizationTypeCheck(emf, targetProperties);  // extension to allow skipping of check based on properties of target entity manager
+        boolean allowJoinedUnsyncPersistenceContext = Configuration.allowJoinedUnsyncPersistenceContext(emf, targetProperties); // extension to allow joined unsync persistence context to be treated as sync persistence context
+
+        if (!skipMixedSyncTypeChecking &&
+                SynchronizationType.SYNCHRONIZED.equals(targetSynchronizationType) &&
+                entityManagerFromJTA instanceof SynchronizationTypeAccess &&
+                SynchronizationType.UNSYNCHRONIZED.equals(((SynchronizationTypeAccess) entityManagerFromJTA).getSynchronizationType())
+                && (!allowJoinedUnsyncPersistenceContext || !entityManagerFromJTA.isJoinedToTransaction())) {
             throw JpaLogger.ROOT_LOGGER.badSynchronizationTypeCombination(scopedPuName);
         }
     }

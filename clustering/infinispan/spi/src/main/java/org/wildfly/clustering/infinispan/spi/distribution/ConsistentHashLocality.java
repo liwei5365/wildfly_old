@@ -22,8 +22,8 @@
 package org.wildfly.clustering.infinispan.spi.distribution;
 
 import org.infinispan.Cache;
-import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.ch.ConsistentHash;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.remoting.transport.Address;
 
 /**
@@ -32,26 +32,26 @@ import org.infinispan.remoting.transport.Address;
  */
 public class ConsistentHashLocality implements Locality {
 
+    private final KeyDistribution distribution;
     private final Address localAddress;
-    private final ConsistentHash hash;
 
-    public ConsistentHashLocality(Cache<?, ?> cache) {
-        this(cache.getCacheManager().getAddress(), cache.getAdvancedCache().getDistributionManager());
+    @SuppressWarnings("deprecation")
+    public ConsistentHashLocality(Cache<?, ?> cache, ConsistentHash hash) {
+        this(cache.getAdvancedCache().getComponentRegistry().getLocalComponent(KeyPartitioner.class), hash, cache.getAdvancedCache().getDistributionManager().getCacheTopology().getLocalAddress());
     }
 
-    private ConsistentHashLocality(Address localAddress, DistributionManager dist) {
-        this(localAddress, (dist != null) ? dist.getConsistentHash() : null);
+    private ConsistentHashLocality(KeyPartitioner partitioner, ConsistentHash hash, Address localAddress) {
+        this(new ConsistentHashKeyDistribution(partitioner, hash), localAddress);
     }
 
-    public ConsistentHashLocality(Address localAddress, ConsistentHash hash) {
+    ConsistentHashLocality(KeyDistribution distribution, Address localAddress) {
+        this.distribution = distribution;
         this.localAddress = localAddress;
-        this.hash = hash;
     }
 
     @Override
     public boolean isLocal(Object key) {
-        if (this.localAddress == null) return true;
-        if (this.hash == null) return false;
-        return this.localAddress.equals(this.hash.locatePrimaryOwner(key));
+        Address primary = this.distribution.getPrimaryOwner(key);
+        return this.localAddress.equals(primary);
     }
 }

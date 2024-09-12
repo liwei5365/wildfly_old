@@ -22,11 +22,15 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.transform.ImplicitlyAddedResourceDynamicDiscardPolicy;
+import java.util.function.UnaryOperator;
+
+import org.infinispan.Cache;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
+import org.jboss.as.clustering.controller.ManagementResourceRegistration;
+import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.transform.RequiredChildResourceDiscardPolicy;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.PathElement;
-import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.services.path.PathManager;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 
 /**
@@ -37,21 +41,22 @@ import org.jboss.as.controller.transform.description.ResourceTransformationDescr
  */
 public class SharedStateCacheResourceDefinition extends ClusteredCacheResourceDefinition {
 
+    @SuppressWarnings("deprecation")
     static void buildTransformation(ModelVersion version, ResourceTransformationDescriptionBuilder builder) {
 
         StateTransferResourceDefinition.buildTransformation(version, builder);
 
         if (InfinispanModel.VERSION_4_0_0.requiresTransformation(version)) {
-            builder.addChildResource(PartitionHandlingResourceDefinition.PATH, new ImplicitlyAddedResourceDynamicDiscardPolicy());
+            builder.addChildResource(PartitionHandlingResourceDefinition.PATH, RequiredChildResourceDiscardPolicy.REJECT_AND_WARN);
         } else {
             PartitionHandlingResourceDefinition.buildTransformation(version, builder);
         }
 
         if (InfinispanModel.VERSION_2_0_0.requiresTransformation(version)) {
-            final ResourceTransformationDescriptionBuilder backupsBuilder = builder.addChildResource(BackupsResourceDefinition.PATH, new ImplicitlyAddedResourceDynamicDiscardPolicy());
+            final ResourceTransformationDescriptionBuilder backupsBuilder = builder.addChildResource(BackupsResourceDefinition.PATH, RequiredChildResourceDiscardPolicy.REJECT_AND_WARN);
             backupsBuilder.rejectChildResource(BackupResourceDefinition.WILDCARD_PATH);
 
-            builder.addChildResource(BackupForResourceDefinition.PATH, new ImplicitlyAddedResourceDynamicDiscardPolicy());
+            builder.addChildResource(BackupForResourceDefinition.PATH, RequiredChildResourceDiscardPolicy.REJECT_AND_WARN);
         } else {
             BackupsResourceDefinition.buildTransformation(version, builder);
             BackupForResourceDefinition.buildTransformation(version, builder);
@@ -60,18 +65,38 @@ public class SharedStateCacheResourceDefinition extends ClusteredCacheResourceDe
         ClusteredCacheResourceDefinition.buildTransformation(version, builder);
     }
 
-    SharedStateCacheResourceDefinition(PathElement path, PathManager pathManager, boolean allowRuntimeOnlyRegistration) {
-        super(path, pathManager, allowRuntimeOnlyRegistration);
+    private static class ResourceDescriptorConfigurator implements UnaryOperator<ResourceDescriptor> {
+        private final UnaryOperator<ResourceDescriptor> configurator;
+
+        ResourceDescriptorConfigurator(UnaryOperator<ResourceDescriptor> configurator) {
+            this.configurator = configurator;
+        }
+
+        @SuppressWarnings("deprecation")
+        @Override
+        public ResourceDescriptor apply(ResourceDescriptor descriptor) {
+            return this.configurator.apply(descriptor).addRequiredChildren(PartitionHandlingResourceDefinition.PATH, StateTransferResourceDefinition.PATH, BackupForResourceDefinition.PATH, BackupsResourceDefinition.PATH);
+        }
     }
 
-    @Override
-    public void register(ManagementResourceRegistration registration) {
+    private final FunctionExecutorRegistry<Cache<?, ?>> executors;
 
-        new PartitionHandlingResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
+    SharedStateCacheResourceDefinition(PathElement path, UnaryOperator<ResourceDescriptor> configurator, ClusteredCacheServiceHandler handler, FunctionExecutorRegistry<Cache<?, ?>> executors) {
+        super(path, new ResourceDescriptorConfigurator(configurator), handler, executors);
+        this.executors = executors;
+    }
+
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public ManagementResourceRegistration register(ManagementResourceRegistration parent) {
+        ManagementResourceRegistration registration = super.register(parent);
+
+        new PartitionHandlingResourceDefinition().register(registration);
         new StateTransferResourceDefinition().register(registration);
-        new BackupsResourceDefinition(this.allowRuntimeOnlyRegistration).register(registration);
+        new BackupsResourceDefinition(this.executors).register(registration);
         new BackupForResourceDefinition().register(registration);
 
-        super.register(registration);
+        return registration;
     }
 }

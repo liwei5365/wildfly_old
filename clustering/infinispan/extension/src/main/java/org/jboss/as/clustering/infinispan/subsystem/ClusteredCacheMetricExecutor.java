@@ -20,30 +20,21 @@ package org.jboss.as.clustering.infinispan.subsystem;
 
 import org.infinispan.Cache;
 import org.infinispan.remoting.rpc.RpcManagerImpl;
-import org.jboss.as.clustering.controller.Metric;
-import org.jboss.as.clustering.controller.MetricExecutor;
-import org.jboss.as.clustering.msc.ServiceContainerHelper;
-import org.jboss.as.controller.OperationContext;
-import org.jboss.as.controller.OperationFailedException;
-import org.jboss.as.controller.PathAddress;
-import org.jboss.dmr.ModelNode;
-import org.wildfly.clustering.infinispan.spi.service.CacheServiceName;
+import org.jboss.as.clustering.controller.FunctionExecutorRegistry;
 
 /**
  * Handler for clustered cache metrics.
  *
  * @author Paul Ferraro
  */
-public class ClusteredCacheMetricExecutor implements MetricExecutor<RpcManagerImpl> {
+public class ClusteredCacheMetricExecutor extends CacheMetricExecutor<RpcManagerImpl> {
+
+    public ClusteredCacheMetricExecutor(FunctionExecutorRegistry<Cache<?, ?>> executors) {
+        super(executors);
+    }
 
     @Override
-    public ModelNode execute(OperationContext context, Metric<RpcManagerImpl> metric) throws OperationFailedException {
-        PathAddress address = context.getCurrentAddress();
-        String containerName = address.getParent().getLastElement().getValue();
-        String cacheName = address.getLastElement().getValue();
-
-        Cache<?, ?> cache = ServiceContainerHelper.findValue(context.getServiceRegistry(false), CacheServiceName.CACHE.getServiceName(containerName, cacheName));
-
-        return (cache != null) ? metric.execute((RpcManagerImpl) cache.getAdvancedCache().getRpcManager()) : null;
+    public RpcManagerImpl apply(Cache<?, ?> cache) {
+        return (RpcManagerImpl) cache.getAdvancedCache().getRpcManager();
     }
 }

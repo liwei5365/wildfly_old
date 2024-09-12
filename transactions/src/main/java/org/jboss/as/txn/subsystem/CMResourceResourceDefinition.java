@@ -22,14 +22,17 @@
 
 package org.jboss.as.txn.subsystem;
 
+import org.jboss.as.controller.AbstractRemoveStepHandler;
+import org.jboss.as.controller.OperationContext;
+import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.ReadResourceNameOperationStepHandler;
-import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
 import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
+import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
@@ -44,27 +47,27 @@ public class CMResourceResourceDefinition extends SimpleResourceDefinition {
 
     static SimpleAttributeDefinition JNDI_NAME =  new SimpleAttributeDefinitionBuilder(CommonAttributes.CM_JNDI_NAME, ModelType.STRING)
             .setAllowExpression(true)
-            .setAllowNull(false)
+            .setRequired(true)
             .setResourceOnly()
             .build();
 
     static SimpleAttributeDefinition CM_TABLE_BATCH_SIZE =  new SimpleAttributeDefinitionBuilder(CommonAttributes.CM_BATCH_SIZE, ModelType.INT)
             .setAllowExpression(true)
-            .setAllowNull(true)
+            .setRequired(false)
             .setDefaultValue(new ModelNode(CommonAttributes.CM_BATCH_SIZE_DEF_VAL))
             .setXmlName(CommonAttributes.CM_BATCH_SIZE)
             .build();
 
     static SimpleAttributeDefinition CM_TABLE_IMMEDIATE_CLEANUP =  new SimpleAttributeDefinitionBuilder(CommonAttributes.CM_IMMEDIATE_CLEANUP, ModelType.BOOLEAN)
             .setAllowExpression(true)
-            .setAllowNull(true)
+            .setRequired(false)
             .setDefaultValue(new ModelNode(CommonAttributes.CM_IMMEDIATE_CLEANUP_DEF_VAL))
             .setXmlName(CommonAttributes.CM_IMMEDIATE_CLEANUP)
             .build();
 
     static SimpleAttributeDefinition CM_TABLE_NAME = new SimpleAttributeDefinitionBuilder(CommonAttributes.CM_LOCATION_NAME, ModelType.STRING)
             .setAllowExpression(true)
-            .setAllowNull(true)
+            .setRequired(false)
             .setDefaultValue(new ModelNode(CommonAttributes.CM_LOCATION_NAME_DEF_VAL))
             .setXmlName(CommonAttributes.CM_LOCATION_NAME)
             .build();
@@ -76,10 +79,23 @@ public class CMResourceResourceDefinition extends SimpleResourceDefinition {
      * and {@link org.jboss.as.controller.ReloadRequiredRemoveStepHandler} as remove handler
      */
     public CMResourceResourceDefinition() {
-        super(PATH_CM_RESOURCE,
-                TransactionExtension.getResourceDescriptionResolver(CommonAttributes.CM_RESOURCE),
-                CMResourceAdd.INSTANCE,
-                ReloadRequiredRemoveStepHandler.INSTANCE);
+        super(new Parameters(PATH_CM_RESOURCE,
+                TransactionExtension.getResourceDescriptionResolver(CommonAttributes.CM_RESOURCE))
+                .setAddHandler(CMResourceAdd.INSTANCE)
+                .setAddRestartLevel(OperationEntry.Flag.RESTART_JVM)
+                .setRemoveHandler(new AbstractRemoveStepHandler() { // TODO consider adding a RestartRequiredRemoveStepHandler to WildFly Core
+                    @Override
+                    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
+                        context.restartRequired();
+                    }
+
+                    @Override
+                    protected void recoverServices(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
+                        context.revertRestartRequired();
+                    }
+                })
+                .setRemoveRestartLevel(OperationEntry.Flag.RESTART_JVM)
+        );
     }
 
     /**

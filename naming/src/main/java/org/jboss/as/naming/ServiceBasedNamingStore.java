@@ -110,10 +110,9 @@ public class ServiceBasedNamingStore implements NamingStore {
     }
 
     private void checkReferenceForContinuation(final Name name, final Object object) throws CannotProceedException {
-        if (object instanceof Reference) {
-            if (((Reference) object).get("nns") != null) {
-                throw cannotProceedException(object, name);
-            }
+        if (object instanceof Reference
+                && ((Reference) object).get("nns") != null) {
+            throw cannotProceedException(object, name);
         }
     }
 
@@ -153,6 +152,8 @@ public class ServiceBasedNamingStore implements NamingStore {
             NameNotFoundException n = new NameNotFoundException(name);
             n.initCause(e);
             throw n;
+        } catch (SecurityException ex) {
+            throw ex;
         } catch (Throwable t) {
             throw NamingLogger.ROOT_LOGGER.lookupError(t, name);
         }

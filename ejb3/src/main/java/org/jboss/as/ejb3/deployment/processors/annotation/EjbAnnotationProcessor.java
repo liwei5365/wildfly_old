@@ -39,7 +39,7 @@ import org.jboss.as.ee.metadata.AbstractEEAnnotationProcessor;
 import org.jboss.as.ee.metadata.ClassAnnotationInformationFactory;
 
 /**
- * Processes EJB annotations and attaches them to the {@link org.jboss.as.ee.component.EEModuleClassDescription}
+ * Processes Jakarta Enterprise Beans annotations and attaches them to the {@link org.jboss.as.ee.component.EEModuleClassDescription}
  *
  * @author Stuart Douglas
  */
@@ -78,6 +78,7 @@ public class EjbAnnotationProcessor extends AbstractEEAnnotationProcessor {
         factories.add(new RunAsAnnotationInformationFactory());
         factories.add(new RunAsPrincipalAnnotationInformationFactory());
         factories.add(new SecurityDomainAnnotationInformationFactory());
+        factories.add(new LegacySecurityDomainAnnotationInformationFactory());
         factories.add(new DeclareRolesAnnotationInformationFactory());
         factories.add(new RolesAllowedAnnotationInformationFactory());
         factories.add(new BooleanAnnotationInformationFactory<DenyAll>(DenyAll.class));

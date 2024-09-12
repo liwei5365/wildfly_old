@@ -22,6 +22,7 @@
 
 package org.jboss.as.messaging;
 
+import static java.util.Arrays.asList;
 import static org.jboss.as.controller.OperationContext.Stage.MODEL;
 import static org.jboss.as.controller.PathAddress.pathAddress;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ADD;
@@ -60,6 +61,8 @@ import static org.jboss.as.messaging.CommonAttributes.GROUP_PORT;
 import static org.jboss.as.messaging.CommonAttributes.HORNETQ_SERVER;
 import static org.jboss.as.messaging.CommonAttributes.HTTP_ACCEPTOR;
 import static org.jboss.as.messaging.CommonAttributes.HTTP_CONNECTOR;
+import static org.jboss.as.messaging.CommonAttributes.JGROUPS_CHANNEL;
+import static org.jboss.as.messaging.CommonAttributes.JGROUPS_STACK;
 import static org.jboss.as.messaging.CommonAttributes.JMS_QUEUE;
 import static org.jboss.as.messaging.CommonAttributes.JMS_TOPIC;
 import static org.jboss.as.messaging.CommonAttributes.LOCAL_BIND_ADDRESS;
@@ -69,12 +72,12 @@ import static org.jboss.as.messaging.CommonAttributes.POOLED_CONNECTION_FACTORY;
 import static org.jboss.as.messaging.CommonAttributes.REMOTE_ACCEPTOR;
 import static org.jboss.as.messaging.CommonAttributes.REMOTE_CONNECTOR;
 import static org.jboss.as.messaging.CommonAttributes.SHARED_STORE;
+import static org.jboss.as.messaging.CommonAttributes.SOCKET_BINDING;
 import static org.jboss.as.messaging.logging.MessagingLogger.ROOT_LOGGER;
 import static org.jboss.dmr.ModelType.BOOLEAN;
 import static org.jboss.dmr.ModelType.EXPRESSION;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,6 +103,8 @@ import org.jboss.as.controller.operations.common.GenericSubsystemDescribeHandler
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.as.controller.registry.Resource;
+import static org.jboss.as.messaging.CommonAttributes.CONNECTORS;
+import org.jboss.as.messaging.logging.MessagingLogger;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 import org.jboss.dmr.Property;
@@ -147,19 +152,19 @@ public class MigrateOperation implements OperationStepHandler {
 
 
     public static final StringListAttributeDefinition MIGRATION_WARNINGS_ATTR = new StringListAttributeDefinition.Builder(MIGRATION_WARNINGS)
-            .setAllowNull(true)
+            .setRequired(false)
             .build();
 
     public static final SimpleMapAttributeDefinition MIGRATION_ERROR_ATTR = new SimpleMapAttributeDefinition.Builder(MIGRATION_ERROR, ModelType.OBJECT, true)
             .setValueType(ModelType.OBJECT)
-            .setAllowNull(true)
+            .setRequired(false)
             .build();
 
     private static final OperationStepHandler DESCRIBE_MIGRATION_INSTANCE = new MigrateOperation(true);
     private static final OperationStepHandler MIGRATE_INSTANCE = new MigrateOperation(false);
 
-    private static final AttributeDefinition ADD_LEGACY_ENTRIES = SimpleAttributeDefinitionBuilder.create("add-legacy-entries", BOOLEAN)
-            .setDefaultValue(new ModelNode(false))
+    private static final AttributeDefinition ADD_LEGACY_ENTRIES = SimpleAttributeDefinitionBuilder.create("add-legacy-entries", BOOLEAN, true)
+            .setDefaultValue(ModelNode.FALSE)
             .build();
     public static final String HA_POLICY = "ha-policy";
 
@@ -174,15 +179,14 @@ public class MigrateOperation implements OperationStepHandler {
         registry.registerOperationHandler(new SimpleOperationDefinitionBuilder(MIGRATE, resourceDescriptionResolver)
                         .setParameters(ADD_LEGACY_ENTRIES)
                         .setReplyParameters(MIGRATION_WARNINGS_ATTR, MIGRATION_ERROR_ATTR)
-                        .setRuntimeOnly()
                         .setAccessConstraints(SensitiveTargetAccessConstraintDefinition.READ_WHOLE_CONFIG)
                         .build(),
                 MigrateOperation.MIGRATE_INSTANCE);
         registry.registerOperationHandler(new SimpleOperationDefinitionBuilder(DESCRIBE_MIGRATION, resourceDescriptionResolver)
                         .addParameter(ADD_LEGACY_ENTRIES)
                         .setReplyParameters(MIGRATION_WARNINGS_ATTR)
-                        .setRuntimeOnly()
                         .setAccessConstraints(SensitiveTargetAccessConstraintDefinition.READ_WHOLE_CONFIG)
+                        .setReadOnly()
                         .build(),
                 MigrateOperation.DESCRIBE_MIGRATION_INSTANCE);
     }
@@ -355,15 +359,16 @@ public class MigrateOperation implements OperationStepHandler {
     private void transformResources(OperationContext context, final ModelNode legacyModelDescription, final Map<PathAddress, ModelNode> newAddOperations, boolean addLegacyEntries, List<String> warnings) throws OperationFailedException {
         for (ModelNode legacyAddOp : legacyModelDescription.get(RESULT).asList()) {
             final ModelNode newAddOp = legacyAddOp.clone();
+            ModelNode legacyAddress = legacyAddOp.get(OP_ADDR);
 
-            ModelNode newAddress = transformAddress(legacyAddOp.get(OP_ADDR).clone());
+            ModelNode newAddress = transformAddress(legacyAddress.clone());
             newAddOp.get(OP_ADDR).set(newAddress);
 
             PathAddress address = PathAddress.pathAddress(newAddress);
 
             // migrate server resource
             if (address.size() == 2 && "server".equals(address.getLastElement().getKey())) {
-                migrateServer(newAddOp, newAddOperations, warnings);
+                migrateServer(PathAddress.pathAddress(legacyAddress), newAddOp, newAddOperations, warnings);
                 continue;
             }
 
@@ -426,7 +431,11 @@ public class MigrateOperation implements OperationStepHandler {
                                 if (name.equals("http-upgrade-endpoint") && address.getParent().getLastElement().getKey().equals("http-connector")) {
                                     parentAddOp.get("endpoint").set(value);
                                 } else {
-                                    parentAddOp.get("params").add(new Property(name, value));
+                                    if (parameterIsAllowed(name, resourceType)) {
+                                        parentAddOp.get("params").add(new Property(name, value));
+                                    } else {
+                                        warnings.add(ROOT_LOGGER.couldNotMigrateUnsupportedAttribute(name, address.getParent()));
+                                    }
                                 }
                                 continue;
                             }
@@ -434,8 +443,31 @@ public class MigrateOperation implements OperationStepHandler {
                     }
                 }
             }
+            if(newAddOp.isDefined()) {
+                newAddOperations.put(address, newAddOp);
+            }
+        }
+    }
 
-            newAddOperations.put(address, newAddOp);
+    /**
+     * Check if the name of the parameter is allowed for the given resourceType.
+     */
+    private boolean parameterIsAllowed(String name, String resourceType) {
+        switch (resourceType) {
+            case REMOTE_ACCEPTOR:
+            case HTTP_ACCEPTOR:
+            case REMOTE_CONNECTOR:
+            case HTTP_CONNECTOR:
+                // WFLY-5667 - for now remove only use-nio. Revisit this code when Artemis offers an API
+                // to know which parameters are ignored.
+                if ("use-nio".equals(name)) {
+                    return false;
+                } else {
+                    return true;
+                }
+            default:
+                // accept any parameter for other resources.
+                return true;
         }
     }
 
@@ -464,12 +496,20 @@ public class MigrateOperation implements OperationStepHandler {
     private void migrateDiscoveryGroup(ModelNode newAddOp, List<String> warnings) {
         // These attributes are not present in the messaging-activemq subsystem.
         // Instead a socket-binding must be used to configure the broadcast-group.
-        final Collection<String> unmigratedProperties = Arrays.asList(LOCAL_BIND_ADDRESS.getName(),
-                GROUP_ADDRESS.getName(),
-                GROUP_PORT.getName());
-        for (Property property : newAddOp.asPropertyList()) {
-            if (unmigratedProperties.contains(property.getName())) {
-                warnings.add(ROOT_LOGGER.couldNotMigrateDiscoveryGroupAttribute(property.getName(), pathAddress(newAddOp.get(OP_ADDR))));
+        for (String property : asList(LOCAL_BIND_ADDRESS.getName(), GROUP_ADDRESS.getName(), GROUP_PORT.getName())) {
+            if (newAddOp.has(property)) {
+                newAddOp.remove(property);
+                warnings.add(ROOT_LOGGER.couldNotMigrateDiscoveryGroupAttribute(property, pathAddress(newAddOp.get(OP_ADDR))));
+            }
+        }
+        // These attributes no longer accept expressions in the messaging-activemq subsystem.
+        removePropertiesWithExpression(newAddOp, warnings, JGROUPS_CHANNEL.getName(), JGROUPS_STACK.getName());
+        if (!newAddOp.hasDefined(SOCKET_BINDING.getName())) {
+            if(!newAddOp.hasDefined(JGROUPS_CHANNEL.getName())) {
+                warnings.add(ROOT_LOGGER.couldNotMigrateDiscoveryGroup(pathAddress(newAddOp.get(OP_ADDR))));
+                newAddOp.clear();
+            } else {
+                newAddOp.get("jgroups-cluster").set(newAddOp.get(JGROUPS_CHANNEL.getName()));
             }
         }
     }
@@ -477,13 +517,41 @@ public class MigrateOperation implements OperationStepHandler {
     private void migrateBroadcastGroup(ModelNode newAddOp, List<String> warnings) {
         // These attributes are not present in the messaging-activemq subsystem.
         // Instead a socket-binding must be used to configure the broadcast-group.
-        final Collection<String> unmigratedProperties = Arrays.asList(LOCAL_BIND_ADDRESS.getName(),
+        final Collection<String> unmigratedProperties = asList(LOCAL_BIND_ADDRESS.getName(),
                 LOCAL_BIND_PORT.getName(),
                 GROUP_ADDRESS.getName(),
                 GROUP_PORT.getName());
         for (Property property : newAddOp.asPropertyList()) {
             if (unmigratedProperties.contains(property.getName())) {
                 warnings.add(ROOT_LOGGER.couldNotMigrateBroadcastGroupAttribute(property.getName(), pathAddress(newAddOp.get(OP_ADDR))));
+            }
+        }
+        boolean clearOp = false;
+        if(! newAddOp.hasDefined(CONNECTORS)) {
+            warnings.add(ROOT_LOGGER.couldNotMigrateBroadcastGroupWithoutConnectors(pathAddress(newAddOp.get(OP_ADDR))));
+            clearOp = true;
+        }
+        // These attributes no longer accept expressions in the messaging-activemq subsystem.
+        removePropertiesWithExpression(newAddOp, warnings, JGROUPS_CHANNEL.getName(), JGROUPS_STACK.getName());
+        if (!newAddOp.hasDefined(SOCKET_BINDING.getName())) {
+            if(!newAddOp.hasDefined(JGROUPS_CHANNEL.getName())) {
+                warnings.add(ROOT_LOGGER.couldNotMigrateBroadcastGroup(pathAddress(newAddOp.get(OP_ADDR))));
+                clearOp = true;
+            } else {
+                newAddOp.get("jgroups-cluster").set(newAddOp.get(JGROUPS_CHANNEL.getName()));
+            }
+        }
+        if(clearOp) {
+            newAddOp.clear();
+        }
+    }
+
+
+    private void removePropertiesWithExpression(ModelNode newAddOp, List<String> warnings, String... properties) {
+        for (String property : properties) {
+            if (newAddOp.hasDefined(property) && newAddOp.get(property).getType() == EXPRESSION) {
+                newAddOp.remove(property);
+                warnings.add(ROOT_LOGGER.couldNotMigrateResourceAttributeWithExpression(property, pathAddress(newAddOp.get(OP_ADDR))));
             }
         }
     }
@@ -519,6 +587,8 @@ public class MigrateOperation implements OperationStepHandler {
     private void migratePooledConnectionFactory(ModelNode addOperation) {
         migrateConnectorAttribute(addOperation);
         migrateDiscoveryGroupNameAttribute(addOperation);
+        // WFLY-8928 - allow local transacted Jakarta Messaging session
+        addOperation.get("allow-local-transactions").set(ModelNode.TRUE);
     }
 
     private void migrateClusterConnection(ModelNode addOperation, List<String> warnings) {
@@ -584,24 +654,25 @@ public class MigrateOperation implements OperationStepHandler {
     }
 
 
-    private void migrateServer(ModelNode addOperation, Map<PathAddress, ModelNode> newAddOperations, List<String> warnings) {
+    private void migrateServer(PathAddress legacyAddress, ModelNode addOperation, Map<PathAddress, ModelNode> newAddOperations, List<String> warnings) {
+        discardInterceptors(addOperation, CommonAttributes.REMOTING_INTERCEPTORS.getName(), warnings);
         discardInterceptors(addOperation, CommonAttributes.REMOTING_INCOMING_INTERCEPTORS.getName(), warnings);
         discardInterceptors(addOperation, CommonAttributes.REMOTING_OUTGOING_INTERCEPTORS.getName(), warnings);
 
         // add the server :add operation before eventually adding a ha-policy child :add operation in migrateHAPolicy.
         newAddOperations.put(pathAddress(addOperation.get(OP_ADDR)), addOperation);
 
-        migrateHAPolicy(addOperation, newAddOperations, warnings);
+        migrateHAPolicy(legacyAddress, addOperation, newAddOperations, warnings);
     }
 
-    private void migrateHAPolicy(ModelNode serverAddOperation, Map<PathAddress, ModelNode> newAddOperations, List<String> warnings) {
+    private void migrateHAPolicy(PathAddress legacyAddress, ModelNode serverAddOperation, Map<PathAddress, ModelNode> newAddOperations, List<String> warnings) {
         PathAddress serverAddress = PathAddress.pathAddress(serverAddOperation.get(OP_ADDR));
 
         ModelNode sharedStoreAttr = serverAddOperation.get(SHARED_STORE.getName());
         ModelNode backupAttr = serverAddOperation.get(BACKUP.getName());
 
         if (sharedStoreAttr.getType() == EXPRESSION || backupAttr.getType() == EXPRESSION) {
-            warnings.add(ROOT_LOGGER.couldNotMigrateHA(serverAddress));
+            warnings.add(ROOT_LOGGER.couldNotMigrateHA(legacyAddress));
             return;
         }
 
@@ -615,20 +686,20 @@ public class MigrateOperation implements OperationStepHandler {
             if (backup) {
                 haPolicyAddress = serverAddress.append(HA_POLICY, "shared-store-slave");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, ALLOW_FAILBACK, "allow-failback");
-                setAndDiscard(haPolicyAddOperation, serverAddOperation, FAILBACK_DELAY, "failback-delay");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, FAILOVER_ON_SHUTDOWN, "failover-on-server-shutdown");
+                discardFailbackDelay(serverAddOperation, warnings);
             } else {
                 haPolicyAddress = serverAddress.append(HA_POLICY, "shared-store-master");
-                setAndDiscard(haPolicyAddOperation, serverAddOperation, FAILBACK_DELAY, "failback-delay");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, FAILOVER_ON_SHUTDOWN, "failover-on-server-shutdown");
+                discardFailbackDelay(serverAddOperation, warnings);
             }
         } else {
             if (backup) {
                 haPolicyAddress = serverAddress.append(HA_POLICY, "replication-slave");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, ALLOW_FAILBACK, "allow-failback");
-                setAndDiscard(haPolicyAddOperation, serverAddOperation, FAILBACK_DELAY, "failback-delay");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, MAX_SAVED_REPLICATED_JOURNAL_SIZE, "max-saved-replicated-journal-size");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, BACKUP_GROUP_NAME, "group-name");
+                discardFailbackDelay(serverAddOperation, warnings);
             } else {
                 haPolicyAddress = serverAddress.append(HA_POLICY, "replication-master");
                 setAndDiscard(haPolicyAddOperation, serverAddOperation, CHECK_FOR_LIVE_SERVER, "check-for-live-server");
@@ -658,6 +729,12 @@ public class MigrateOperation implements OperationStepHandler {
             setNode.get(newAttributeName).set(attribute);
             discardNode.remove(legacyAttributeDefinition.getName());
         }
+    }
 
+    private void discardFailbackDelay(ModelNode newAddOp, List<String> warnings) {
+        if (newAddOp.hasDefined(FAILBACK_DELAY.getName())) {
+            newAddOp.remove(FAILBACK_DELAY.getName());
+            warnings.add(MessagingLogger.ROOT_LOGGER.couldNotMigrateFailbackDelayAttribute(pathAddress(newAddOp.get(OP_ADDR))));
+        }
     }
 }

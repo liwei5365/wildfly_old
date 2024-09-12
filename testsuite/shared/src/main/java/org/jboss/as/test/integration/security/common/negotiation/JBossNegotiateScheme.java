@@ -21,6 +21,8 @@
  */
 package org.jboss.as.test.integration.security.common.negotiation;
 
+import java.nio.charset.StandardCharsets;
+
 import org.apache.commons.codec.binary.Base64;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
@@ -33,8 +35,8 @@ import org.apache.http.auth.MalformedChallengeException;
 import org.apache.http.impl.auth.AuthSchemeBase;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BufferedHeader;
-import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
+import org.apache.http.protocol.HttpCoreContext;
 import org.apache.http.util.CharArrayBuffer;
 import org.ietf.jgss.GSSContext;
 import org.ietf.jgss.GSSException;
@@ -136,12 +138,7 @@ public class JBossNegotiateScheme extends AuthSchemeBase {
             throw new IllegalStateException("Negotiation authentication process has not been initiated");
         }
         try {
-            String key = null;
-            if (isProxy()) {
-                key = ExecutionContext.HTTP_PROXY_HOST;
-            } else {
-                key = ExecutionContext.HTTP_TARGET_HOST;
-            }
+            String key = HttpCoreContext.HTTP_TARGET_HOST;
             HttpHost host = (HttpHost) context.getAttribute(key);
             if (host == null) {
                 throw new AuthenticationException("Authentication host is not set " + "in the execution context");
@@ -175,7 +172,7 @@ public class JBossNegotiateScheme extends AuthSchemeBase {
             }
 
             state = State.TOKEN_GENERATED;
-            String tokenstr = new String(base64codec.encode(token));
+            String tokenstr = new String(base64codec.encode(token), StandardCharsets.UTF_8);
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("Sending response '" + tokenstr + "' back to the auth server");
             }
@@ -249,7 +246,7 @@ public class JBossNegotiateScheme extends AuthSchemeBase {
             LOGGER.debug("Received challenge '" + challenge + "' from the auth server");
         }
         if (state == State.UNINITIATED) {
-            token = new Base64().decode(challenge.getBytes());
+            token = new Base64().decode(challenge.getBytes(StandardCharsets.UTF_8));
             state = State.CHALLENGE_RECEIVED;
         } else {
             LOGGER.debug("Authentication already attempted");

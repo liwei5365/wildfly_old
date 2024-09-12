@@ -22,10 +22,17 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.jboss.as.clustering.controller.Attribute;
+import org.jboss.as.clustering.infinispan.subsystem.remote.ConnectionPoolResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.HotRodStoreResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.RemoteCacheContainerResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.RemoteClusterResourceDefinition;
+import org.jboss.as.clustering.infinispan.subsystem.remote.SecurityResourceDefinition;
+import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 
 /**
@@ -36,29 +43,35 @@ import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
  */
 public enum XMLAttribute {
     // must be first
-    UNKNOWN(""),
+    UNKNOWN((String) null),
     ACQUIRE_TIMEOUT(LockingResourceDefinition.Attribute.ACQUIRE_TIMEOUT),
-    ALIASES(CacheContainerResourceDefinition.Attribute.ALIASES),
+    @Deprecated CAPACITY(OffHeapMemoryResourceDefinition.DeprecatedAttribute.CAPACITY),
+    ALIASES(CacheContainerResourceDefinition.ListAttribute.ALIASES),
     @Deprecated ASYNC_MARSHALLING(ClusteredCacheResourceDefinition.DeprecatedAttribute.ASYNC_MARSHALLING),
     BACKUP_FAILURE_POLICY(BackupResourceDefinition.Attribute.FAILURE_POLICY),
-    BATCH_SIZE(TableResourceDefinition.Attribute.BATCH_SIZE),
+    @Deprecated BATCH_SIZE(TableResourceDefinition.DeprecatedAttribute.BATCH_SIZE),
     @Deprecated BATCHING(CacheResourceDefinition.DeprecatedAttribute.BATCHING),
-    CACHE(RemoteStoreResourceDefinition.Attribute.CACHE),
+    BIAS_LIFESPAN(ScatteredCacheResourceDefinition.Attribute.BIAS_LIFESPAN),
+    @Deprecated CACHE(RemoteStoreResourceDefinition.Attribute.CACHE),
     CAPACITY_FACTOR(DistributedCacheResourceDefinition.Attribute.CAPACITY_FACTOR),
     CHANNEL(JGroupsTransportResourceDefinition.Attribute.CHANNEL),
     CHUNK_SIZE(StateTransferResourceDefinition.Attribute.CHUNK_SIZE),
     CLASS(CustomStoreResourceDefinition.Attribute.CLASS),
     @Deprecated CLUSTER(JGroupsTransportResourceDefinition.DeprecatedAttribute.CLUSTER),
+    COMPLETE_TIMEOUT(TransactionResourceDefinition.Attribute.COMPLETE_TIMEOUT),
     CONCURRENCY_LEVEL(LockingResourceDefinition.Attribute.CONCURRENCY),
-    CONSISTENT_HASH_STRATEGY(DistributedCacheResourceDefinition.Attribute.CONSISTENT_HASH_STRATEGY),
+    @Deprecated CONSISTENT_HASH_STRATEGY(SegmentedCacheResourceDefinition.DeprecatedAttribute.CONSISTENT_HASH_STRATEGY),
+    CREATE_ON_START(TableResourceDefinition.Attribute.CREATE_ON_START),
     DATA_SOURCE(JDBCStoreResourceDefinition.Attribute.DATA_SOURCE),
     @Deprecated DATASOURCE(JDBCStoreResourceDefinition.DeprecatedAttribute.DATASOURCE),
     DEFAULT_CACHE(CacheContainerResourceDefinition.Attribute.DEFAULT_CACHE),
     @Deprecated DEFAULT_CACHE_CONTAINER("default-cache-container"),
     DIALECT(JDBCStoreResourceDefinition.Attribute.DIALECT),
+    DROP_ON_STOP(TableResourceDefinition.Attribute.DROP_ON_STOP),
     @Deprecated EAGER_LOCKING("eager-locking"),
     ENABLED(BackupResourceDefinition.Attribute.ENABLED),
     @Deprecated EVICTION_EXECUTOR(CacheContainerResourceDefinition.ExecutorAttribute.EVICTION),
+    @Deprecated EVICTION_TYPE(OffHeapMemoryResourceDefinition.DeprecatedAttribute.EVICTION_TYPE),
     @Deprecated EXECUTOR(JGroupsTransportResourceDefinition.ExecutorAttribute.TRANSPORT),
     FETCH_SIZE(TableResourceDefinition.Attribute.FETCH_SIZE),
     FETCH_STATE(StoreResourceDefinition.Attribute.FETCH_STATE),
@@ -67,8 +80,9 @@ public enum XMLAttribute {
     @Deprecated INDEXING(CacheResourceDefinition.DeprecatedAttribute.INDEXING),
     @Deprecated INDEX("index"),
     INTERVAL(ExpirationResourceDefinition.Attribute.INTERVAL),
+    INVALIDATION_BATCH_SIZE(ScatteredCacheResourceDefinition.Attribute.INVALIDATION_BATCH_SIZE),
     ISOLATION(LockingResourceDefinition.Attribute.ISOLATION),
-    JNDI_NAME(CacheContainerResourceDefinition.Attribute.JNDI_NAME),
+    @Deprecated JNDI_NAME(CacheContainerResourceDefinition.DeprecatedAttribute.JNDI_NAME),
     KEEPALIVE_TIME(ThreadPoolResourceDefinition.values()[0].getKeepAliveTime()),
     L1_LIFESPAN(DistributedCacheResourceDefinition.Attribute.L1_LIFESPAN),
     LIFESPAN(ExpirationResourceDefinition.Attribute.LIFESPAN),
@@ -76,13 +90,17 @@ public enum XMLAttribute {
     LOCK_TIMEOUT(JGroupsTransportResourceDefinition.Attribute.LOCK_TIMEOUT),
     LOCKING(TransactionResourceDefinition.Attribute.LOCKING),
     MACHINE("machine"),
-    MAX_ENTRIES(EvictionResourceDefinition.Attribute.MAX_ENTRIES),
+    MARSHALLER(CacheContainerResourceDefinition.Attribute.MARSHALLER),
+    MAX("max"),
+    MAX_BATCH_SIZE(StoreResourceDefinition.Attribute.MAX_BATCH_SIZE),
+    MAX_ENTRIES(HeapMemoryResourceDefinition.DeprecatedAttribute.MAX_ENTRIES),
     MAX_IDLE(ExpirationResourceDefinition.Attribute.MAX_IDLE),
     MAX_THREADS(ThreadPoolResourceDefinition.values()[0].getMaxThreads()),
     MIN_THREADS(ThreadPoolResourceDefinition.values()[0].getMinThreads()),
-    MODE(ClusteredCacheResourceDefinition.Attribute.MODE),
+    MODE(TransactionResourceDefinition.Attribute.MODE),
     MODIFICATION_QUEUE_SIZE(StoreWriteBehindResourceDefinition.Attribute.MODIFICATION_QUEUE_SIZE),
-    MODULE(CacheContainerResourceDefinition.Attribute.MODULE),
+    @Deprecated MODULE(CacheContainerResourceDefinition.DeprecatedAttribute.MODULE),
+    MODULES(CacheContainerResourceDefinition.ListAttribute.MODULES),
     NAME(ModelDescriptionConstants.NAME),
     OUTBOUND_SOCKET_BINDING("outbound-socket-binding"),
     OWNERS(DistributedCacheResourceDefinition.Attribute.OWNERS),
@@ -91,40 +109,73 @@ public enum XMLAttribute {
     PREFIX(StringTableResourceDefinition.Attribute.PREFIX),
     PRELOAD(StoreResourceDefinition.Attribute.PRELOAD),
     PURGE(StoreResourceDefinition.Attribute.PURGE),
-    QUEUE_FLUSH_INTERVAL(ClusteredCacheResourceDefinition.Attribute.QUEUE_FLUSH_INTERVAL),
-    QUEUE_SIZE(ClusteredCacheResourceDefinition.Attribute.QUEUE_SIZE),
+    @Deprecated QUEUE_FLUSH_INTERVAL(ClusteredCacheResourceDefinition.DeprecatedAttribute.QUEUE_FLUSH_INTERVAL),
+    @Deprecated QUEUE_SIZE(ClusteredCacheResourceDefinition.DeprecatedAttribute.QUEUE_SIZE),
     QUEUE_LENGTH(ThreadPoolResourceDefinition.values()[0].getQueueLength()),
     RACK("rack"),
     RELATIVE_TO(FileStoreResourceDefinition.Attribute.RELATIVE_TO),
-    REMOTE_CACHE(BackupForResourceDefinition.Attribute.CACHE),
-    REMOTE_SERVERS(RemoteStoreResourceDefinition.Attribute.SOCKET_BINDINGS),
-    REMOTE_SITE(BackupForResourceDefinition.Attribute.SITE),
+    @Deprecated REMOTE_CACHE(BackupForResourceDefinition.Attribute.CACHE),
+    @Deprecated REMOTE_SERVERS(RemoteStoreResourceDefinition.Attribute.SOCKET_BINDINGS),
+    @Deprecated REMOTE_SITE(BackupForResourceDefinition.Attribute.SITE),
     REMOTE_TIMEOUT(ClusteredCacheResourceDefinition.Attribute.REMOTE_TIMEOUT),
     @Deprecated REPLICATION_QUEUE_EXECUTOR(CacheContainerResourceDefinition.ExecutorAttribute.REPLICATION_QUEUE),
-    SEGMENTS(DistributedCacheResourceDefinition.Attribute.SEGMENTS),
+    SEGMENTS(SegmentedCacheResourceDefinition.Attribute.SEGMENTS),
     SHARED(StoreResourceDefinition.Attribute.SHARED),
     @Deprecated SHUTDOWN_TIMEOUT(StoreWriteBehindResourceDefinition.DeprecatedAttribute.SHUTDOWN_TIMEOUT),
-    SINGLETON(StoreResourceDefinition.Attribute.SINGLETON),
+    @Deprecated SINGLETON(StoreResourceDefinition.DeprecatedAttribute.SINGLETON),
     SITE("site"),
-    SOCKET_TIMEOUT(RemoteStoreResourceDefinition.Attribute.SOCKET_TIMEOUT),
+    SIZE(MemoryResourceDefinition.Attribute.SIZE),
+    SIZE_UNIT(MemoryResourceDefinition.SharedAttribute.SIZE_UNIT),
     @Deprecated STACK(JGroupsTransportResourceDefinition.DeprecatedAttribute.STACK),
     @Deprecated START(CacheContainerResourceDefinition.DeprecatedAttribute.START),
     STATISTICS_ENABLED(CacheResourceDefinition.Attribute.STATISTICS_ENABLED),
     STOP_TIMEOUT(TransactionResourceDefinition.Attribute.STOP_TIMEOUT),
-    STRATEGY(EvictionResourceDefinition.Attribute.STRATEGY),
+    STRATEGY(HeapMemoryResourceDefinition.DeprecatedAttribute.STRATEGY),
     STRIPING(LockingResourceDefinition.Attribute.STRIPING),
     TAKE_OFFLINE_AFTER_FAILURES(BackupResourceDefinition.TakeOfflineAttribute.AFTER_FAILURES),
     TAKE_OFFLINE_MIN_WAIT(BackupResourceDefinition.TakeOfflineAttribute.MIN_WAIT),
-    TCP_NO_DELAY(RemoteStoreResourceDefinition.Attribute.TCP_NO_DELAY),
-    THREAD_POOL_SIZE(StoreWriteBehindResourceDefinition.Attribute.THREAD_POOL_SIZE),
+    @Deprecated THREAD_POOL_SIZE(StoreWriteBehindResourceDefinition.DeprecatedAttribute.THREAD_POOL_SIZE),
     TIMEOUT(StateTransferResourceDefinition.Attribute.TIMEOUT),
     TYPE(TableResourceDefinition.ColumnAttribute.ID.getColumnType()),
     @Deprecated VIRTUAL_NODES("virtual-nodes"),
+
+    // hotrod store
+    CACHE_CONFIGURATION(HotRodStoreResourceDefinition.Attribute.CACHE_CONFIGURATION),
+
+    // remote-cache-container
+    REMOTE_CACHE_CONTAINER(RemoteCacheContainerResourceDefinition.WILDCARD_PATH),
+    CONNECTION_TIMEOUT(RemoteCacheContainerResourceDefinition.Attribute.CONNECTION_TIMEOUT),
+    DEFAULT_REMOTE_CLUSTER(RemoteCacheContainerResourceDefinition.Attribute.DEFAULT_REMOTE_CLUSTER),
+    KEY_SIZE_ESTIMATE(RemoteCacheContainerResourceDefinition.DeprecatedAttribute.KEY_SIZE_ESTIMATE),
+    MAX_RETRIES(RemoteCacheContainerResourceDefinition.Attribute.MAX_RETRIES),
+    PROTOCOL_VERSION(RemoteCacheContainerResourceDefinition.Attribute.PROTOCOL_VERSION),
+    SOCKET_TIMEOUT(RemoteCacheContainerResourceDefinition.Attribute.SOCKET_TIMEOUT),
+    TCP_NO_DELAY(RemoteCacheContainerResourceDefinition.Attribute.TCP_NO_DELAY),
+    TCP_KEEP_ALIVE(RemoteCacheContainerResourceDefinition.Attribute.TCP_KEEP_ALIVE),
+    TRANSACTION_TIMEOUT(RemoteCacheContainerResourceDefinition.Attribute.TRANSACTION_TIMEOUT),
+    VALUE_SIZE_ESTIMATE(RemoteCacheContainerResourceDefinition.DeprecatedAttribute.VALUE_SIZE_ESTIMATE),
+
+    // remote-cache-container -> connection-pool
+    EXHAUSTED_ACTION(ConnectionPoolResourceDefinition.Attribute.EXHAUSTED_ACTION),
+    MAX_ACTIVE(ConnectionPoolResourceDefinition.Attribute.MAX_ACTIVE),
+    MAX_WAIT(ConnectionPoolResourceDefinition.Attribute.MAX_WAIT),
+    MIN_EVICTABLE_IDLE_TIME(ConnectionPoolResourceDefinition.Attribute.MIN_EVICTABLE_IDLE_TIME),
+    MIN_IDLE(ConnectionPoolResourceDefinition.Attribute.MIN_IDLE),
+
+    // remote-cache-container -> remote-clusters
+    SOCKET_BINDINGS(RemoteClusterResourceDefinition.Attribute.SOCKET_BINDINGS),
+
+    // remote-cache-container -> security
+    SSL_CONTEXT(SecurityResourceDefinition.Attribute.SSL_CONTEXT),
     ;
     private final String name;
 
     XMLAttribute(Attribute attribute) {
         this(attribute.getDefinition().getXmlName());
+    }
+
+    XMLAttribute(PathElement wildcardPath) {
+        this(wildcardPath.getKey());
     }
 
     XMLAttribute(String name) {
@@ -144,7 +195,7 @@ public enum XMLAttribute {
 
     static {
         final Map<String, XMLAttribute> map = new HashMap<>();
-        for (XMLAttribute attribute : values()) {
+        for (XMLAttribute attribute : EnumSet.allOf(XMLAttribute.class)) {
             final String name = attribute.getLocalName();
             if (name != null) {
                 assert !map.containsKey(name) : attribute;

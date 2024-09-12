@@ -23,31 +23,35 @@
 package org.jboss.as.test.integration.mgmt.access;
 
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.ATTRIBUTES;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.EXTENSION;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OPERATIONS;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OUTCOME;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.READ_CHILDREN_RESOURCES_OPERATION;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUCCESS;
 import static org.jboss.as.test.integration.management.util.ModelUtil.createOpNode;
+
+import java.io.IOException;
 
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.as.arquillian.api.ContainerResource;
 import org.jboss.as.arquillian.container.ManagementClient;
-import org.jboss.as.connector.subsystems.datasources.DataSourcesExtension;
-import org.jboss.as.connector.subsystems.resourceadapters.ResourceAdaptersExtension;
+import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.access.management.AccessConstraintKey;
 import org.jboss.as.controller.access.management.ApplicationTypeAccessConstraintDefinition;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
 import org.jboss.as.controller.client.ModelControllerClient;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.jdr.JdrReportExtension;
+import org.jboss.as.controller.operations.common.Util;
 import org.jboss.as.test.integration.management.rbac.Outcome;
 import org.jboss.as.test.integration.management.rbac.RbacUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.Property;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.wildfly.extension.messaging.activemq.MessagingExtension;
-import org.wildfly.extension.undertow.UndertowExtension;
 
 /**
  * Test of the access constraint utilization resources.
@@ -86,34 +90,53 @@ public class AccessConstraintUtilizationTestCase extends AbstractRbacTestCase {
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN_REF.getKey(), false, true, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SECURITY_REALM.getKey(), true, false, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SECURITY_REALM_REF.getKey(), false, true, false),
-        new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SECURITY_VAULT.getKey(), true, false, false),
+        //new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SECURITY_VAULT.getKey(), true, false, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SERVICE_CONTAINER.getKey(), true, false, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SOCKET_BINDING_REF.getKey(), false, true, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SOCKET_CONFIG.getKey(), true, true, true),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SNAPSHOTS.getKey(), false, false, true),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.SYSTEM_PROPERTY.getKey(), true, true, true),
         // A few subsystem ones
-        new ExpectedDef(getSensKey(UndertowExtension.SUBSYSTEM_NAME, "web-access-log"), true, false, false),
-        new ExpectedDef(getSensKey(DataSourcesExtension.SUBSYSTEM_NAME, "data-source-security"), false, true, false),
-        new ExpectedDef(getSensKey(ResourceAdaptersExtension.SUBSYSTEM_NAME, "resource-adapter-security"), false, true, false),
-        new ExpectedDef(getSensKey(JdrReportExtension.SUBSYSTEM_NAME, "jdr"), false, false, true),
-        new ExpectedDef(getSensKey(MessagingExtension.SUBSYSTEM_NAME, "messaging-management"), false, true, false),
+        new ExpectedDef(getSensKey("undertow", "web-access-log"), true, false, false),
+        new ExpectedDef(getSensKey("datasources", "data-source-security"), false, true, false),
+        new ExpectedDef(getSensKey("resource-adapters", "resource-adapter-security"), false, true, false),
+        new ExpectedDef(getSensKey("jdr", "jdr"), false, false, true),
+        new ExpectedDef(getSensKey("messaging-activemq", "messaging-management"), false, true, false),
         /* N/A on standalone
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.DOMAIN_CONTROLLER, false, true, true),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.DOMAIN_NAMES, false, true, false),
         new ExpectedDef(SensitiveTargetAccessConstraintDefinition.JVM, false, true, true),
         */
         new ExpectedDef(ApplicationTypeAccessConstraintDefinition.DEPLOYMENT.getKey(), true, false, true),
-        new ExpectedDef(getAppKey(DataSourcesExtension.SUBSYSTEM_NAME, "data-source"), true, false, false),
-        new ExpectedDef(getAppKey(DataSourcesExtension.SUBSYSTEM_NAME, "xa-data-source"), true, false, false),
-        new ExpectedDef(getAppKey(DataSourcesExtension.SUBSYSTEM_NAME, "jdbc-driver"), true, false, false),
-        new ExpectedDef(getAppKey(MessagingExtension.SUBSYSTEM_NAME, "queue"), true, false, false),
-        new ExpectedDef(getAppKey(MessagingExtension.SUBSYSTEM_NAME, "jms-queue"), true, false, false),
-        new ExpectedDef(getAppKey(MessagingExtension.SUBSYSTEM_NAME, "jms-topic"), true, false, false)
+        new ExpectedDef(getAppKey("datasources", "data-source"), true, false, false),
+        new ExpectedDef(getAppKey("datasources", "xa-data-source"), true, false, false),
+        new ExpectedDef(getAppKey("datasources", "jdbc-driver"), true, false, false),
+        new ExpectedDef(getAppKey("messaging-activemq", "queue"), true, false, false),
+        new ExpectedDef(getAppKey("messaging-activemq", "jms-queue"), true, false, false),
+        new ExpectedDef(getAppKey("messaging-activemq", "jms-topic"), true, false, false),
+        // Agroal
+        new ExpectedDef(getAppKey("datasources-agroal", "datasource"), true, false, false),
+        new ExpectedDef(getAppKey("datasources-agroal", "xa-datasource"), true, false, false),
+        new ExpectedDef(getAppKey("datasources-agroal", "driver"), true, false, false)
+
     };
 
     @ContainerResource
     private ManagementClient managementClient;
+
+    @Before
+    public void addAgroal() throws IOException {
+        ModelNode addOp = Util.createAddOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.datasources-agroal"));
+        ModelNode response = managementClient.getControllerClient().execute(addOp);
+        Assert.assertEquals(response.toString(), SUCCESS, response.get(OUTCOME).asString());
+    }
+
+    @After
+    public void removeAgroal() throws IOException {
+        ModelNode removeOp = Util.createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.datasources-agroal"));
+        ModelNode response = managementClient.getControllerClient().execute(removeOp);
+        Assert.assertEquals(response.toString(), SUCCESS, response.get(OUTCOME).asString());
+    }
 
     @Test
     public void testConstraintUtilization() throws Exception {
@@ -127,7 +150,7 @@ public class AccessConstraintUtilizationTestCase extends AbstractRbacTestCase {
             String path = String.format(ADDR_FORMAT, acdKey.getType(), acdType, acdKey.getName());
             ModelNode op = createOpNode(path, READ_CHILDREN_RESOURCES_OPERATION);
             op.get(ModelDescriptionConstants.CHILD_TYPE).set(ModelDescriptionConstants.APPLIES_TO);
-            System.out.println("Testing " + acdKey);
+            //System.out.println("Testing " + acdKey);
             ModelNode result = RbacUtil.executeOperation(client, op, Outcome.SUCCESS).get(ModelDescriptionConstants.RESULT);
             Assert.assertTrue(acdKey + "result is defined", result.isDefined());
             Assert.assertTrue(acdKey + "result has content", result.asInt() > 0);

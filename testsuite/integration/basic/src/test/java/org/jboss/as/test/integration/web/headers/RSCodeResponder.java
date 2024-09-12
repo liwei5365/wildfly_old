@@ -21,6 +21,9 @@
  */
 package org.jboss.as.test.integration.web.headers;
 
+import java.nio.charset.StandardCharsets;
+
+import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -46,7 +49,14 @@ public class RSCodeResponder {
     @Produces(MediaType.APPLICATION_JSON)
     public Response return204(@PathParam("code") final String code,@Context HttpServletResponse resp) throws Exception{
         resp.setContentType("application/json");
-        resp.getOutputStream().write((CONTENT).getBytes());
+        resp.getOutputStream().write((CONTENT).getBytes(StandardCharsets.UTF_8));
         return Response.status(Integer.parseInt(code)).build();
+    }
+
+    @GET
+    @Path("server/info")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String return204(@Context ServletContext servletContext) throws Exception{
+        return servletContext.getServerInfo();
     }
 }

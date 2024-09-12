@@ -22,12 +22,14 @@
 
 package org.jboss.as.test.integration.domain.mixed.eap640;
 
+import static org.jboss.as.controller.client.helpers.ClientConstants.STEPS;
+import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.COMPOSITE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.EXTENSION;
-import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.PROFILE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SOCKET_BINDING;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SOCKET_BINDING_GROUP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
 import static org.jboss.as.controller.operations.common.Util.createAddOperation;
+import static org.jboss.as.controller.operations.common.Util.createOperation;
 import static org.jboss.as.controller.operations.common.Util.createRemoveOperation;
 import static org.jboss.as.controller.operations.common.Util.getUndefineAttributeOperation;
 import static org.jboss.as.controller.operations.common.Util.getWriteAttributeOperation;
@@ -36,56 +38,54 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import org.jboss.as.clustering.infinispan.subsystem.InfinispanExtension;
-import org.jboss.as.clustering.jgroups.subsystem.JGroupsExtension;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.client.helpers.domain.DomainClient;
 import org.jboss.as.controller.operations.common.Util;
-import org.jboss.as.ee.subsystem.EeExtension;
-import org.jboss.as.ejb3.subsystem.EJB3Extension;
-import org.jboss.as.remoting.RemotingExtension;
-import org.jboss.as.test.integration.domain.mixed.DomainAdjuster;
 import org.jboss.as.test.integration.domain.mixed.LegacySubsystemConfigurationUtil;
-import org.jboss.as.weld.WeldExtension;
+import org.jboss.as.test.integration.domain.mixed.eap700.DomainAdjuster700;
 import org.jboss.dmr.ModelNode;
-import org.wildfly.extension.batch.jberet.BatchSubsystemDefinition;
-import org.wildfly.extension.beanvalidation.BeanValidationExtension;
-import org.wildfly.extension.clustering.singleton.SingletonExtension;
-import org.wildfly.extension.io.IOExtension;
-import org.wildfly.extension.messaging.activemq.MessagingExtension;
-import org.wildfly.extension.requestcontroller.RequestControllerExtension;
-import org.wildfly.extension.security.manager.SecurityManagerExtension;
-import org.wildfly.extension.undertow.UndertowExtension;
-import org.wildfly.iiop.openjdk.IIOPExtension;
 
 /**
  * Does adjustments to the domain model for 6.4.0 legacy slaves.
  *
  * @author <a href="mailto:kabir.khan@jboss.com">Kabir Khan</a>
  */
-public class DomainAdjuster640 extends DomainAdjuster {
+public class DomainAdjuster640 extends DomainAdjuster700 {
 
     @Override
-    protected List<ModelNode> adjustForVersion(final DomainClient client, PathAddress profileAddress) throws Exception {
-        final List<ModelNode> list = new ArrayList<>();
-
-        list.addAll(replaceActiveMqWithMessaging(profileAddress.append(SUBSYSTEM, MessagingExtension.SUBSYSTEM_NAME)));
-        list.addAll(removeBatch(profileAddress.append(SUBSYSTEM, BatchSubsystemDefinition.NAME)));
-        list.addAll(removeBeanValidation(profileAddress.append(SUBSYSTEM, BeanValidationExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustEe(profileAddress.append(SUBSYSTEM, EeExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustEjb3(profileAddress.append(SUBSYSTEM, EJB3Extension.SUBSYSTEM_NAME)));
-        list.addAll(replaceIiopOpenJdk(client, profileAddress.append(SUBSYSTEM, IIOPExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustRemoting(profileAddress.append(SUBSYSTEM, RemotingExtension.SUBSYSTEM_NAME)));
-        list.addAll(removeRequestController(profileAddress.append(SUBSYSTEM, RequestControllerExtension.SUBSYSTEM_NAME)));
-        list.addAll(removeSecurityManager(profileAddress.append(SecurityManagerExtension.SUBSYSTEM_PATH)));
-        list.addAll(removeSingletonDeployer(profileAddress.append(SUBSYSTEM, SingletonExtension.SUBSYSTEM_NAME)));
-        list.addAll(replaceUndertowWithWeb(profileAddress.append(SUBSYSTEM, UndertowExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustWeld(profileAddress.append(SUBSYSTEM, WeldExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustJGroups(profileAddress.append(SUBSYSTEM, JGroupsExtension.SUBSYSTEM_NAME)));
-        list.addAll(adjustInfinispan(profileAddress.append(SUBSYSTEM, InfinispanExtension.SUBSYSTEM_NAME)));
+    protected List<ModelNode> adjustForVersion(final DomainClient client, PathAddress profileAddress, boolean withMasterServers) throws Exception {
+        final List<ModelNode> list = super.adjustForVersion(client, profileAddress, withMasterServers);
+        switch(profileAddress.getElement(0).getValue()) {
+            case "full-ha":
+                list.addAll(adjustJGroups(profileAddress.append(SUBSYSTEM, "jgroups")));
+                list.addAll(adjustInfinispan(true, profileAddress.append(SUBSYSTEM, "infinispan")));
+                list.addAll(replaceActiveMqWithMessaging(profileAddress, profileAddress.append(SUBSYSTEM, "messaging-activemq")));
+                list.addAll(replaceIiopOpenJdk(client, profileAddress.append(SUBSYSTEM, "iiop-openjdk")));
+                break;
+            case "full":
+                list.addAll(adjustInfinispan(false, profileAddress.append(SUBSYSTEM, "infinispan")));
+                list.addAll(replaceActiveMqWithMessaging(profileAddress, profileAddress.append(SUBSYSTEM, "messaging-activemq")));
+                list.addAll(replaceIiopOpenJdk(client, profileAddress.append(SUBSYSTEM, "iiop-openjdk")));
+                break;
+            default:
+                list.addAll(adjustInfinispan(false, profileAddress.append(SUBSYSTEM, "infinispan")));
+                list.add(createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.messaging-activemq")));
+                list.add(createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.iiop-openjdk")));
+                break;
+        }
+        list.addAll(removeBatch(profileAddress.append(SUBSYSTEM, "batch-jberet")));
+        list.addAll(removeBeanValidation(profileAddress.append(SUBSYSTEM, "bean-validation")));
+        list.addAll(adjustEe(profileAddress.append(SUBSYSTEM, "ee")));
+        list.addAll(adjustEjb3(profileAddress.append(SUBSYSTEM, "ejb3")));
+        list.addAll(adjustRemoting(profileAddress.append(SUBSYSTEM, "remoting")));
+        list.addAll(removeRequestController(profileAddress.append(SUBSYSTEM, "request-controller")));
+        list.addAll(removeSecurityManager(profileAddress.append(SUBSYSTEM, "security-manager")));
+        list.addAll(removeSingletonDeployer(profileAddress.append(SUBSYSTEM, "singleton")));
+        list.addAll(replaceUndertowWithWeb(profileAddress.append(SUBSYSTEM, "undertow")));
+        list.addAll(adjustWeld(profileAddress.append(SUBSYSTEM, "weld")));
 
         //io must be removed after undertow due to capabilities/requirements
-        list.addAll(removeIo(profileAddress.append(SUBSYSTEM, IOExtension.SUBSYSTEM_NAME)));
+        list.addAll(removeIo(profileAddress.append(SUBSYSTEM, "io")));
 
         return list;
     }
@@ -109,10 +109,11 @@ public class DomainAdjuster640 extends DomainAdjuster {
     private List<ModelNode> adjustEe(final PathAddress subsystem) throws Exception {
         final List<ModelNode> list = new ArrayList<>();
         //Concurrency resources are not available
-        list.add(createRemoveOperation(subsystem.append("context-service", "default")));
-        list.add(createRemoveOperation(subsystem.append("managed-thread-factory", "default")));
         list.add(createRemoveOperation(subsystem.append("managed-executor-service", "default")));
         list.add(createRemoveOperation(subsystem.append("managed-scheduled-executor-service", "default")));
+        list.add(createRemoveOperation(subsystem.append("managed-thread-factory", "default")));
+        list.add(createRemoveOperation(subsystem.append("context-service", "default")));
+
         //default-bindings are not available
         list.add(createRemoveOperation(subsystem.append("service", "default-bindings")));
         return list;
@@ -120,17 +121,12 @@ public class DomainAdjuster640 extends DomainAdjuster {
 
     private List<ModelNode> adjustEjb3(final PathAddress subsystem) throws Exception {
         final List<ModelNode> list = new ArrayList<>();
-        //passivation-disabled-cache-ref is not understood
-        list.add(
-                getUndefineAttributeOperation(
-                        subsystem, "default-sfsb-passivation-disabled-cache"));
         list.add(
                 getUndefineAttributeOperation(
                         subsystem.append("strict-max-bean-instance-pool", "slsb-strict-max-pool"), "derive-size"));
         list.add(
                 getUndefineAttributeOperation(
                         subsystem.append("strict-max-bean-instance-pool", "mdb-strict-max-pool"), "derive-size"));
-
         return list;
     }
 
@@ -161,7 +157,6 @@ public class DomainAdjuster640 extends DomainAdjuster {
 
         //Replace the http-remoting connector with a normal remoting-connector. This needs the remoting socket binding,
         //so add that too
-        list.add(createRemoveOperation(subsystem.append("http-connector", "http-remoting-connector")));
         ModelNode addSocketBinding =
                 createAddOperation(
                         PathAddress.pathAddress(SOCKET_BINDING_GROUP, "full-ha-sockets")
@@ -172,31 +167,49 @@ public class DomainAdjuster640 extends DomainAdjuster {
         addRemoting.get("socket-binding").set("remoting");
         addRemoting.get("security-realm").set("ApplicationRealm");
         list.add(addRemoting);
-        return list;
 
+        PathAddress remoteServiceAddress = subsystem.getParent().append("subsystem", "ejb3").append("service", "remote");
+
+        ModelNode listAddOperation = createOperation("list-add", remoteServiceAddress);
+        listAddOperation.get("name").set("connectors");
+        listAddOperation.get("value").set("remoting-connector");
+
+        list.add(listAddOperation);
+
+        ModelNode listRemoveOperation = createOperation("list-remove", remoteServiceAddress);
+        listRemoveOperation.get("name").set("connectors");
+        listRemoveOperation.get("value").set("http-remoting-connector");
+
+        list.add(listRemoveOperation);
+
+        list.add(createRemoveOperation(subsystem.append("http-connector", "http-remoting-connector")));
+
+        return list;
     }
 
 
     private Collection<? extends ModelNode> removeSingletonDeployer(PathAddress subsystem) {
         List<ModelNode> list = new ArrayList<>();
-        //singleton subsystem and extension doesn't exist
-        list.add(createRemoveOperation(subsystem));
+        if("full-ha".equals(subsystem.getElement(0).getValue())) {
+            //singleton subsystem and extension doesn't exist
+            list.add(createRemoveOperation(subsystem));
+        }
         list.add(createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.clustering.singleton")));
         return list;
     }
 
 
-    private List<ModelNode> adjustInfinispan(final PathAddress subsystem) throws Exception {
+    private List<ModelNode> adjustInfinispan(final boolean isFullHa ,final PathAddress subsystem) throws Exception {
         final List<ModelNode> list = new ArrayList<>();
-
-        list.add(getWriteAttributeOperation(subsystem.append("cache-container", "server").append("transport", "jgroups"), "stack", new ModelNode("udp")));
-
-        this.adjustInfinispanStatisticsEnabled(list, subsystem);
+        if(isFullHa) {
+            list.add(getWriteAttributeOperation(subsystem.append("cache-container", "server").append("transport", "jgroups"), "stack", new ModelNode("udp")));
+        }
+        this.adjustInfinispanStatisticsEnabled(list, subsystem, isFullHa);
 
         return list;
     }
 
-    public void adjustInfinispanStatisticsEnabled(final List<ModelNode> list, final PathAddress subsystem) {
+    public void adjustInfinispanStatisticsEnabled(final List<ModelNode> list, final PathAddress subsystem, boolean isFullHa) {
         // No-op for 6.4.0
     }
 
@@ -247,8 +260,7 @@ public class DomainAdjuster640 extends DomainAdjuster {
         return list;
     }
 
-
-    private Collection<? extends ModelNode> replaceActiveMqWithMessaging(PathAddress subsystem) throws Exception {
+    private Collection<? extends ModelNode> replaceActiveMqWithMessaging(PathAddress profileAddress, PathAddress subsystem) throws Exception {
         final List<ModelNode> list = new ArrayList<>();
         //messaging-activemq does not exist, remove it and the extension
         list.add(createRemoveOperation(subsystem));
@@ -260,7 +272,7 @@ public class DomainAdjuster640 extends DomainAdjuster {
         //Get the subsystem add operations (since the subsystem is huge, and there is a template, use the util)
         LegacySubsystemConfigurationUtil util =
                 new LegacySubsystemConfigurationUtil(
-                        new org.jboss.as.messaging.MessagingExtension(), "messaging", "ha", "subsystem-templates/messaging.xml");
+                        new org.jboss.as.messaging.MessagingExtension(), profileAddress, "messaging", "ha", "subsystem-templates/messaging.xml");
 
         list.addAll(util.getSubsystemOperations());
 
@@ -268,7 +280,7 @@ public class DomainAdjuster640 extends DomainAdjuster {
         //Now adjust the things from the template which are not available in the legacy server
 
         //http acceptors and connectors are not available
-        PathAddress messaging = PathAddress.pathAddress(PROFILE, "full-ha").append(SUBSYSTEM, "messaging");
+        PathAddress messaging = profileAddress.append(SUBSYSTEM, "messaging");
         PathAddress server = messaging.append("hornetq-server", "default");
         list.add(createRemoveOperation(server.append("http-acceptor", "http-acceptor")));
         list.add(createRemoveOperation(server.append("http-acceptor", "http-acceptor-throughput")));
@@ -292,34 +304,45 @@ public class DomainAdjuster640 extends DomainAdjuster {
 
     private Collection<? extends ModelNode> replaceUndertowWithWeb(final PathAddress subsystem) {
         final List<ModelNode> list = new ArrayList<>();
-        //Undertow does not exist, remove it and the extension
-        list.add(createRemoveOperation(subsystem));
-        list.add(createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.undertow")));
 
-        //Add JBoss Web extension and subsystem
+        //Add JBoss Web extension first so we can replace subsystems with one composite op
+        //FIXME extension add needs to be outside of the batch due to https://issues.jboss.org/browse/WFCORE-323
         list.add(createAddOperation(PathAddress.pathAddress(EXTENSION, "org.jboss.as.web")));
+
+        //Replace Undertow with Web in a single composite op preserving the fake capability satisfied
+        ModelNode compositeOp = Util.getEmptyOperation(COMPOSITE, new ModelNode());
+        final ModelNode steps = compositeOp.get(STEPS);
+
+        //Undertow does not exist, remove it and the extension
+        steps.add(createRemoveOperation(subsystem));
+
+        //Add JBoss Web and subsystem
         final PathAddress web = subsystem.getParent().append(SUBSYSTEM, "web");
         final ModelNode addWeb = Util.createAddOperation(web);
         addWeb.get("default-virtual-server").set("default-host");
         addWeb.get("native").set("false");
-        list.add(addWeb);
-        list.add(createAddOperation(web.append("configuration", "container")));
-        list.add(createAddOperation(web.append("configuration", "static-resources")));
-        list.add(createAddOperation(web.append("configuration", "jsp-configuration")));
+        steps.add(addWeb);
+        steps.add(createAddOperation(web.append("configuration", "container")));
+        steps.add(createAddOperation(web.append("configuration", "static-resources")));
+        steps.add(createAddOperation(web.append("configuration", "jsp-configuration")));
         ModelNode addHttp = Util.createAddOperation(web.append("connector", "http"));
         addHttp.get("protocol").set("HTTP/1.1");
         addHttp.get("scheme").set("http");
         addHttp.get("socket-binding").set("http");
-        list.add(addHttp);
+        steps.add(addHttp);
         ModelNode addAjp = Util.createAddOperation(web.append("connector", "ajp"));
         addAjp.get("protocol").set("AJP/1.3");
         addAjp.get("scheme").set("http");
         addAjp.get("socket-binding").set("ajp");
-        list.add(addAjp);
+        steps.add(addAjp);
         ModelNode addVirtualServer = Util.createAddOperation(web.append("virtual-server", "default-host"));
         addVirtualServer.get("enable-welcome-root").set(true);
         addVirtualServer.get("alias").add("localhost").add("example.com");
-        list.add(addVirtualServer);
+        steps.add(addVirtualServer);
+
+        list.add(compositeOp);
+        //FIXME extension remove needs to be outside of the batch due to NPE; see https://issues.jboss.org/browse/WFCORE-323
+        list.add(createRemoveOperation(PathAddress.pathAddress(EXTENSION, "org.wildfly.extension.undertow")));
 
         return list;
     }

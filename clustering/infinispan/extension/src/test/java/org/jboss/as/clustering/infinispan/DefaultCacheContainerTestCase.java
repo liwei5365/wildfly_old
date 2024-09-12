@@ -22,8 +22,16 @@
 
 package org.jboss.as.clustering.infinispan;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.Collections;
 import java.util.List;
@@ -38,22 +46,21 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.remoting.transport.Address;
+import org.jboss.as.clustering.controller.ServiceValueRegistry;
+import org.jboss.msc.service.ServiceName;
 import org.junit.After;
 import org.junit.Test;
 import org.wildfly.clustering.infinispan.spi.CacheContainer;
-import org.wildfly.clustering.service.SubGroupServiceNameFactory;
 
 /**
  * Unit test for {@link DefaultCacheContainer}.
+ *
  * @author Paul Ferraro
  */
 public class DefaultCacheContainerTestCase {
-    private static final String NAME = "name";
-    private static final String DEFAULT_CACHE = "default-cache";
-
-    private final BatcherFactory batcherFactory = mock(BatcherFactory.class);
     private final EmbeddedCacheManager manager = mock(EmbeddedCacheManager.class);
-    private final CacheContainer subject = new DefaultCacheContainer("name", this.manager, DEFAULT_CACHE, this.batcherFactory);
+    private final ServiceValueRegistry<Cache<?, ?>> registry = mock(ServiceValueRegistry.class);
+    private final CacheContainer subject = new DefaultCacheContainer(this.manager, this.registry, ServiceName::parse);
 
     @After
     public void cleanup() {
@@ -62,20 +69,31 @@ public class DefaultCacheContainerTestCase {
 
     @Test
     public void getName() {
-        assertSame(NAME, this.subject.getName());
+        String name = "foo";
+        GlobalConfiguration global = new GlobalConfigurationBuilder().cacheManagerName(name).build();
+
+        when(this.manager.getCacheManagerConfiguration()).thenReturn(global);
+
+        assertSame(name, this.subject.getName());
     }
 
     @Test
     public void getDefaultCacheName() {
-        assertSame(DEFAULT_CACHE, this.subject.getDefaultCacheName());
+        String defaultCache = "default";
+        GlobalConfiguration global = new GlobalConfigurationBuilder().defaultCacheName(defaultCache).build();
+
+        when(this.manager.getCacheManagerConfiguration()).thenReturn(global);
+
+        assertSame(defaultCache, this.subject.getDefaultCacheName());
     }
 
     @Test
     public void getDefaultCache() {
         AdvancedCache<Object, Object> cache = mock(AdvancedCache.class);
 
-        when(this.manager.<Object, Object>getCache(DEFAULT_CACHE, DEFAULT_CACHE)).thenReturn(cache);
+        when(this.manager.getCache()).thenReturn(cache);
         when(cache.getAdvancedCache()).thenReturn(cache);
+        when(cache.getName()).thenReturn("foo");
 
         Cache<Object, Object> result = this.subject.getCache();
 
@@ -86,61 +104,35 @@ public class DefaultCacheContainerTestCase {
 
     @Test
     public void getCache() {
-        AdvancedCache<Object, Object> defaultCache = mock(AdvancedCache.class);
-        AdvancedCache<Object, Object> otherCache = mock(AdvancedCache.class);
+        AdvancedCache<Object, Object> cache = mock(AdvancedCache.class);
 
-        when(this.manager.<Object, Object>getCache(DEFAULT_CACHE, DEFAULT_CACHE)).thenReturn(defaultCache);
-        when(this.manager.<Object, Object>getCache("other", "other")).thenReturn(otherCache);
-        when(defaultCache.getAdvancedCache()).thenReturn(defaultCache);
-        when(otherCache.getAdvancedCache()).thenReturn(otherCache);
+        when(this.manager.getCache("other")).thenReturn(cache);
+        when(cache.getAdvancedCache()).thenReturn(cache);
+        when(cache.getName()).thenReturn("other");
 
         Cache<Object, Object> result = this.subject.getCache("other");
 
-        assertNotSame(otherCache, result);
-        assertEquals(result, otherCache);
-        assertSame(this.subject, result.getCacheManager());
-
-        result = this.subject.getCache(SubGroupServiceNameFactory.DEFAULT_SUB_GROUP);
-
-        assertNotSame(defaultCache, result);
-        assertEquals(result, defaultCache);
-        assertSame(this.subject, result.getCacheManager());
-
-        result = this.subject.getCache(null);
-
-        assertNotSame(defaultCache, result);
-        assertEquals(result, defaultCache);
+        assertNotSame(cache, result);
+        assertEquals(result, cache);
         assertSame(this.subject, result.getCacheManager());
     }
 
     @Test
-    public void getCacheFromTemplate() {
-        AdvancedCache<Object, Object> defaultCache = mock(AdvancedCache.class);
-        AdvancedCache<Object, Object> otherCache = mock(AdvancedCache.class);
-        String templateName = "template";
+    public void getCacheCreateIfAbsent() {
+        AdvancedCache<Object, Object> cache = mock(AdvancedCache.class);
 
-        when(this.manager.<Object, Object>getCache(DEFAULT_CACHE, templateName)).thenReturn(defaultCache);
-        when(this.manager.<Object, Object>getCache("other", templateName)).thenReturn(otherCache);
-        when(defaultCache.getAdvancedCache()).thenReturn(defaultCache);
-        when(otherCache.getAdvancedCache()).thenReturn(otherCache);
+        when(this.manager.getCache("non-existent", true)).thenReturn(cache);
+        when(this.manager.getCache("non-existent", false)).thenReturn(null);
+        when(cache.getAdvancedCache()).thenReturn(cache);
+        when(cache.getName()).thenReturn("non-existent");
 
-        Cache<Object, Object> result = this.subject.getCache("other", templateName);
+        Cache<Object, Object> result = this.subject.getCache("non-existent", true);
 
-        assertNotSame(otherCache, result);
-        assertEquals(result, otherCache);
+        assertNotSame(cache, result);
+        assertEquals(result, cache);
         assertSame(this.subject, result.getCacheManager());
 
-        result = this.subject.getCache(SubGroupServiceNameFactory.DEFAULT_SUB_GROUP, templateName);
-
-        assertNotSame(defaultCache, result);
-        assertEquals(result, defaultCache);
-        assertSame(this.subject, result.getCacheManager());
-
-        result = this.subject.getCache(null, templateName);
-
-        assertNotSame(defaultCache, result);
-        assertEquals(result, defaultCache);
-        assertSame(this.subject, result.getCacheManager());
+        assertNull(this.subject.getCache("non-existent", false));
     }
 
     @Test
@@ -174,35 +166,15 @@ public class DefaultCacheContainerTestCase {
     }
 
     @Test
-    public void getListeners() {
-        Set<Object> expected = Collections.singleton(new Object());
-        when(this.manager.getListeners()).thenReturn(expected);
-
-        Set<Object> result = this.subject.getListeners();
-
-        assertSame(expected, result);
-    }
-
-    @Test
     public void defineConfiguration() {
         ConfigurationBuilder builder = new ConfigurationBuilder();
-        Configuration defaultConfig = builder.build();
-        Configuration otherConfig = builder.build();
-        
-        when(this.manager.defineConfiguration(DEFAULT_CACHE, defaultConfig)).thenReturn(defaultConfig);
-        when(this.manager.defineConfiguration("other", otherConfig)).thenReturn(otherConfig);
+        Configuration config = builder.build();
 
-        Configuration result = this.subject.defineConfiguration(SubGroupServiceNameFactory.DEFAULT_SUB_GROUP, defaultConfig);
+        when(this.manager.defineConfiguration("other", config)).thenReturn(config);
 
-        assertSame(defaultConfig, result);
+        Configuration result = this.subject.defineConfiguration("other", config);
 
-        result = this.subject.defineConfiguration(null, otherConfig);
-
-        assertSame(defaultConfig, result);
-
-        result = this.subject.defineConfiguration("other", otherConfig);
-
-        assertSame(otherConfig, result);
+        assertSame(config, result);
     }
 
     @Test
@@ -210,6 +182,7 @@ public class DefaultCacheContainerTestCase {
         this.subject.undefineConfiguration("test");
 
         verify(this.manager).undefineConfiguration("test");
+        verify(this.registry).remove(ServiceName.parse("test"));
     }
 
     @Test
@@ -265,33 +238,33 @@ public class DefaultCacheContainerTestCase {
     @Test
     public void getCacheManagerConfiguration() {
         GlobalConfiguration global = new GlobalConfigurationBuilder().build();
-        
+
         when(this.manager.getCacheManagerConfiguration()).thenReturn(global);
-        
+
         GlobalConfiguration result = this.subject.getCacheManagerConfiguration();
-        
+
         assertSame(global, result);
     }
 
     @Test
     public void getDefaultCacheConfiguration() {
         Configuration config = new ConfigurationBuilder().build();
-        
-        when(this.manager.getCacheConfiguration(DEFAULT_CACHE)).thenReturn(config);
-        
+
+        when(this.manager.getDefaultCacheConfiguration()).thenReturn(config);
+
         Configuration result = this.subject.getDefaultCacheConfiguration();
-        
+
         assertSame(config, result);
     }
 
     @Test
     public void getCacheConfiguration() {
         Configuration config = new ConfigurationBuilder().build();
-        
+
         when(this.manager.getCacheConfiguration("cache")).thenReturn(config);
-        
+
         Configuration result = this.subject.getCacheConfiguration("cache");
-        
+
         assertSame(config, result);
     }
 
@@ -308,36 +281,27 @@ public class DefaultCacheContainerTestCase {
 
     @Test
     public void isRunning() {
-        when(this.manager.isRunning("other")).thenReturn(false);
-        when(this.manager.isRunning(DEFAULT_CACHE)).thenReturn(true);
+        when(this.manager.isRunning("other")).thenReturn(true);
 
         boolean result = this.subject.isRunning("other");
-
-        assertFalse(result);
-
-        result = this.subject.isRunning(SubGroupServiceNameFactory.DEFAULT_SUB_GROUP);
-
-        assertTrue(result);
-
-        result = this.subject.isRunning(null);
 
         assertTrue(result);
     }
 
     @Test
     public void isDefaultRunning() {
-        when(this.manager.isRunning(DEFAULT_CACHE)).thenReturn(true);
+        when(this.manager.isDefaultRunning()).thenReturn(true);
 
         boolean result = this.subject.isDefaultRunning();
 
         assertTrue(result);
     }
-    
+
     @Test
     public void startCaches() {
-        when(this.manager.startCaches("other", DEFAULT_CACHE)).thenReturn(this.manager);
+        when(this.manager.startCaches("other")).thenReturn(this.manager);
 
-        EmbeddedCacheManager result = this.subject.startCaches("other", SubGroupServiceNameFactory.DEFAULT_SUB_GROUP);
+        EmbeddedCacheManager result = this.subject.startCaches("other");
 
         assertSame(this.subject, result);
     }

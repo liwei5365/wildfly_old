@@ -28,7 +28,6 @@ import java.util.Set;
 import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.ee.structure.DeploymentType;
 import org.jboss.as.ee.structure.DeploymentTypeMarker;
-import org.jboss.as.naming.NamingStore;
 import org.jboss.as.naming.ServiceBasedNamingStore;
 import org.jboss.as.naming.ValueManagedReferenceFactory;
 import org.jboss.as.naming.deployment.ContextNames;
@@ -51,6 +50,7 @@ import static org.jboss.as.server.deployment.Attachments.SETUP_ACTIONS;
  *
  * @author John E. Bailey
  * @author Eduardo Martins
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 public class ModuleContextProcessor implements DeploymentUnitProcessor {
 
@@ -60,6 +60,7 @@ public class ModuleContextProcessor implements DeploymentUnitProcessor {
      * @param phaseContext the deployment unit context
      * @throws org.jboss.as.server.deployment.DeploymentUnitProcessingException
      */
+    @Override
     public void deploy(DeploymentPhaseContext phaseContext) throws DeploymentUnitProcessingException {
         final DeploymentUnit deploymentUnit = phaseContext.getDeploymentUnit();
         if (DeploymentTypeMarker.isType(DeploymentType.EAR, deploymentUnit)) {
@@ -73,23 +74,23 @@ public class ModuleContextProcessor implements DeploymentUnitProcessor {
         final NamingStoreService contextService = new NamingStoreService(true);
         serviceTarget.addService(moduleContextServiceName, contextService).install();
 
-        final BinderService moduleNameBinder = new BinderService("ModuleName");
         final ServiceName moduleNameServiceName = moduleContextServiceName.append("ModuleName");
+        final BinderService moduleNameBinder = new BinderService("ModuleName");
+        moduleNameBinder.getManagedObjectInjector().inject(new ValueManagedReferenceFactory(Values.immediateValue(moduleDescription.getModuleName())));
         serviceTarget.addService(moduleNameServiceName, moduleNameBinder)
-                .addInjection(moduleNameBinder.getManagedObjectInjector(), new ValueManagedReferenceFactory(Values.immediateValue(moduleDescription.getModuleName())))
                 .addDependency(moduleContextServiceName, ServiceBasedNamingStore.class, moduleNameBinder.getNamingStoreInjector())
                 .install();
-        deploymentUnit.addToAttachmentList(org.jboss.as.server.deployment.Attachments.JNDI_DEPENDENCIES,moduleNameServiceName);
+        deploymentUnit.addToAttachmentList(org.jboss.as.server.deployment.Attachments.JNDI_DEPENDENCIES, moduleNameServiceName);
 
         deploymentUnit.putAttachment(MODULE_CONTEXT_CONFIG, moduleContextServiceName);
 
         final InjectedEENamespaceContextSelector selector = new InjectedEENamespaceContextSelector();
-        phaseContext.addDependency(appContextServiceName, NamingStore.class, selector.getAppContextInjector());
-        phaseContext.addDependency(moduleContextServiceName, NamingStore.class, selector.getModuleContextInjector());
-        phaseContext.addDependency(moduleContextServiceName, NamingStore.class, selector.getCompContextInjector());
-        phaseContext.addDependency(ContextNames.JBOSS_CONTEXT_SERVICE_NAME, NamingStore.class, selector.getJbossContextInjector());
-        phaseContext.addDependency(ContextNames.EXPORTED_CONTEXT_SERVICE_NAME, NamingStore.class, selector.getExportedContextInjector());
-        phaseContext.addDependency(ContextNames.GLOBAL_CONTEXT_SERVICE_NAME, NamingStore.class, selector.getGlobalContextInjector());
+        phaseContext.requires(appContextServiceName, selector.getAppContextSupplier());
+        phaseContext.requires(moduleContextServiceName, selector.getModuleContextSupplier());
+        phaseContext.requires(moduleContextServiceName, selector.getCompContextSupplier());
+        phaseContext.requires(ContextNames.JBOSS_CONTEXT_SERVICE_NAME, selector.getJbossContextSupplier());
+        phaseContext.requires(ContextNames.EXPORTED_CONTEXT_SERVICE_NAME, selector.getExportedContextSupplier());
+        phaseContext.requires(ContextNames.GLOBAL_CONTEXT_SERVICE_NAME, selector.getGlobalContextSupplier());
 
         moduleDescription.setNamespaceContextSelector(selector);
 
@@ -106,7 +107,13 @@ public class ModuleContextProcessor implements DeploymentUnitProcessor {
         deploymentUnit.putAttachment(Attachments.JAVA_NAMESPACE_SETUP_ACTION, setupAction);
     }
 
-    public void undeploy(DeploymentUnit context) {
-
+    @Override
+    public void undeploy(DeploymentUnit deploymentUnit) {
+        JavaNamespaceSetup action = deploymentUnit.removeAttachment(Attachments.JAVA_NAMESPACE_SETUP_ACTION);
+        if (action != null) {
+            deploymentUnit.getAttachmentList(org.jboss.as.ee.component.Attachments.WEB_SETUP_ACTIONS).remove(action);
+            deploymentUnit.getAttachmentList(SETUP_ACTIONS).remove(action);
+        }
+        deploymentUnit.removeAttachment(MODULE_CONTEXT_CONFIG);
     }
 }

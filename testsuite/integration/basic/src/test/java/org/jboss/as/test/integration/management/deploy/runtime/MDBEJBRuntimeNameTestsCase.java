@@ -3,8 +3,6 @@ package org.jboss.as.test.integration.management.deploy.runtime;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import java.io.InputStream;
-
 import javax.jms.Connection;
 import javax.jms.Destination;
 import javax.jms.Message;
@@ -26,9 +24,9 @@ import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.controller.client.OperationBuilder;
 import org.jboss.as.controller.client.helpers.Operations;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.ejb3.subsystem.deployment.EJBComponentType;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
+import org.jboss.as.test.integration.ejb.remote.common.EJBManagementUtil;
 import org.jboss.as.test.integration.management.deploy.runtime.ejb.message.Constants;
 import org.jboss.as.test.integration.management.deploy.runtime.ejb.message.SimpleMDB;
 import org.jboss.as.test.integration.management.util.ModelUtil;
@@ -36,7 +34,6 @@ import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.Asset;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.exporter.ZipExporter;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
@@ -46,7 +43,6 @@ import org.jboss.shrinkwrap.descriptor.api.spec.se.manifest.ManifestDescriptor;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -57,8 +53,8 @@ public class MDBEJBRuntimeNameTestsCase extends AbstractRuntimeTestCase {
     private static final Logger log = Logger.getLogger(MDBEJBRuntimeNameTestsCase.class);
 
     private static final String QUEUE_NAME = "Queue-for-" + MDBEJBRuntimeNameTestsCase.class.getName();
-    
-    private static final String EJB_TYPE = EJBComponentType.MESSAGE_DRIVEN.getResourceType();
+
+    private static final String EJB_TYPE = EJBManagementUtil.MESSAGE_DRIVEN;
     private static final Class BEAN_CLASS = SimpleMDB.class;
     private static final Package BEAN_PACKAGE = BEAN_CLASS.getPackage();
     private static final String BEAN_NAME = "POINT";
@@ -132,8 +128,8 @@ public class MDBEJBRuntimeNameTestsCase extends AbstractRuntimeTestCase {
     public void testMDB() throws Exception {
 
         final QueueConnectionFactory factory = (QueueConnectionFactory) context.lookup("java:/jms/RemoteConnectionFactory");
-        
-        final QueueConnection connection = factory.createQueueConnection("guest","guest");
+
+        final QueueConnection connection = factory.createQueueConnection("guest", "guest");
         try {
             connection.start();
             final QueueSession session = connection.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
@@ -161,7 +157,7 @@ public class MDBEJBRuntimeNameTestsCase extends AbstractRuntimeTestCase {
             }
         }
     }
-    
+
     @Test
     @InSequence(2)
     public void testStepByStep() throws Exception {
@@ -203,7 +199,7 @@ public class MDBEJBRuntimeNameTestsCase extends AbstractRuntimeTestCase {
         ModelNode result = managementClient.getControllerClient().execute(readResource);
 
         // just to blow up
-        Assert.assertTrue("Failed to list resources: " + result,Operations.isSuccessfulOutcome(result));
+        Assert.assertTrue("Failed to list resources: " + result, Operations.isSuccessfulOutcome(result));
     }
 
     private static void safeClose(final Connection connection) {
@@ -214,7 +210,7 @@ public class MDBEJBRuntimeNameTestsCase extends AbstractRuntimeTestCase {
             connection.close();
         } catch (Throwable t) {
             // just log
-            log.info("Ignoring a problem which occurred while closing: " + connection, t);
+            log.trace("Ignoring a problem which occurred while closing: " + connection, t);
         }
     }
 }

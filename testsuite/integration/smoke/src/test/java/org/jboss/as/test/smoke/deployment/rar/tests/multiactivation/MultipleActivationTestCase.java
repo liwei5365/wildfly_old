@@ -21,9 +21,11 @@
  */
 package org.jboss.as.test.smoke.deployment.rar.tests.multiactivation;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+
 import java.io.IOException;
 import java.util.List;
-
 import javax.annotation.Resource;
 
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -34,23 +36,16 @@ import org.jboss.as.connector.subsystems.resourceadapters.Namespace;
 import org.jboss.as.connector.subsystems.resourceadapters.ResourceAdapterSubsystemParser;
 import org.jboss.as.test.integration.management.base.AbstractMgmtServerSetupTask;
 import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
-import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
 import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.shared.FileUtils;
 import org.jboss.as.test.smoke.deployment.rar.MultipleAdminObject1;
 import org.jboss.as.test.smoke.deployment.rar.MultipleConnectionFactory1;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 
 /**
@@ -59,15 +54,15 @@ import static org.junit.Assert.assertNotNull;
  */
 @RunWith(Arquillian.class)
 @ServerSetup(MultipleActivationTestCase.MultipleActivationTestCaseSetup.class)
-public class MultipleActivationTestCase extends ContainerResourceMgmtTestBase {
+public class MultipleActivationTestCase {
 
     static class MultipleActivationTestCaseSetup extends AbstractMgmtServerSetupTask {
 
         @Override
         public void doSetup(final ManagementClient managementClient) throws Exception {
-                String xml = FileUtils.readFile(MultipleActivationTestCase.class, "simple.xml");
-                List<ModelNode> operations = xmlToModelOperations(xml, Namespace.RESOURCEADAPTERS_1_0.getUriString(), new ResourceAdapterSubsystemParser());
-                executeOperation(operationListToCompositeOperation(operations));
+            String xml = FileUtils.readFile(MultipleActivationTestCase.class, "simple.xml");
+            List<ModelNode> operations = xmlToModelOperations(xml, Namespace.RESOURCEADAPTERS_1_0.getUriString(), new ResourceAdapterSubsystemParser());
+            executeOperation(operationListToCompositeOperation(operations));
         }
 
         @Override
@@ -95,14 +90,12 @@ public class MultipleActivationTestCase extends ContainerResourceMgmtTestBase {
                 ShrinkWrap.create(ResourceAdapterArchive.class, deploymentName);
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "multiple.jar");
         ja.addPackage(MultipleConnectionFactory1.class.getPackage()).
-                addClasses(MultipleActivationTestCase.class, MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class);
+                addClasses(MultipleActivationTestCase.class);
 
-        ja.addPackage(AbstractMgmtTestBase.class.getPackage());
+        ja.addPackage(AbstractMgmtTestBase.class.getPackage());  // needed to process the @ServerSetup annotation on the server side
         raa.addAsLibrary(ja);
 
-        raa.addAsManifestResource(MultipleActivationTestCase.class.getPackage(), "ra.xml", "ra.xml")
-                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli\n"), "MANIFEST.MF");
-        ;
+        raa.addAsManifestResource(MultipleActivationTestCase.class.getPackage(), "ra.xml", "ra.xml");
         return raa;
     }
 

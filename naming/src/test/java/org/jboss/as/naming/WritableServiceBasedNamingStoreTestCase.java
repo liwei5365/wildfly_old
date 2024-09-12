@@ -31,13 +31,15 @@ import java.util.concurrent.TimeUnit;
 import javax.naming.CompositeName;
 import javax.naming.Name;
 import javax.naming.NameNotFoundException;
+import javax.naming.OperationNotSupportedException;
 
-import org.jboss.as.naming.JndiPermission.Action;
+import org.wildfly.naming.java.permission.JndiPermission;
 import org.jboss.as.naming.deployment.ContextNames;
 import org.jboss.as.naming.deployment.JndiNamingDependencyProcessor;
 import org.jboss.as.naming.deployment.RuntimeBindReleaseService;
 import org.jboss.as.naming.service.NamingStoreService;
-import org.jboss.msc.service.AbstractServiceListener;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceContainer;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
@@ -68,14 +70,14 @@ public class WritableServiceBasedNamingStoreTestCase {
         final NamingStoreService namingStoreService = new NamingStoreService();
         container.addService(ContextNames.JAVA_CONTEXT_SERVICE_NAME, namingStoreService)
                 .setInitialMode(ServiceController.Mode.ACTIVE)
-                .addListener(new AbstractServiceListener<NamingStore>() {
-                    public void transition(ServiceController<? extends NamingStore> controller, ServiceController.Transition transition) {
-                        switch (transition) {
-                            case STARTING_to_UP: {
+                .addListener(new LifecycleListener() {
+                    public void handleEvent(ServiceController<?> controller, LifecycleEvent event) {
+                        switch (event) {
+                            case UP: {
                                 latch2.countDown();
                                 break;
                             }
-                            case STARTING_to_START_FAILED: {
+                            case FAILED: {
                                 latch2.countDown();
                                 fail("Did not install store service - " + controller.getStartException().getMessage());
                                 break;
@@ -94,14 +96,14 @@ public class WritableServiceBasedNamingStoreTestCase {
         final CountDownLatch latch1 = new CountDownLatch(1);
         container.addService(JndiNamingDependencyProcessor.serviceName(owner), new RuntimeBindReleaseService())
                 .setInitialMode(ServiceController.Mode.ACTIVE)
-                .addListener(new AbstractServiceListener<Object>() {
-                    public void transition(ServiceController<?> controller, ServiceController.Transition transition) {
-                        switch (transition) {
-                            case STARTING_to_UP: {
+                .addListener(new LifecycleListener() {
+                    public void handleEvent(ServiceController<?> controller, LifecycleEvent event) {
+                        switch (event) {
+                            case UP: {
                                 latch1.countDown();
                                 break;
                             }
-                            case STARTING_to_START_FAILED: {
+                            case FAILED: {
                                 latch1.countDown();
                                 fail("Did not install store service - " + controller.getStartException().getMessage());
                                 break;
@@ -136,7 +138,7 @@ public class WritableServiceBasedNamingStoreTestCase {
         try {
             store.bind(new CompositeName("test"), new Object());
             fail("Should have failed with a read-only context exception");
-        } catch (UnsupportedOperationException expected) {
+        } catch (OperationNotSupportedException expected) {
         }
     }
 
@@ -189,7 +191,7 @@ public class WritableServiceBasedNamingStoreTestCase {
         try {
             store.unbind(new CompositeName("test"));
             fail("Should have failed with a read-only context exception");
-        } catch (UnsupportedOperationException expected) {
+        } catch (OperationNotSupportedException expected) {
         }
     }
 
@@ -208,7 +210,7 @@ public class WritableServiceBasedNamingStoreTestCase {
         try {
             store.createSubcontext(new CompositeName("test"));
             fail("Should have failed with a read-only context exception");
-        } catch (UnsupportedOperationException expected) {
+        } catch (OperationNotSupportedException expected) {
         }
     }
 
@@ -232,7 +234,7 @@ public class WritableServiceBasedNamingStoreTestCase {
         try {
             store.rebind(new CompositeName("test"), new Object());
             fail("Should have failed with a read-only context exception");
-        } catch (UnsupportedOperationException expected) {
+        } catch (OperationNotSupportedException expected) {
         }
     }
 
@@ -252,63 +254,66 @@ public class WritableServiceBasedNamingStoreTestCase {
         WritableServiceBasedNamingStore.pushOwner(OWNER_FOO);
         try {
             permissions.add(new JndiPermission(store.getBaseName()+"/"+name,"bind,list,listBindings"));
-            store.bind(new CompositeName(name), value);
+            Name nameObj = new CompositeName(name);
+            store.bind(nameObj, value);
+            store.lookup(nameObj);
         } finally {
             WritableServiceBasedNamingStore.popOwner();
         }
 
         // all of these lookup should work
-        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, name));
-        permissions.set(0,new JndiPermission(store.getBaseName()+"/-",Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, name));
-                permissions.set(0,new JndiPermission(store.getBaseName()+"/a/*",Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, name));
-        permissions.set(0,new JndiPermission(store.getBaseName()+"/a/-",Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, name));
-        permissions.set(0,new JndiPermission("<<ALL BINDINGS>>",Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, name));
-        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, namingContext, store.getBaseName()+"/"+name));
+        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name));
+        permissions.set(0,new JndiPermission(store.getBaseName()+"/-",JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name));
+                permissions.set(0,new JndiPermission(store.getBaseName()+"/a/*",JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name));
+        permissions.set(0,new JndiPermission(store.getBaseName()+"/a/-",JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name));
+        permissions.set(0,new JndiPermission("<<ALL BINDINGS>>",JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name));
+        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, store.getBaseName()+"/"+name));
         NamingContext aNamingContext = (NamingContext) namingContext.lookup("a");
-        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,Action.LOOKUP));
-        assertEquals(value, testActionWithPermission(Action.LOOKUP, permissions, aNamingContext, "b"));
+        permissions.set(0,new JndiPermission(store.getBaseName()+"/"+name,JndiPermission.ACTION_LOOKUP));
+        assertEquals(value, testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, aNamingContext, "b"));
         // this lookup should not work, no permission
         try {
-            testActionWithPermission(Action.LOOKUP, Collections.<JndiPermission>emptyList(), namingContext, name);
+            testActionWithPermission(JndiPermission.ACTION_LOOKUP, Collections.<JndiPermission>emptyList(), namingContext, name);
             fail("Should have failed due to missing permission");
         } catch (AccessControlException e) {
 
         }
         // a permission which only allows entries in store.getBaseName()
         try {
-            permissions.set(0,new JndiPermission(store.getBaseName()+"/*",Action.LOOKUP));
-            testActionWithPermission(Action.LOOKUP, permissions, namingContext, name);
+            permissions.set(0,new JndiPermission(store.getBaseName()+"/*",JndiPermission.ACTION_LOOKUP));
+            testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name);
             fail("Should have failed due to missing permission");
         } catch (AccessControlException e) {
 
         }
         // permissions which are not absolute paths (do not include store base name, i.e. java:)
         try {
-            permissions.set(0,new JndiPermission(name,Action.LOOKUP));
-            testActionWithPermission(Action.LOOKUP, permissions, namingContext, name);
+            permissions.set(0,new JndiPermission(name,JndiPermission.ACTION_LOOKUP));
+            testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name);
             fail("Should have failed due to missing permission");
         } catch (AccessControlException e) {
 
         }
-        try {
-            permissions.set(0,new JndiPermission("/"+name,Action.LOOKUP));
-            testActionWithPermission(Action.LOOKUP, permissions, namingContext, name);
-            fail("Should have failed due to missing permission");
-        } catch (AccessControlException e) {
+        if (! "java:".equals(store.getBaseName().toString())) {
+            try {
+                permissions.set(0,new JndiPermission("/"+name,JndiPermission.ACTION_LOOKUP));
+                testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name);
+                fail("Should have failed due to missing permission");
+            } catch (AccessControlException e) {
 
-        }
-        try {
-            permissions.set(0,new JndiPermission("/-",Action.LOOKUP));
-            testActionWithPermission(Action.LOOKUP, permissions, namingContext, name);
-            fail("Should have failed due to missing permission");
-        } catch (AccessControlException e) {
-
+            }
+            try {
+                permissions.set(0,new JndiPermission("/-",JndiPermission.ACTION_LOOKUP));
+                testActionWithPermission(JndiPermission.ACTION_LOOKUP, permissions, namingContext, name);
+                fail("Should have failed due to missing permission");
+            } catch (AccessControlException e) {
+            }
         }
     }
 

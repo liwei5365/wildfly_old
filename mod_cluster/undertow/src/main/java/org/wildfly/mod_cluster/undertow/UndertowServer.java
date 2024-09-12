@@ -22,63 +22,46 @@
 
 package org.wildfly.mod_cluster.undertow;
 
-import java.util.Iterator;
+import java.util.Collections;
 
 import org.jboss.modcluster.container.Connector;
 import org.jboss.modcluster.container.Engine;
 import org.jboss.modcluster.container.Server;
+import org.wildfly.extension.undertow.Capabilities;
 import org.wildfly.extension.undertow.UndertowService;
 
 /**
  * Adapts {@link UndertowService} to a {@link Server}.
+ *
  * @author Radoslav Husar
  * @author Paul Ferraro
  * @since 8.0
  */
 public class UndertowServer implements Server {
 
-    final UndertowService service;
-    final Connector connector;
+    private final String serverName;
+    private final UndertowService service;
+    private final Connector connector;
 
-    public UndertowServer(UndertowService service, Connector connector) {
+    public UndertowServer(String serverName, UndertowService service, Connector connector) {
+        this.serverName = serverName;
         this.service = service;
         this.connector = connector;
     }
 
     @Override
     public Iterable<Engine> getEngines() {
-
-        final Iterator<org.wildfly.extension.undertow.Server> servers = this.service.getServers().iterator();
-
-        final Iterator<Engine> iterator = new Iterator<Engine>() {
-            @Override
-            public boolean hasNext() {
-                return servers.hasNext();
+        for (org.wildfly.extension.undertow.Server server : this.service.getServers()) {
+            if (server.getName().equals(this.serverName)) {
+                return Collections.singleton(new UndertowEngine(serverName, server, this.service, this.connector));
             }
-
-            @Override
-            public Engine next() {
-                org.wildfly.extension.undertow.Server server = servers.next();
-                return new UndertowEngine(server, UndertowServer.this.service, UndertowServer.this.connector);
-            }
-
-            @Override
-            public void remove() {
-                servers.remove();
-            }
-        };
-
-        return new Iterable<Engine>() {
-            @Override
-            public Iterator<Engine> iterator() {
-                return iterator;
-            }
-        };
+        }
+        throw new IllegalStateException();
     }
 
     @Override
     public String toString() {
-        return UndertowService.UNDERTOW.getCanonicalName();
+        return Capabilities.CAPABILITY_UNDERTOW;
     }
 
     @Override

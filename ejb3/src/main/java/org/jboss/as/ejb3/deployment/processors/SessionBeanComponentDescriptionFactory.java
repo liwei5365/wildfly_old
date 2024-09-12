@@ -22,11 +22,12 @@
 
 package org.jboss.as.ejb3.deployment.processors;
 
-import static org.jboss.as.ejb3.deployment.processors.AbstractDeploymentUnitProcessor.getEjbJarDescription;
+import static org.jboss.as.ejb3.deployment.processors.AnnotatedEJBComponentDescriptionDeploymentUnitProcessor.getEjbJarDescription;
 
 import java.lang.reflect.Modifier;
 import java.util.List;
 
+import javax.ejb.SessionBean;
 import javax.ejb.Singleton;
 import javax.ejb.Stateful;
 import javax.ejb.Stateless;
@@ -65,9 +66,12 @@ public class SessionBeanComponentDescriptionFactory extends EJBComponentDescript
     private static final DotName STATELESS_ANNOTATION = DotName.createSimple(Stateless.class.getName());
     private static final DotName STATEFUL_ANNOTATION = DotName.createSimple(Stateful.class.getName());
     private static final DotName SINGLETON_ANNOTATION = DotName.createSimple(Singleton.class.getName());
+    private static final DotName SESSION_BEAN_INTERFACE = DotName.createSimple(SessionBean.class.getName());
+    private final boolean defaultSlsbPoolAvailable;
 
-    public SessionBeanComponentDescriptionFactory(final boolean appclient) {
+    public SessionBeanComponentDescriptionFactory(final boolean appclient, final boolean defaultSlsbPoolAvailable) {
         super(appclient);
+        this.defaultSlsbPoolAvailable = defaultSlsbPoolAvailable;
     }
 
     /**
@@ -143,10 +147,10 @@ public class SessionBeanComponentDescriptionFactory extends EJBComponentDescript
             final SessionBeanComponentDescription sessionBeanDescription;
             switch (sessionBeanType) {
                 case STATELESS:
-                    sessionBeanDescription = new StatelessComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnitServiceName, beanMetaData);
+                    sessionBeanDescription = new StatelessComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, beanMetaData, defaultSlsbPoolAvailable);
                     break;
                 case STATEFUL:
-                    sessionBeanDescription = new StatefulComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnitServiceName, beanMetaData);
+                    sessionBeanDescription = new StatefulComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, beanMetaData);
                     // If passivation is disabled for the SFSB, either via annotation or via DD, then setup the component
                     // description appropriately
                     final boolean passivationCapableAnnotationValue = sessionBeanAnnotation.value("passivationCapable") == null ? true : sessionBeanAnnotation.value("passivationCapable").asBoolean();
@@ -160,13 +164,22 @@ public class SessionBeanComponentDescriptionFactory extends EJBComponentDescript
                     ((StatefulComponentDescription) sessionBeanDescription).setPassivationApplicable(passivationApplicable);
                     break;
                 case SINGLETON:
-                    sessionBeanDescription = new SingletonComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnitServiceName, beanMetaData);
+                    if (sessionBeanClassInfo.interfaceNames().contains(SESSION_BEAN_INTERFACE)) {
+                        EjbLogger.ROOT_LOGGER.singletonCantImplementSessionBean(beanClassName);
+                    }
+                    sessionBeanDescription = new SingletonComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, beanMetaData);
                     break;
                 default:
                     throw EjbLogger.ROOT_LOGGER.unknownSessionBeanType(sessionBeanType.name());
             }
 
             addComponent(deploymentUnit, sessionBeanDescription);
+
+            final AnnotationValue mappedNameValue = sessionBeanAnnotation.value("mappedName");
+            if (mappedNameValue != null && !mappedNameValue.asString().isEmpty()) {
+                EjbLogger.ROOT_LOGGER.mappedNameNotSupported(mappedNameValue != null ? mappedNameValue.asString() : "",
+                        ejbName);
+            }
         }
 
         EjbDeploymentMarker.mark(deploymentUnit);
@@ -241,16 +254,16 @@ public class SessionBeanComponentDescriptionFactory extends EJBComponentDescript
         final SessionBeanComponentDescription sessionBeanDescription;
         switch (sessionType) {
             case Stateless:
-                sessionBeanDescription = new StatelessComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit.getServiceName(), sessionBean);
+                sessionBeanDescription = new StatelessComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, sessionBean, defaultSlsbPoolAvailable);
                 break;
             case Stateful:
-                sessionBeanDescription = new StatefulComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit.getServiceName(), sessionBean);
+                sessionBeanDescription = new StatefulComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, sessionBean);
                 if (sessionBean instanceof SessionBean32MetaData && ((SessionBean32MetaData) sessionBean).isPassivationCapable() != null) {
                     ((StatefulComponentDescription) sessionBeanDescription).setPassivationApplicable(((SessionBean32MetaData) sessionBean).isPassivationCapable());
                 }
                 break;
             case Singleton:
-                sessionBeanDescription = new SingletonComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit.getServiceName(), sessionBean);
+                sessionBeanDescription = new SingletonComponentDescription(beanName, beanClassName, ejbJarDescription, deploymentUnit, sessionBean);
                 break;
             default:
                 throw EjbLogger.ROOT_LOGGER.unknownSessionBeanType(sessionType.name());

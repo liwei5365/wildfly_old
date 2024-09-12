@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -33,7 +33,6 @@ import org.jboss.as.controller.RestartParentResourceAddHandler;
 import org.jboss.as.controller.RestartParentResourceRemoveHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
-import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.as.controller.services.path.PathManager;
 import org.jboss.as.controller.services.path.PathManagerService;
 import org.jboss.as.server.Services;
@@ -46,11 +45,14 @@ import org.jboss.msc.service.ServiceName;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Global session cookie config
  *
  * @author Stuart Douglas
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 class PersistentSessionsDefinition extends PersistentResourceDefinition {
 
@@ -58,13 +60,13 @@ class PersistentSessionsDefinition extends PersistentResourceDefinition {
 
     protected static final SimpleAttributeDefinition PATH =
             new SimpleAttributeDefinitionBuilder(Constants.PATH, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setAllowExpression(true)
                     .build();
 
     protected static final SimpleAttributeDefinition RELATIVE_TO =
             new SimpleAttributeDefinitionBuilder(Constants.RELATIVE_TO, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setAllowExpression(true)
                     .build();
 
@@ -120,28 +122,24 @@ class PersistentSessionsDefinition extends PersistentResourceDefinition {
                     }
                 }, OperationContext.Stage.RUNTIME);
             }
-            context.stepCompleted();
         }
 
         private void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
             if (isEnabled(context, model)) {
-                ModelNode pathValue = PATH.resolveModelAttribute(context, model);
-                ServiceBuilder<SessionPersistenceManager> builder;
+                final ModelNode pathValue = PATH.resolveModelAttribute(context, model);
+                final ServiceBuilder<?> sb = context.getServiceTarget().addService(AbstractPersistentSessionManager.SERVICE_NAME);
+                final Consumer<SessionPersistenceManager> sConsumer = sb.provides(AbstractPersistentSessionManager.SERVICE_NAME);
+                final Supplier<ModuleLoader> mlSupplier = sb.requires(Services.JBOSS_SERVICE_MODULE_LOADER);
                 if (pathValue.isDefined()) {
-                    String path = pathValue.asString();
-                    ModelNode relativeToValue = RELATIVE_TO.resolveModelAttribute(context, model);
-                    String relativeTo = relativeToValue.isDefined() ? relativeToValue.asString() : null;
-                    final DiskBasedModularPersistentSessionManager service = new DiskBasedModularPersistentSessionManager(path, relativeTo);
-                    builder = context.getServiceTarget().addService(AbstractPersistentSessionManager.SERVICE_NAME, service)
-                            .addDependency(Services.JBOSS_SERVICE_MODULE_LOADER, ModuleLoader.class, service.getModuleLoaderInjectedValue())
-                            .addDependency(PathManagerService.SERVICE_NAME, PathManager.class, service.getPathManager());
-
+                    final String path = pathValue.asString();
+                    final ModelNode relativeToValue = RELATIVE_TO.resolveModelAttribute(context, model);
+                    final String relativeTo = relativeToValue.isDefined() ? relativeToValue.asString() : null;
+                    final Supplier<PathManager> pmSupplier = sb.requires(PathManagerService.SERVICE_NAME);
+                    sb.setInstance(new DiskBasedModularPersistentSessionManager(sConsumer, mlSupplier, pmSupplier, path, relativeTo));
                 } else {
-                    final InMemoryModularPersistentSessionManager service = new InMemoryModularPersistentSessionManager();
-                    builder = context.getServiceTarget().addService(AbstractPersistentSessionManager.SERVICE_NAME, service)
-                            .addDependency(Services.JBOSS_SERVICE_MODULE_LOADER, ModuleLoader.class, service.getModuleLoaderInjectedValue());
+                    sb.setInstance(new InMemoryModularPersistentSessionManager(sConsumer, mlSupplier));
                 }
-                builder.install();
+                sb.install();
             }
         }
 

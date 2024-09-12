@@ -390,10 +390,11 @@ public class RmiIdlUtil {
         *
         * Spec 2.8.4 (3)
         */
-        if (type.getDeclaringClass() != null && isStatic(type))
-            if (!isRMIIDLValueType(type.getDeclaringClass()))
-                return false;
-
+        if (type.getDeclaringClass() != null
+                && isStatic(type)
+                && !isRMIIDLValueType(type.getDeclaringClass())) {
+            return false;
+        }
         return true;
     }
 
@@ -454,20 +455,24 @@ public class RmiIdlUtil {
         return cannotBeRemote && cannotBeAbstractInterface;
     }
 
-    public static void rethrowIfCorbaSystemException(Exception e) {
+    public static void rethrowIfCorbaSystemException(Throwable e) {
+        RuntimeException re;
         if (e instanceof java.rmi.MarshalException)
-            throw new org.omg.CORBA.MARSHAL(e.toString());
+            re = new org.omg.CORBA.MARSHAL(e.toString());
         else if (e instanceof java.rmi.NoSuchObjectException)
-            throw new org.omg.CORBA.OBJECT_NOT_EXIST(e.toString());
+            re = new org.omg.CORBA.OBJECT_NOT_EXIST(e.toString());
         else if (e instanceof java.rmi.AccessException)
-            throw new org.omg.CORBA.NO_PERMISSION(e.toString());
+            re = new org.omg.CORBA.NO_PERMISSION(e.toString());
         else if (e instanceof javax.transaction.TransactionRequiredException)
-            throw new org.omg.CORBA.TRANSACTION_REQUIRED(e.toString());
+            re = new org.omg.CORBA.TRANSACTION_REQUIRED(e.toString());
         else if (e instanceof javax.transaction.TransactionRolledbackException)
-            throw new org.omg.CORBA.TRANSACTION_ROLLEDBACK(e.toString());
+            re = new org.omg.CORBA.TRANSACTION_ROLLEDBACK(e.toString());
         else if (e instanceof javax.transaction.InvalidTransactionException)
-            throw new org.omg.CORBA.INVALID_TRANSACTION(e.toString());
+            re = new org.omg.CORBA.INVALID_TRANSACTION(e.toString());
         else if (e instanceof org.omg.CORBA.SystemException)
-            throw (org.omg.CORBA.SystemException) e;
+            re = (org.omg.CORBA.SystemException) e;
+        else return;
+        re.setStackTrace(e.getStackTrace());
+        throw re;
     }
 }

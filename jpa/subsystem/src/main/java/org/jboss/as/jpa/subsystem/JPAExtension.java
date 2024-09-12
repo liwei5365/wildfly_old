@@ -43,12 +43,6 @@ import org.jboss.as.controller.parsing.ExtensionParsingContext;
 import org.jboss.as.controller.parsing.ParseUtils;
 import org.jboss.as.controller.persistence.SubsystemMarshallingContext;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
-import org.jboss.as.controller.transform.description.TransformationDescription;
-import org.jboss.as.controller.transform.description.TransformationDescriptionBuilder;
-import org.jboss.as.jpa.config.ExtendedPersistenceInheritance;
 import org.jboss.as.jpa.persistenceprovider.PersistenceProviderLoader;
 import org.jboss.dmr.ModelNode;
 import org.jboss.modules.ModuleLoadException;
@@ -58,16 +52,13 @@ import org.jboss.staxmapper.XMLExtendedStreamReader;
 import org.jboss.staxmapper.XMLExtendedStreamWriter;
 
 /**
- * Domain extension used to initialize the JPA subsystem element handlers.
+ * Domain extension used to initialize the Jakarta Persistence subsystem element handlers.
  *
  * @author Scott Marlow
  */
 public class JPAExtension implements Extension {
 
     public static final String SUBSYSTEM_NAME = "jpa";
-
-    private static final JPASubsystemElementParser1_1 parser1_1 = new JPASubsystemElementParser1_1();
-    private static final JPASubsystemElementParser1_0 parser1_0 = new JPASubsystemElementParser1_0();
 
     private static final String RESOURCE_NAME = JPAExtension.class.getPackage().getName() + ".LocalDescriptions";
 
@@ -86,11 +77,9 @@ public class JPAExtension implements Extension {
         SubsystemRegistration registration = context.registerSubsystem(SUBSYSTEM_NAME, CURRENT_MODEL_VERSION);
         final ManagementResourceRegistration nodeRegistration = registration.registerSubsystemModel(JPADefinition.INSTANCE);
         nodeRegistration.registerOperationHandler(GenericSubsystemDescribeHandler.DEFINITION, GenericSubsystemDescribeHandler.INSTANCE);
-        registration.registerXMLElementWriter(parser1_1);
+        registration.registerXMLElementWriter(new JPASubsystemElementParser1_1());
 
-        if (context.isRegisterTransformers()) {
-            initializeTransformers_1_1_0(registration);
-        }
+
 
         try {
             PersistenceProviderLoader.loadDefaultProvider();
@@ -99,25 +88,14 @@ public class JPAExtension implements Extension {
         }
 
         if (context.isRuntimeOnlyRegistrationValid()) {
-            registration.registerDeploymentModel(JPADefinition.INSTANCE);
+            registration.registerDeploymentModel(JPADefinition.DEPLOYMENT_INSTANCE);
         }
     }
 
     @Override
     public void initializeParsers(ExtensionParsingContext context) {
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JPA_1_1.getUriString(), parser1_1);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JPA_1_0.getUriString(), parser1_0);
-    }
-
-    private void initializeTransformers_1_1_0(SubsystemRegistration subsystemRegistration) {
-
-        ResourceTransformationDescriptionBuilder builder = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder.getAttributeBuilder()
-            .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, JPADefinition.DEFAULT_DATASOURCE)
-            .addRejectCheck(RejectAttributeChecker.DEFINED, JPADefinition.DEFAULT_EXTENDEDPERSISTENCE_INHERITANCE)
-            .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(ExtendedPersistenceInheritance.DEEP.toString())), JPADefinition.DEFAULT_EXTENDEDPERSISTENCE_INHERITANCE)
-            .end();
-        TransformationDescription.Tools.register(builder.build(), subsystemRegistration, ModelVersion.create(1, 1, 0));
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JPA_1_1.getUriString(), JPASubsystemElementParser1_1::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.JPA_1_0.getUriString(), JPASubsystemElementParser1_0::new);
     }
 
     static class JPASubsystemElementParser1_1 implements XMLStreamConstants, XMLElementReader<List<ModelNode>>,
@@ -133,14 +111,10 @@ public class JPAExtension implements Extension {
                 final Element element = Element.forName(reader.getLocalName());
                 Namespace readerNS = Namespace.forUri(reader.getNamespaceURI());
 
-                switch (element) {
-                    case JPA: {
-                        subsystemAdd = parseJPA(reader, readerNS);
-                        break;
-                    }
-                    default: {
-                        throw ParseUtils.unexpectedElement(reader);
-                    }
+                if (element == Element.JPA) {
+                    subsystemAdd = parseJPA(reader, readerNS);
+                } else {
+                    throw ParseUtils.unexpectedElement(reader);
                 }
             }
             if (subsystemAdd == null) {
@@ -150,7 +124,6 @@ public class JPAExtension implements Extension {
         }
 
         private ModelNode parseJPA(XMLExtendedStreamReader reader, Namespace readerNS) throws XMLStreamException {
-            String dataSourceName = null;
             final ModelNode operation = Util.createAddOperation(PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, SUBSYSTEM_NAME)));
 
             int count = reader.getAttributeCount();
@@ -159,7 +132,6 @@ public class JPAExtension implements Extension {
                 final Attribute attribute = Attribute.forName(reader.getAttributeLocalName(i));
                 switch (attribute) {
                     case DEFAULT_DATASOURCE_NAME: {
-                        dataSourceName = value;
                         JPADefinition.DEFAULT_DATASOURCE.parseAndSetParameter(value, operation, reader);
                         break;
                     }
@@ -173,9 +145,7 @@ public class JPAExtension implements Extension {
             }
             // Require no content
             ParseUtils.requireNoContent(reader);
-            if (dataSourceName == null) {
-                throw ParseUtils.missingRequired(reader, Collections.singleton(Attribute.DEFAULT_DATASOURCE_NAME));
-            }
+
             return operation;
         }
 
@@ -187,22 +157,12 @@ public class JPAExtension implements Extension {
             XMLStreamException {
 
             ModelNode node = context.getModelNode();
-            if (node.hasDefined(CommonAttributes.DEFAULT_DATASOURCE) ||
-                    node.hasDefined(CommonAttributes.DEFAULT_EXTENDEDPERSISTENCE_INHERITANCE)
-                    ) {
-                context.startSubsystemElement(Namespace.JPA_1_1.getUriString(), false);
-                writer.writeStartElement(Element.JPA.getLocalName());
-                JPADefinition.DEFAULT_DATASOURCE.marshallAsAttribute(node, writer);
-                JPADefinition.DEFAULT_EXTENDEDPERSISTENCE_INHERITANCE.marshallAsAttribute(node, writer);
-                writer.writeEndElement();
-                writer.writeEndElement();
-            } else {
-                //TODO seems to be a problem with empty elements cleaning up the queue in FormattingXMLStreamWriter.runAttrQueue
-                //context.startSubsystemElement(NewNamingExtension.NAMESPACE, true);
-                context.startSubsystemElement(Namespace.JPA_1_1.getUriString(), false);
-                writer.writeEndElement();
-            }
-
+            context.startSubsystemElement(Namespace.JPA_1_1.getUriString(), false);
+            writer.writeStartElement(Element.JPA.getLocalName());
+            JPADefinition.DEFAULT_DATASOURCE.marshallAsAttribute(node, writer);
+            JPADefinition.DEFAULT_EXTENDEDPERSISTENCE_INHERITANCE.marshallAsAttribute(node, writer);
+            writer.writeEndElement();
+            writer.writeEndElement();
         }
     }
 
@@ -219,14 +179,10 @@ public class JPAExtension implements Extension {
                 final Element element = Element.forName(reader.getLocalName());
                 Namespace readerNS = Namespace.forUri(reader.getNamespaceURI());
 
-                switch (element) {
-                    case JPA: {
-                        subsystemAdd = parseJPA(reader, readerNS);
-                        break;
-                    }
-                    default: {
-                        throw ParseUtils.unexpectedElement(reader);
-                    }
+                if (element == Element.JPA) {
+                    subsystemAdd = parseJPA(reader, readerNS);
+                } else {
+                    throw ParseUtils.unexpectedElement(reader);
                 }
             }
             if (subsystemAdd == null) {
@@ -237,27 +193,19 @@ public class JPAExtension implements Extension {
 
         private ModelNode parseJPA(XMLExtendedStreamReader reader, Namespace readerNS) throws XMLStreamException {
             final ModelNode operation = Util.createAddOperation(PathAddress.pathAddress(PathElement.pathElement(SUBSYSTEM, SUBSYSTEM_NAME)));
-            String dataSourceName = null;
             int count = reader.getAttributeCount();
             for (int i = 0; i < count; i++) {
                 final String value = reader.getAttributeValue(i);
                 final Attribute attribute = Attribute.forName(reader.getAttributeLocalName(i));
-                switch (attribute) {
-                    case DEFAULT_DATASOURCE_NAME: {
-                        dataSourceName = value;
-                        JPADefinition.DEFAULT_DATASOURCE.parseAndSetParameter(value, operation, reader);
-                        break;
-                    }
-                    default: {
-                        throw ParseUtils.unexpectedAttribute(reader, i);
-                    }
+                if (attribute == Attribute.DEFAULT_DATASOURCE_NAME) {
+                    JPADefinition.DEFAULT_DATASOURCE.parseAndSetParameter(value, operation, reader);
+                } else {
+                    throw ParseUtils.unexpectedAttribute(reader, i);
                 }
             }
             // Require no content
             ParseUtils.requireNoContent(reader);
-            if (dataSourceName == null) {
-                throw ParseUtils.missingRequired(reader, Collections.singleton(Attribute.DEFAULT_DATASOURCE_NAME));
-            }
+
             return operation;
         }
     }

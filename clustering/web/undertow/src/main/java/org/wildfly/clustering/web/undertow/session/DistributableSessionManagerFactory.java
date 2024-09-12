@@ -21,14 +21,17 @@
  */
 package org.wildfly.clustering.web.undertow.session;
 
+import java.util.Map;
+
 import javax.servlet.ServletContext;
 
 import org.wildfly.clustering.ee.Batch;
+import org.wildfly.clustering.ee.BatchContext;
 import org.wildfly.clustering.ee.Batcher;
 import org.wildfly.clustering.ee.Recordable;
 import org.wildfly.clustering.web.IdentifierFactory;
-import org.wildfly.clustering.web.LocalContextFactory;
-import org.wildfly.clustering.web.session.ImmutableSession;
+import org.wildfly.clustering.web.container.SessionManagerFactoryConfiguration;
+import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 import org.wildfly.clustering.web.session.SessionExpirationListener;
 import org.wildfly.clustering.web.session.SessionManager;
 import org.wildfly.clustering.web.session.SessionManagerConfiguration;
@@ -39,7 +42,7 @@ import io.undertow.server.HttpServerExchange;
 import io.undertow.server.session.SessionListeners;
 import io.undertow.servlet.api.Deployment;
 import io.undertow.servlet.api.DeploymentInfo;
-import io.undertow.servlet.api.ThreadSetupAction;
+import io.undertow.servlet.api.ThreadSetupHandler;
 
 /**
  * Factory for creating a {@link DistributableSessionManager}.
@@ -47,10 +50,13 @@ import io.undertow.servlet.api.ThreadSetupAction;
  */
 public class DistributableSessionManagerFactory implements io.undertow.servlet.api.SessionManagerFactory {
 
-    private final SessionManagerFactory<Batch> factory;
+    private final SessionManagerFactory<ServletContext, Map<String, Object>, Batch> factory;
+    private final SessionManagerFactoryConfiguration config;
+    private final SessionListeners listeners = new SessionListeners();
 
-    public DistributableSessionManagerFactory(SessionManagerFactory<Batch> factory) {
+    public DistributableSessionManagerFactory(SessionManagerFactory<ServletContext, Map<String, Object>, Batch> factory, SessionManagerFactoryConfiguration config) {
         this.factory = factory;
+        this.config = config;
     }
 
     @Override
@@ -59,10 +65,8 @@ public class DistributableSessionManagerFactory implements io.undertow.servlet.a
         boolean statisticsEnabled = info.getMetricsCollector() != null;
         RecordableInactiveSessionStatistics inactiveSessionStatistics = statisticsEnabled ? new RecordableInactiveSessionStatistics() : null;
         IdentifierFactory<String> factory = new IdentifierFactoryAdapter(info.getSessionIdGenerator());
-        LocalContextFactory<LocalSessionContext> localContextFactory = new LocalSessionContextFactory();
-        SessionListeners listeners = new SessionListeners();
-        SessionExpirationListener expirationListener = new UndertowSessionExpirationListener(deployment, listeners);
-        SessionManagerConfiguration<LocalSessionContext> configuration = new SessionManagerConfiguration<LocalSessionContext>() {
+        SessionExpirationListener expirationListener = new UndertowSessionExpirationListener(deployment, this.listeners);
+        SessionManagerConfiguration<ServletContext> configuration = new SessionManagerConfiguration<ServletContext>() {
             @Override
             public ServletContext getServletContext() {
                 return deployment.getServletContext();
@@ -79,33 +83,29 @@ public class DistributableSessionManagerFactory implements io.undertow.servlet.a
             }
 
             @Override
-            public LocalContextFactory<LocalSessionContext> getLocalContextFactory() {
-                return localContextFactory;
-            }
-
-            @Override
-            public Recordable<ImmutableSession> getInactiveSessionRecorder() {
+            public Recordable<ImmutableSessionMetaData> getInactiveSessionRecorder() {
                 return inactiveSessionStatistics;
             }
         };
-        SessionManager<LocalSessionContext, Batch> manager = this.factory.createSessionManager(configuration);
-        final Batcher<Batch> batcher = manager.getBatcher();
-        info.addThreadSetupAction(new ThreadSetupAction() {
+        SessionManager<Map<String, Object>, Batch> manager = this.factory.createSessionManager(configuration);
+        Batcher<Batch> batcher = manager.getBatcher();
+        info.addThreadSetupAction(new ThreadSetupHandler() {
             @Override
-            public Handle setup(HttpServerExchange exchange) {
-                Batch batch = batcher.suspendBatch();
-                if (batch != null) {
-                    batcher.resumeBatch(batch);
-                }
-                return () -> {
-                    // Prevent tx leaking into other users of this thread
-                    if (batch == null) {
-                        batcher.suspendBatch();
+            public <T, C> Action<T, C> create(Action<T, C> action) {
+                return new Action<T, C>() {
+                    @Override
+                    public T call(HttpServerExchange exchange, C context) throws Exception {
+                        Batch batch = batcher.suspendBatch();
+                        try (BatchContext ctx = batcher.resumeBatch(batch)) {
+                            return action.call(exchange, context);
+                        }
                     }
                 };
             }
         });
-        RecordableSessionManagerStatistics statistics = (inactiveSessionStatistics != null) ? new DistributableSessionManagerStatistics(manager, inactiveSessionStatistics) : null;
-        return new DistributableSessionManager(info.getDeploymentName(), manager, listeners, statistics);
+        RecordableSessionManagerStatistics statistics = (inactiveSessionStatistics != null) ? new DistributableSessionManagerStatistics(manager, inactiveSessionStatistics, this.config.getMaxActiveSessions()) : null;
+        io.undertow.server.session.SessionManager result = new DistributableSessionManager(info.getDeploymentName(), manager, this.listeners, statistics);
+        result.setDefaultSessionTimeout((int) this.config.getDefaultSessionTimeout().getSeconds());
+        return result;
     }
 }

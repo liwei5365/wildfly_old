@@ -25,7 +25,6 @@ package org.jboss.as.ejb3.subsystem;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import org.jboss.as.controller.AbstractAddStepHandler;
@@ -33,42 +32,29 @@ import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathAddress;
-import org.jboss.as.controller.ServiceVerificationHandler;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
-import org.jboss.as.ejb3.cache.CacheFactoryBuilderService;
-import org.jboss.as.ejb3.cache.DelegateCacheFactoryBuilderService;
-import org.jboss.as.ejb3.cache.distributable.DistributableCacheFactoryBuilderService;
-import org.jboss.as.ejb3.cache.simple.SimpleCacheFactoryBuilderService;
+import org.jboss.as.ejb3.cache.CacheFactoryBuilderServiceNameProvider;
+import org.jboss.as.ejb3.cache.distributable.DistributableCacheFactoryBuilderServiceNameProvider;
+import org.jboss.as.ejb3.cache.simple.SimpleCacheFactoryBuilderServiceConfigurator;
 import org.jboss.dmr.ModelNode;
 import org.jboss.msc.service.ServiceBuilder;
-import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceTarget;
+import org.wildfly.clustering.service.IdentityServiceConfigurator;
+import org.wildfly.clustering.service.ServiceConfigurator;
 
 /**
+ * Configure, build and install CacheFactoryBuilders to support SFSB usage.
+ *
  * @author Paul Ferraro
  */
 public class CacheFactoryAdd extends AbstractAddStepHandler {
 
-    private final AttributeDefinition[] attributes;
-
     CacheFactoryAdd(AttributeDefinition... attributes) {
-        this.attributes = attributes;
+        super(attributes);
     }
 
     @Override
-    protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
-        for (AttributeDefinition attr: this.attributes) {
-            attr.validateAndSet(operation, model);
-        }
-    }
-
-    @Override
-    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model, ServiceVerificationHandler verificationHandler, List<ServiceController<?>> serviceControllers) throws OperationFailedException {
-        // add this to the service controllers
-        serviceControllers.addAll(this.installRuntimeServices(context, operation, model, verificationHandler));
-    }
-
-    Collection<ServiceController<?>> installRuntimeServices(OperationContext context, ModelNode operation, ModelNode model, ServiceVerificationHandler verificationHandler) throws OperationFailedException {
+    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
         final String name = PathAddress.pathAddress(operation.get(ModelDescriptionConstants.ADDRESS)).getLastElement().getValue();
 
         ModelNode passivationStoreModel = CacheFactoryResourceDefinition.PASSIVATION_STORE.resolveModelAttribute(context,model);
@@ -77,20 +63,14 @@ public class CacheFactoryAdd extends AbstractAddStepHandler {
         final Collection<String> unwrappedAliasValues = CacheFactoryResourceDefinition.ALIASES.unwrap(context,model);
         final Set<String> aliases = unwrappedAliasValues != null ? new HashSet<>(unwrappedAliasValues) : Collections.<String>emptySet();
         ServiceTarget target = context.getServiceTarget();
-        ServiceBuilder<?> builder = buildCacheFactoryBuilder(target, name, passivationStore);
+        // set up the CacheFactoryBuilder service
+        ServiceConfigurator configurator = (passivationStore != null) ? new IdentityServiceConfigurator<>(new CacheFactoryBuilderServiceNameProvider(name).getServiceName(),
+                new DistributableCacheFactoryBuilderServiceNameProvider(passivationStore).getServiceName()) : new SimpleCacheFactoryBuilderServiceConfigurator<>(name);
+        ServiceBuilder<?> builder = configurator.build(target);
+        // set up aliases to the CacheFactoryBuilder service
         for (String alias: aliases) {
-            builder.addAliases(CacheFactoryBuilderService.getServiceName(alias));
+            new IdentityServiceConfigurator<>(new CacheFactoryBuilderServiceNameProvider(alias).getServiceName(), configurator.getServiceName()).build(target).install();
         }
-        if (verificationHandler != null) {
-            builder.addListener(verificationHandler);
-        }
-        return Collections.<ServiceController<?>>singleton(builder.install());
-    }
-
-    private static ServiceBuilder<?> buildCacheFactoryBuilder(ServiceTarget target, String name, String passivationStore) {
-        if (passivationStore == null) {
-            return new SimpleCacheFactoryBuilderService<>(name).build(target);
-        }
-        return new DelegateCacheFactoryBuilderService<>(name, DistributableCacheFactoryBuilderService.getServiceName(passivationStore)).build(target);
+        builder.install();
     }
 }

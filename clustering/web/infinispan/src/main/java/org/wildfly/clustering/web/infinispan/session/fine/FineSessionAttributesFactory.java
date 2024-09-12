@@ -22,96 +22,210 @@
 
 package org.wildfly.clustering.web.infinispan.session.fine;
 
+import java.io.IOException;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
-import java.util.function.Predicate;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 import org.infinispan.Cache;
 import org.infinispan.context.Flag;
-import org.wildfly.clustering.infinispan.spi.distribution.Key;
-import org.wildfly.clustering.marshalling.jboss.InvalidSerializedFormException;
-import org.wildfly.clustering.marshalling.jboss.MarshalledValue;
-import org.wildfly.clustering.marshalling.jboss.Marshaller;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.ee.Immutability;
+import org.wildfly.clustering.ee.MutatorFactory;
+import org.wildfly.clustering.ee.cache.CacheProperties;
+import org.wildfly.clustering.ee.infinispan.InfinispanMutatorFactory;
+import org.wildfly.clustering.infinispan.spi.PredicateKeyFilter;
+import org.wildfly.clustering.infinispan.spi.listener.PostActivateListener;
+import org.wildfly.clustering.infinispan.spi.listener.PrePassivateListener;
+import org.wildfly.clustering.marshalling.spi.Marshaller;
+import org.wildfly.clustering.web.cache.session.CompositeImmutableSession;
+import org.wildfly.clustering.web.cache.session.ImmutableSessionAttributeActivationNotifier;
+import org.wildfly.clustering.web.cache.session.SessionAttributeActivationNotifier;
+import org.wildfly.clustering.web.cache.session.SessionAttributes;
+import org.wildfly.clustering.web.cache.session.SessionAttributesFactory;
+import org.wildfly.clustering.web.cache.session.fine.FineImmutableSessionAttributes;
+import org.wildfly.clustering.web.cache.session.fine.FineSessionAttributes;
 import org.wildfly.clustering.web.infinispan.logging.InfinispanWebLogger;
-import org.wildfly.clustering.web.infinispan.session.SessionAttributesFactory;
+import org.wildfly.clustering.web.infinispan.session.InfinispanSessionAttributesFactoryConfiguration;
+import org.wildfly.clustering.web.infinispan.session.SessionCreationMetaDataKey;
+import org.wildfly.clustering.web.infinispan.session.SessionCreationMetaDataKeyFilter;
+import org.wildfly.clustering.web.session.HttpSessionActivationListenerProvider;
 import org.wildfly.clustering.web.session.ImmutableSessionAttributes;
-import org.wildfly.clustering.web.session.SessionAttributes;
+import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 
 /**
  * {@link SessionAttributesFactory} for fine granularity sessions.
- * A given session's attributes are mapped to N co-located cache entries, where N is the number of session attributes.
+ * A given session's attributes are mapped to N+1 co-located cache entries, where N is the number of session attributes.
+ * A separate cache entry stores the activate attribute names for the session.
  * @author Paul Ferraro
  */
-public class FineSessionAttributesFactory implements SessionAttributesFactory<Object> {
+public class FineSessionAttributesFactory<S, C, L, V> implements SessionAttributesFactory<C, AtomicReference<Map<String, UUID>>> {
 
-    private static final Object VALUE = new Object();
+    private final Cache<SessionAttributeNamesKey, Map<String, UUID>> namesCache;
+    private final Cache<SessionAttributeKey, V> attributeCache;
+    private final Marshaller<Object, V> marshaller;
+    private final Immutability immutability;
+    private final CacheProperties properties;
+    private final MutatorFactory<SessionAttributeKey, V> mutatorFactory;
+    private final HttpSessionActivationListenerProvider<S, C, L> provider;
+    private final Function<String, SessionAttributeActivationNotifier> notifierFactory;
+    private final Object evictListener;
+    private final Object evictAttributesListener;
+    private final Object prePassivateListener;
+    private final Object postActivateListener;
 
-    private final Cache<SessionAttributeKey, MarshalledValue<Object, MarshallingContext>> cache;
-    private final Marshaller<Object, MarshalledValue<Object, MarshallingContext>, MarshallingContext> marshaller;
-    private final Predicate<Map.Entry<SessionAttributeKey, MarshalledValue<Object, MarshallingContext>>> invalidAttribute;
-    private final boolean requireMarshallable;
+    public FineSessionAttributesFactory(InfinispanSessionAttributesFactoryConfiguration<S, C, L, Object, V> configuration) {
+        this.namesCache = configuration.getCache();
+        this.attributeCache = configuration.getCache();
+        this.marshaller = configuration.getMarshaller();
+        this.immutability = configuration.getImmutability();
+        this.properties = configuration.getCacheProperties();
+        this.mutatorFactory = new InfinispanMutatorFactory<>(this.attributeCache, this.properties);
+        this.provider = configuration.getHttpSessionActivationListenerProvider();
+        this.notifierFactory = configuration.getActivationNotifierFactory();
+        this.evictListener = new PrePassivateListener<>(this::cascadeEvict, configuration.getExecutor());
+        this.evictAttributesListener = new PrePassivateListener<>(this::cascadeEvictAttributes, configuration.getExecutor());
+        this.prePassivateListener = !this.properties.isPersistent() ? new PrePassivateListener<>(this::prePassivate, configuration.getExecutor()) : null;
+        this.postActivateListener = !this.properties.isPersistent() ? new PostActivateListener<>(this::postActivate, configuration.getExecutor()) : null;
+        if (this.prePassivateListener != null) {
+            this.attributeCache.addListener(this.prePassivateListener, new PredicateKeyFilter<>(SessionAttributeKeyFilter.INSTANCE), null);
+        }
+        if (this.postActivateListener != null) {
+            this.attributeCache.addListener(this.postActivateListener, new PredicateKeyFilter<>(SessionAttributeKeyFilter.INSTANCE), null);
+        }
+        this.namesCache.addListener(this.evictAttributesListener, new PredicateKeyFilter<>(SessionAttributeNamesKeyFilter.INSTANCE), null);
+        this.namesCache.addListener(this.evictListener, new PredicateKeyFilter<>(SessionCreationMetaDataKeyFilter.INSTANCE), null);
+    }
 
-    @SuppressWarnings("unchecked")
-    public FineSessionAttributesFactory(Cache<? extends Key<String>, ?> cache, Marshaller<Object, MarshalledValue<Object, MarshallingContext>, MarshallingContext> marshaller, boolean requireMarshallable) {
-        this.cache = (Cache<SessionAttributeKey, MarshalledValue<Object, MarshallingContext>>) cache;
-        this.marshaller = marshaller;
-        this.requireMarshallable = requireMarshallable;
-        this.invalidAttribute = entry -> {
-            try {
-                this.marshaller.read(entry.getValue());
-                return false;
-            } catch (InvalidSerializedFormException e) {
-                InfinispanWebLogger.ROOT_LOGGER.failedToActivateSessionAttribute(e, entry.getKey().getValue(), entry.getKey().getAttribute());
-                return true;
+    @Override
+    public void close() {
+        this.namesCache.removeListener(this.evictListener);
+        this.namesCache.removeListener(this.evictAttributesListener);
+        if (this.prePassivateListener != null) {
+            this.attributeCache.removeListener(this.prePassivateListener);
+        }
+        if (this.postActivateListener != null) {
+            this.attributeCache.removeListener(this.postActivateListener);
+        }
+    }
+
+    @Override
+    public AtomicReference<Map<String, UUID>> createValue(String id, Void context) {
+        return new AtomicReference<>(Collections.emptyMap());
+    }
+
+    @Override
+    public AtomicReference<Map<String, UUID>> findValue(String id) {
+        return this.getValue(id, true);
+    }
+
+    @Override
+    public AtomicReference<Map<String, UUID>> tryValue(String id) {
+        return this.getValue(id, false);
+    }
+
+    private AtomicReference<Map<String, UUID>> getValue(String id, boolean purgeIfInvalid) {
+        Map<String, UUID> names = this.namesCache.get(new SessionAttributeNamesKey(id));
+        if (names != null) {
+            // Validate all attributes
+            Map<SessionAttributeKey, String> attributes = new TreeMap<>();
+            for (Map.Entry<String, UUID> entry : names.entrySet()) {
+                attributes.put(new SessionAttributeKey(id, entry.getValue()), entry.getKey());
             }
-        };
-    }
-
-    @Override
-    public Object createValue(String id, Void context) {
-        // Preemptively read all attributes to detect invalid session attributes
-        if (this.cache.getAdvancedCache().getGroup(id).entrySet().stream().filter(entry -> ((Map.Entry<?, ?>) entry).getKey() instanceof SessionAttributeKey).anyMatch(this.invalidAttribute)) {
-            // If any attributes are invalid - remove them all
-            this.remove(id);
+            Map<SessionAttributeKey, V> entries = this.attributeCache.getAdvancedCache().getAll(attributes.keySet());
+            for (Map.Entry<SessionAttributeKey, String> attribute : attributes.entrySet()) {
+                V value = entries.get(attribute.getKey());
+                if (value != null) {
+                    try {
+                        this.marshaller.read(value);
+                        continue;
+                    } catch (IOException e) {
+                        InfinispanWebLogger.ROOT_LOGGER.failedToActivateSessionAttribute(e, id, attribute.getValue());
+                    }
+                } else {
+                    InfinispanWebLogger.ROOT_LOGGER.missingSessionAttributeCacheEntry(id, attribute.getValue());
+                }
+                if (purgeIfInvalid) {
+                    this.purge(id);
+                }
+                return null;
+            }
+            return new AtomicReference<>(names);
         }
-        return VALUE;
-    }
-
-    @Override
-    public Object findValue(String id) {
-        // Preemptively read all attributes to detect invalid session attributes
-        if (this.cache.getAdvancedCache().getGroup(id).entrySet().stream().filter(entry -> ((Map.Entry<?, ?>) entry).getKey() instanceof SessionAttributeKey).anyMatch(this.invalidAttribute)) {
-            // Invalidate
-            this.remove(id);
-            return null;
-        }
-        return VALUE;
+        return new AtomicReference<>(Collections.emptyMap());
     }
 
     @Override
     public boolean remove(String id) {
-        this.cache.getAdvancedCache().removeGroup(id);
+        return this.delete(id);
+    }
+
+    @Override
+    public boolean purge(String id) {
+        return this.delete(id, Flag.SKIP_LISTENER_NOTIFICATION);
+    }
+
+    private boolean delete(String id, Flag... flags) {
+        SessionAttributeNamesKey key = new SessionAttributeNamesKey(id);
+        Map<String, UUID> names = this.namesCache.get(key);
+        if (names != null) {
+            for (UUID attributeId : names.values()) {
+                this.attributeCache.getAdvancedCache().withFlags(EnumSet.of(Flag.IGNORE_RETURN_VALUES, flags)).remove(new SessionAttributeKey(id, attributeId));
+            }
+            this.namesCache.getAdvancedCache().withFlags(EnumSet.of(Flag.IGNORE_RETURN_VALUES, flags)).remove(key);
+        }
         return true;
     }
 
     @Override
-    public void evict(String id) {
-        this.cache.getAdvancedCache().withFlags(Flag.SKIP_CACHE_LOAD).getGroup(id).keySet().stream().filter((Object key) -> key instanceof SessionAttributeKey).forEach(key -> {
-            try {
-                this.cache.evict(key);
-            } catch (Throwable e) {
-                InfinispanWebLogger.ROOT_LOGGER.failedToPassivateSessionAttribute(e, id, key.getAttribute());
+    public SessionAttributes createSessionAttributes(String id, AtomicReference<Map<String, UUID>> names, ImmutableSessionMetaData metaData, C context) {
+        SessionAttributeActivationNotifier notifier = new ImmutableSessionAttributeActivationNotifier<>(this.provider, new CompositeImmutableSession(id, metaData, this.createImmutableSessionAttributes(id, names)), context);
+        return new FineSessionAttributes<>(new SessionAttributeNamesKey(id), names, this.namesCache, getKeyFactory(id), this.attributeCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS), this.marshaller, this.mutatorFactory, this.immutability, this.properties, notifier);
+    }
+
+    @Override
+    public ImmutableSessionAttributes createImmutableSessionAttributes(String id, AtomicReference<Map<String, UUID>> names) {
+        return new FineImmutableSessionAttributes<>(names, getKeyFactory(id), this.attributeCache, this.marshaller);
+    }
+
+    private static Function<UUID, SessionAttributeKey> getKeyFactory(String id) {
+        return new Function<UUID, SessionAttributeKey>() {
+            @Override
+            public SessionAttributeKey apply(UUID attributeId) {
+                return new SessionAttributeKey(id, attributeId);
             }
-        });
+        };
     }
 
-    @Override
-    public SessionAttributes createSessionAttributes(String id, Object value) {
-        return new FineSessionAttributes<>(id, this.cache, this.marshaller, this.requireMarshallable);
+    private void cascadeEvict(SessionCreationMetaDataKey key, Object value) {
+        this.namesCache.evict(new SessionAttributeNamesKey(key.getId()));
     }
 
-    @Override
-    public ImmutableSessionAttributes createImmutableSessionAttributes(String id, Object value) {
-        return new FineImmutableSessionAttributes<>(id, this.cache, this.marshaller);
+    private void cascadeEvictAttributes(SessionAttributeNamesKey key, Map<String, UUID> value) {
+        String sessionId = key.getId();
+        for (UUID attributeId : value.values()) {
+            this.attributeCache.evict(new SessionAttributeKey(sessionId, attributeId));
+        }
+    }
+
+    private void prePassivate(SessionAttributeKey key, V value) {
+        this.notify(SessionAttributeActivationNotifier.PRE_PASSIVATE, key, value);
+    }
+
+    private void postActivate(SessionAttributeKey key, V value) {
+        this.notify(SessionAttributeActivationNotifier.POST_ACTIVATE, key, value);
+    }
+
+    private void notify(BiConsumer<SessionAttributeActivationNotifier, Object> notification, SessionAttributeKey key, V value) {
+        String sessionId = key.getId();
+        try (SessionAttributeActivationNotifier notifier = this.notifierFactory.apply(key.getId())) {
+            notification.accept(notifier, this.marshaller.read(value));
+        } catch (IOException e) {
+            InfinispanWebLogger.ROOT_LOGGER.failedToActivateSessionAttribute(e, sessionId, key.getAttributeId().toString());
+        }
     }
 }

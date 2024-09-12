@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2011, Red Hat, Inc., and individual contributors
+ * Copyright 2021, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -37,6 +37,7 @@ import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.test.integration.xerces.JSFManagedBean;
 import org.jboss.as.test.integration.xerces.XercesUsageServlet;
+import org.jboss.as.test.shared.integration.ejb.security.PermissionUtils;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
@@ -69,7 +70,7 @@ public class XercesUsageTestCase {
     private URL withJsf;
 
     /**
-     * Create a .ear, containing a web application (without any JSF constructs) and also the xerces jar in the .ear/lib
+     * Create a .ear, containing a web application (without any Jakarta Server Faces constructs) and also the xerces jar in the .ear/lib
      *
      * @return
      */
@@ -85,13 +86,19 @@ public class XercesUsageTestCase {
         ear.addAsModule(war);
         // add the xerces jar in the .ear/lib
         ear.addAsLibrary("xerces/xercesImpl.jar", "xercesImpl.jar");
+        ear.addAsManifestResource(PermissionUtils.createPermissionsXmlAsset(
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.util"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.xni.grammars"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.impl.validation"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.impl.dtd"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.impl.*")
+        ), "permissions.xml");
 
-        logger.info(ear.toString(true));
         return ear;
     }
 
     /**
-     * Create a .ear, containing a JSF web application and also the xerces jar in the .ear/lib
+     * Create a .ear, containing a Jakarta Server Faces web application and also the xerces jar in the .ear/lib
      *
      * @return
      */
@@ -107,14 +114,18 @@ public class XercesUsageTestCase {
         ear.addAsModule(war);
         // add the xerces jar in the .ear/lib
         ear.addAsLibrary("xerces/xercesImpl.jar", "xercesImpl.jar");
+        ear.addAsManifestResource(PermissionUtils.createPermissionsXmlAsset(
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.util"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.impl.*"),
+            new RuntimePermission("accessClassInPackage.org.apache.xerces.xni.grammars")
+        ), "permissions.xml");
 
-        logger.info(ear.toString(true));
         return ear;
     }
 
 
     /**
-     * Test that a non-JSF web application, with xerces jar packaged within the deployment, functions correctly
+     * Test that a non-Jakarta Server Faces web application, with xerces jar packaged within the deployment, functions correctly
      * while using the packaged xerces API.
      *
      * @throws Exception
@@ -138,7 +149,7 @@ public class XercesUsageTestCase {
     }
 
     /**
-     * Test that a JSF web application, with xerces jar packaged within the deployment, functions correctly while using
+     * Test that a Jakarta Server Faces web application, with xerces jar packaged within the deployment, functions correctly while using
      * the packaged xerces API.
      *
      * @throws Exception

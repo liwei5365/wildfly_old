@@ -23,12 +23,11 @@ package org.wildfly.clustering.ejb.infinispan.group;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import org.wildfly.clustering.ejb.infinispan.BeanGroupEntry;
-import org.wildfly.clustering.marshalling.jboss.MarshalledValue;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.marshalling.spi.MarshalledValue;
 
 /**
  * The cache entry of a bean group.
@@ -38,31 +37,23 @@ import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
  * @param <I> the bean identifier type
  * @param <T> the bean type
  */
-public class InfinispanBeanGroupEntry<I, T> implements BeanGroupEntry<I, T> {
+public class InfinispanBeanGroupEntry<I, T, C> implements BeanGroupEntry<I, T, C>, Function<I, AtomicInteger> {
 
-    private final MarshalledValue<Map<I, T>, MarshallingContext> beans;
-    private final ConcurrentMap<I, AtomicInteger> usage = new ConcurrentHashMap<>();
+    private final MarshalledValue<Map<I, T>, C> beans;
+    private final Map<I, AtomicInteger> usage = new ConcurrentHashMap<>();
 
-    public InfinispanBeanGroupEntry(MarshalledValue<Map<I, T>, MarshallingContext> beans) {
+    public InfinispanBeanGroupEntry(MarshalledValue<Map<I, T>, C> beans) {
         this.beans = beans;
     }
 
     @Override
-    public MarshalledValue<Map<I, T>, MarshallingContext> getBeans() {
+    public MarshalledValue<Map<I, T>, C> getBeans() {
         return this.beans;
     }
 
     @Override
     public int incrementUsage(I id) {
-        AtomicInteger count = this.usage.get(id);
-        if (count == null) {
-            count = new AtomicInteger();
-            AtomicInteger old = this.usage.putIfAbsent(id, count);
-            if (old != null) {
-                count = old;
-            }
-        }
-        return count.getAndIncrement();
+        return this.usage.computeIfAbsent(id, this).getAndIncrement();
     }
 
     @Override
@@ -74,9 +65,14 @@ public class InfinispanBeanGroupEntry<I, T> implements BeanGroupEntry<I, T> {
     @Override
     public int totalUsage() {
         int total = 0;
-        for (AtomicInteger count: this.usage.values()) {
-            total += count.get();
+        for (AtomicInteger usage : this.usage.values()) {
+            total += usage.get();
         }
         return total;
+    }
+
+    @Override
+    public AtomicInteger apply(I key) {
+        return new AtomicInteger(0);
     }
 }

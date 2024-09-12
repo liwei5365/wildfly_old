@@ -21,15 +21,14 @@
  */
 package org.wildfly.clustering.server.registry;
 
-import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.Collections;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 
+import org.wildfly.clustering.Registration;
 import org.wildfly.clustering.group.Group;
 import org.wildfly.clustering.group.Node;
 import org.wildfly.clustering.registry.Registry;
-import org.wildfly.clustering.registry.RegistryEntryProvider;
+import org.wildfly.clustering.registry.RegistryListener;
 
 /**
  * Non-clustered {@link Registry} implementation.
@@ -39,14 +38,14 @@ import org.wildfly.clustering.registry.RegistryEntryProvider;
  */
 public class LocalRegistry<K, V> implements Registry<K, V> {
 
-    private final AtomicReference<Map.Entry<K, V>> entryRef = new AtomicReference<>();
-    private final RegistryEntryProvider<K, V> provider;
     private final Group group;
+    private final Runnable closeTask;
+    private volatile Map.Entry<K, V> entry;
 
-    public LocalRegistry(Group group, RegistryEntryProvider<K, V> provider) {
+    public LocalRegistry(Group group, Map.Entry<K, V> entry, Runnable closeTask) {
         this.group = group;
-        this.provider = provider;
-        this.getLocalEntry();
+        this.closeTask = closeTask;
+        this.entry = entry;
     }
 
     @Override
@@ -55,40 +54,25 @@ public class LocalRegistry<K, V> implements Registry<K, V> {
     }
 
     @Override
-    public void addListener(Registry.Listener<K, V> listener) {
+    public Registration register(RegistryListener<K, V> object) {
         // if there are no remote nodes, any registered listener would never get triggered
-    }
-
-    @Override
-    public void removeListener(Registry.Listener<K, V> listener) {
-        // if there are no remote nodes, any registered listener would never get triggered
+        return () -> {};
     }
 
     @Override
     public Map<K, V> getEntries() {
-        Map.Entry<K, V> entry = this.entryRef.get();
-        return (entry != null) ? Collections.singletonMap(entry.getKey(), entry.getValue()) : Collections.<K, V>emptyMap();
+        Map.Entry<K, V> entry = this.entry;
+        return (entry != null) ? Collections.singletonMap(entry.getKey(), entry.getValue()) : Collections.emptyMap();
     }
 
     @Override
     public Map.Entry<K, V> getEntry(Node node) {
-        return (node.equals(this.group.getLocalNode())) ? this.entryRef.get() : null;
-    }
-
-    @Override
-    public Map.Entry<K, V> getLocalEntry() {
-        Map.Entry<K, V> entry = this.entryRef.get();
-        if (entry == null) {
-            entry = new SimpleImmutableEntry<>(this.provider.getKey(), this.provider.getValue());
-            if (!this.entryRef.compareAndSet(null, entry)) {
-                entry = this.entryRef.get();
-            }
-        }
-        return entry;
+        return this.entry;
     }
 
     @Override
     public void close() {
-        this.entryRef.set(null);
+        this.entry = null;
+        this.closeTask.run();
     }
 }

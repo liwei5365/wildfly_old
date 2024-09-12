@@ -21,17 +21,18 @@
  */
 package org.wildfly.mod_cluster.undertow;
 
-import org.wildfly.extension.undertow.ListenerService;
 import org.wildfly.extension.undertow.Host;
+import org.wildfly.extension.undertow.ListenerService;
 import org.wildfly.extension.undertow.Server;
+import org.wildfly.extension.undertow.UndertowService;
 
-public class TestServer extends Server {
-    public TestServer(String name, String defaultHost) {
-        super(name, defaultHost);
+final class TestServer extends Server {
+    TestServer(final String name, final String defaultHost) {
+        super(null, null, null, name, defaultHost);
     }
 
-    public TestServer(String name, String defaultHost, Host host, ListenerService<?> listener) {
-        this(name, defaultHost);
+    TestServer(final String name, final String defaultHost, final UndertowService service, final Host host, final ListenerService listener) {
+        super(null, null, () -> service, name, defaultHost);
         this.registerHost(host);
         this.registerListener(listener);
     }

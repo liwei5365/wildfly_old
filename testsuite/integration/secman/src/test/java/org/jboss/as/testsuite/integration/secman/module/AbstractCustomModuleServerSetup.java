@@ -26,10 +26,10 @@ import java.io.File;
 import java.net.URISyntaxException;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.log4j.Logger;
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
 import org.jboss.as.test.integration.management.util.CustomCLIExecutor;
+import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 
@@ -55,7 +55,7 @@ public abstract class AbstractCustomModuleServerSetup implements ServerSetupTask
      */
     @Override
     public void setup(ManagementClient managementClient, String containerId) throws Exception {
-        LOGGER.info("(Re)Creating workdir: " + WORK_DIR.getAbsolutePath());
+        LOGGER.trace("(Re)Creating workdir: " + WORK_DIR.getAbsolutePath());
         FileUtils.deleteDirectory(WORK_DIR);
         removeModule(getModuleSuffix());
         WORK_DIR.mkdirs();
@@ -70,7 +70,7 @@ public abstract class AbstractCustomModuleServerSetup implements ServerSetupTask
      */
     @Override
     public void tearDown(ManagementClient managementClient, String containerId) throws Exception {
-        LOGGER.info("Removing custom module");
+        LOGGER.trace("Removing custom module");
         FileUtils.deleteDirectory(WORK_DIR);
         removeModule(getModuleSuffix());
     }

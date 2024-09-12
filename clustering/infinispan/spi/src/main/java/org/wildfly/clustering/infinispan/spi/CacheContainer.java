@@ -21,23 +21,32 @@
  */
 package org.wildfly.clustering.infinispan.spi;
 
+import org.infinispan.factories.annotations.SurvivesRestarts;
+import org.infinispan.factories.scopes.Scope;
+import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.manager.EmbeddedCacheManager;
 
 /**
  * Extends Infinispan's {@link EmbeddedCacheManager} exposing the name of the default cache.
  * @author Paul Ferraro
  */
+@Scope(Scopes.GLOBAL)
+@SurvivesRestarts
 public interface CacheContainer extends EmbeddedCacheManager {
 
     /**
      * Returns the name of this cache container.
      * @return the cache container name
      */
-    String getName();
+    default String getName() {
+        return this.getCacheManagerConfiguration().cacheManagerName();
+    }
 
     /**
      * Returns the name of the default cache.
      * @return a cache name
      */
-    String getDefaultCacheName();
+    default String getDefaultCacheName() {
+        return this.getCacheManagerConfiguration().defaultCacheName().orElse(null);
+    }
 }

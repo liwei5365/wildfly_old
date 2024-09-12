@@ -11,9 +11,9 @@ import org.jboss.as.ee.concurrent.ConcurrentContext;
 import org.jboss.as.ee.concurrent.ConcurrentContextInterceptor;
 import org.jboss.as.ee.concurrent.ConcurrentContextSetupAction;
 import org.jboss.as.ee.concurrent.handle.ClassLoaderContextHandleFactory;
+import org.jboss.as.ee.concurrent.handle.ContextHandleFactory;
 import org.jboss.as.ee.concurrent.handle.NamingContextHandleFactory;
 import org.jboss.as.ee.concurrent.handle.OtherEESetupActionsContextHandleFactory;
-import org.jboss.as.ee.concurrent.handle.SecurityContextHandleFactory;
 import org.jboss.as.ee.concurrent.service.ConcurrentContextService;
 import org.jboss.as.ee.concurrent.service.ConcurrentServiceNames;
 import org.jboss.as.ee.structure.DeploymentType;
@@ -67,9 +67,10 @@ public class EEConcurrentContextProcessor implements DeploymentUnitProcessor {
         final ConcurrentContext concurrentContext = moduleDescription.getConcurrentContext();
         // setup context
         setupConcurrentContext(concurrentContext, moduleDescription.getApplicationName(), moduleDescription.getModuleName(), null, deploymentUnit.getAttachment(MODULE).getClassLoader(), moduleDescription.getNamespaceContextSelector(), deploymentUnit, phaseContext.getServiceTarget());
-        // add setup action for web modules
+        // attach setup action
         final ConcurrentContextSetupAction setupAction = new ConcurrentContextSetupAction(concurrentContext);
-        deploymentUnit.getAttachmentList(Attachments.WEB_SETUP_ACTIONS).add(setupAction);
+        deploymentUnit.putAttachment(Attachments.CONCURRENT_CONTEXT_SETUP_ACTION, setupAction);
+        deploymentUnit.addToAttachmentList(Attachments.WEB_SETUP_ACTIONS, setupAction);
     }
 
     private void processComponentDescription(final ComponentDescription componentDescription) {
@@ -98,7 +99,9 @@ public class EEConcurrentContextProcessor implements DeploymentUnitProcessor {
         // add default factories
         concurrentContext.addFactory(new NamingContextHandleFactory(namespaceContextSelector, deploymentUnit.getServiceName()));
         concurrentContext.addFactory(new ClassLoaderContextHandleFactory(moduleClassLoader));
-        concurrentContext.addFactory(SecurityContextHandleFactory.INSTANCE);
+        for(ContextHandleFactory factory : deploymentUnit.getAttachmentList(Attachments.ADDITIONAL_FACTORIES)) {
+            concurrentContext.addFactory(factory);
+        }
         concurrentContext.addFactory(new OtherEESetupActionsContextHandleFactory(deploymentUnit.getAttachmentList(Attachments.OTHER_EE_SETUP_ACTIONS)));
 
         final ConcurrentContextService service = new ConcurrentContextService(concurrentContext);
@@ -108,7 +111,13 @@ public class EEConcurrentContextProcessor implements DeploymentUnitProcessor {
     }
 
     @Override
-    public void undeploy(DeploymentUnit context) {
-
+    public void undeploy(DeploymentUnit deploymentUnit) {
+        if (DeploymentTypeMarker.isType(DeploymentType.EAR, deploymentUnit)) {
+            return;
+        }
+        ConcurrentContextSetupAction action = deploymentUnit.removeAttachment(Attachments.CONCURRENT_CONTEXT_SETUP_ACTION);
+        if (action != null) {
+            deploymentUnit.getAttachmentList(Attachments.WEB_SETUP_ACTIONS).remove(action);
+        }
     }
 }

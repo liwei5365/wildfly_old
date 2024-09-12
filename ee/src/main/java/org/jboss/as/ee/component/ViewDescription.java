@@ -70,6 +70,7 @@ public class ViewDescription {
     private final Deque<ViewConfigurator> configurators = new ArrayDeque<ViewConfigurator>();
     private boolean serializable;
     private boolean useWriteReplace;
+    private final String markupClassName;
 
     /**
      * Construct a new instance.
@@ -89,12 +90,17 @@ public class ViewDescription {
      * @param defaultConfiguratorRequired
      */
     public ViewDescription(final ComponentDescription componentDescription, final String viewClassName, final boolean defaultConfiguratorRequired) {
+        this(componentDescription, viewClassName, defaultConfiguratorRequired, null);
+    }
+
+    public ViewDescription(final ComponentDescription componentDescription, final String viewClassName, final boolean defaultConfiguratorRequired, final String markupClassName) {
         this.componentDescription = componentDescription;
         this.viewClassName = viewClassName;
         if (defaultConfiguratorRequired) {
             configurators.addFirst(DefaultConfigurator.INSTANCE);
         }
         configurators.addFirst(ViewBindingConfigurator.INSTANCE);
+        this.markupClassName = markupClassName;
     }
 
     /**
@@ -175,7 +181,7 @@ public class ViewDescription {
      * @param serviceName     The view service name
      * @param viewClassLoader
      */
-    protected InjectionSource createInjectionSource(final ServiceName serviceName, Value<ClassLoader> viewClassLoader) {
+    protected InjectionSource createInjectionSource(final ServiceName serviceName, Value<ClassLoader> viewClassLoader, boolean appclient) {
         return new ViewBindingInjectionSource(serviceName);
     }
 
@@ -226,19 +232,19 @@ public class ViewDescription {
             final ClassReflectionIndex classIndex = reflectionIndex.getClassIndex(componentMethod.getDeclaringClass()); //the non-bridge method will be on the same class as the bridge method
             final Collection<Method> methods = classIndex.getAllMethods(componentMethod.getName(), componentMethod.getParameterTypes().length);
             for(final Method method : methods) {
-                if ((BRIDGE & method.getModifiers()) == 0) {
-                    if(componentMethod.getReturnType().isAssignableFrom(method.getReturnType())) {
-                        boolean ok = true;
-                        for(int i = 0; i < method.getParameterTypes().length; ++i) {
-                            if(!componentMethod.getParameterTypes()[i].isAssignableFrom(method.getParameterTypes()[i])) {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if(ok) {
-                            return method;
+                if (((BRIDGE & method.getModifiers()) == 0)
+                        && componentMethod.getReturnType().isAssignableFrom(method.getReturnType())) {
+                    boolean ok = true;
+                    for (int i = 0; i < method.getParameterTypes().length; ++i) {
+                        if (!componentMethod.getParameterTypes()[i].isAssignableFrom(method.getParameterTypes()[i])) {
+                            ok = false;
+                            break;
                         }
                     }
+                    if (ok) {
+                        return method;
+                    }
+
                 }
             }
             return null;
@@ -252,11 +258,11 @@ public class ViewDescription {
 
         @Override
         public void configure(final DeploymentPhaseContext context, final ComponentConfiguration componentConfiguration, final ViewDescription description, final ViewConfiguration configuration) throws DeploymentUnitProcessingException {
-
+            boolean appclient = context.getDeploymentUnit().getAttachment(Attachments.EE_MODULE_DESCRIPTION).isAppClient();
             // Create view bindings
             final List<BindingConfiguration> bindingConfigurations = configuration.getBindingConfigurations();
             for (String bindingName : description.getBindingNames()) {
-                bindingConfigurations.add(new BindingConfiguration(bindingName, description.createInjectionSource(description.getServiceName(), Values.immediateValue(componentConfiguration.getModuleClassLoader()))));
+                bindingConfigurations.add(new BindingConfiguration(bindingName, description.createInjectionSource(description.getServiceName(), Values.immediateValue(componentConfiguration.getModuleClassLoader()), appclient)));
             }
         }
     }
@@ -303,5 +309,9 @@ public class ViewDescription {
         int result = viewClassName != null ? viewClassName.hashCode() : 0;
         result = 31 * result + (componentDescription != null ? componentDescription.hashCode() : 0);
         return result;
+    }
+
+    public String getMarkupClassName() {
+        return markupClassName;
     }
 }

@@ -35,7 +35,7 @@ import org.jboss.dmr.ModelNode;
  */
 public class NotEmptyResourceValidationStepHandler implements ModelValidationStepHandler {
 
-    public static NotEmptyResourceValidationStepHandler INSTANCE = new NotEmptyResourceValidationStepHandler();
+    public static final NotEmptyResourceValidationStepHandler INSTANCE = new NotEmptyResourceValidationStepHandler();
 
     private NotEmptyResourceValidationStepHandler() {
     }
@@ -43,7 +43,6 @@ public class NotEmptyResourceValidationStepHandler implements ModelValidationSte
     @Override
     public void execute(OperationContext context, ModelNode operation) throws OperationFailedException {
         validateChildren(context, operation);
-        context.stepCompleted();
     }
 
     protected void validateChildren(OperationContext context, ModelNode operation) throws OperationFailedException {

@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -23,10 +23,12 @@
 package org.wildfly.extension.undertow;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.function.Consumer;
 import javax.security.jacc.PolicyContext;
 import javax.security.jacc.PolicyContextException;
 
@@ -44,11 +46,16 @@ import org.wildfly.extension.undertow.security.jacc.HttpServletRequestPolicyCont
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2013 Red Hat Inc.
  * @author Stuart Douglas
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
+@SuppressWarnings("ALL")
 public class UndertowService implements Service<UndertowService> {
 
+    @Deprecated
     public static final ServiceName UNDERTOW = ServiceName.JBOSS.append("undertow");
+    @Deprecated
     public static final ServiceName SERVLET_CONTAINER = UNDERTOW.append(Constants.SERVLET_CONTAINER);
+    @Deprecated
     public static final ServiceName SERVER = UNDERTOW.append(Constants.SERVER);
     /**
      * service name under which default server is bound.
@@ -59,11 +66,15 @@ public class UndertowService implements Service<UndertowService> {
      * service name under which default host of default server is bound.
      */
     public static final ServiceName DEFAULT_HOST = DEFAULT_SERVER.append("default-host");
+
+    public static final ServiceName UNDERTOW_DEPLOYMENT = ServiceName.of("undertow-deployment");
     /**
      * The base name for listener/handler/filter services.
      */
     public static final ServiceName HANDLER = UNDERTOW.append(Constants.HANDLER);
     public static final ServiceName FILTER = UNDERTOW.append(Constants.FILTER);
+
+
     /**
      * The base name for web deployments.
      */
@@ -73,21 +84,42 @@ public class UndertowService implements Service<UndertowService> {
     private final String defaultVirtualHost;
     private final Set<Server> registeredServers = new CopyOnWriteArraySet<>();
     private final List<UndertowEventListener> listeners = Collections.synchronizedList(new LinkedList<UndertowEventListener>());
-    private volatile String instanceId;//todo this should be final and no setter should be exposed, currently mod cluster "wants it", this needs to change
-    private final boolean statistics;
+    private final String instanceId;
+    private final boolean obfuscateSessionRoute;
+    private volatile boolean statisticsEnabled;
+    private final Set<Consumer<Boolean>> statisticsChangeListenters = new HashSet<>();
+    private final Consumer<UndertowService> serviceConsumer;
 
-    protected UndertowService(String defaultContainer, String defaultServer, String defaultVirtualHost, String instanceId, boolean statistics) {
+    protected UndertowService(final Consumer<UndertowService> serviceConsumer, final String defaultContainer,
+                              final String defaultServer, final String defaultVirtualHost,
+                              final String instanceId, final boolean obfuscateSessionRoute, final boolean statisticsEnabled) {
+        this.serviceConsumer = serviceConsumer;
         this.defaultContainer = defaultContainer;
         this.defaultServer = defaultServer;
         this.defaultVirtualHost = defaultVirtualHost;
         this.instanceId = instanceId;
-        this.statistics = statistics;
+        this.obfuscateSessionRoute = obfuscateSessionRoute;
+        this.statisticsEnabled = statisticsEnabled;
     }
 
+    public static ServiceName deploymentServiceName(ServiceName deploymentServiceName) {
+        return deploymentServiceName.append(UNDERTOW_DEPLOYMENT);
+    }
+
+    /**
+     * The old deployment unit service name. This is still registered as an alias, however {{@link #deploymentServiceName(ServiceName)}}
+     * should be used instead.
+     * @param serverName The server name
+     * @param virtualHost The virtual host
+     * @param contextPath The context path
+     * @return The legacy deployment service alias
+     */
+    @Deprecated
     public static ServiceName deploymentServiceName(final String serverName, final String virtualHost, final String contextPath) {
         return WEB_DEPLOYMENT_BASE.append(serverName).append(virtualHost).append("".equals(contextPath) ? "/" : contextPath);
     }
 
+    @Deprecated
     public static ServiceName virtualHostName(final String server, final String virtualHost) {
         return SERVER.append(server).append(virtualHost);
     }
@@ -145,12 +177,13 @@ public class UndertowService implements Service<UndertowService> {
         return serviceName;
     }
 
+    @Deprecated
     public static ServiceName listenerName(String listenerName) {
         return UNDERTOW.append(Constants.LISTENER).append(listenerName);
     }
 
     @Override
-    public void start(StartContext context) throws StartException {
+    public void start(final StartContext context) throws StartException {
         UndertowLogger.ROOT_LOGGER.serverStarting(Version.getVersionString());
         // Register the active request PolicyContextHandler
         try {
@@ -159,10 +192,12 @@ public class UndertowService implements Service<UndertowService> {
         } catch (PolicyContextException pce) {
             UndertowLogger.ROOT_LOGGER.failedToRegisterPolicyContextHandler(SecurityConstants.WEB_REQUEST_KEY, pce);
         }
+        serviceConsumer.accept(this);
     }
 
     @Override
-    public void stop(StopContext context) {
+    public void stop(final StopContext context) {
+        serviceConsumer.accept(null);
         // Remove PolicyContextHandler
         Set handlerKeys = PolicyContext.getHandlerKeys();
         handlerKeys.remove(SecurityConstants.WEB_REQUEST_KEY);
@@ -222,12 +257,27 @@ public class UndertowService implements Service<UndertowService> {
         return instanceId;
     }
 
-    public void setInstanceId(String instanceId) {
-        this.instanceId = instanceId;
+    public boolean isObfuscateSessionRoute() {
+        return obfuscateSessionRoute;
     }
 
     public boolean isStatisticsEnabled() {
-        return statistics;
+        return statisticsEnabled;
+    }
+
+    public synchronized void setStatisticsEnabled(boolean statisticsEnabled) {
+        this.statisticsEnabled = statisticsEnabled;
+        for(Consumer<Boolean> listener: statisticsChangeListenters) {
+            listener.accept(statisticsEnabled);
+        }
+    }
+
+    public synchronized void registerStatisticsListener(Consumer<Boolean> listener) {
+        statisticsChangeListenters.add(listener);
+    }
+
+    public synchronized void unregisterStatisticsListener(Consumer<Boolean> listener) {
+        statisticsChangeListenters.remove(listener);
     }
 
     /**

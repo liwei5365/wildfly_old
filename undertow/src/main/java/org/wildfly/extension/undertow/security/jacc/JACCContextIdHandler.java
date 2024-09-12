@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -36,7 +36,7 @@ import org.wildfly.security.manager.WildFlySecurityManager;
 
 /**
  * <p>
- * A {@link HttpHandler} that sets the web application JACC contextId in the {@link PolicyContext}. Any previously registered
+ * A {@link HttpHandler} that sets the web application Jakarta Authorization contextId in the {@link PolicyContext}. Any previously registered
  * contextId is suspended for the duration of the request and is restored when this handler is done.
  * </p>
  *
@@ -54,15 +54,19 @@ public class JACCContextIdHandler implements HttpHandler {
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
-        // set JACC contextID and forward the request to the next handler.
+        // set Jakarta Authorization contextID and forward the request to the next handler.
         String previousContextID = null;
         try {
             previousContextID = setContextID(setContextIdAction);
             next.handleRequest(exchange);
         }
         finally {
-            // restore the previous JACC contextID.
-            setContextID(new SetContextIDAction(previousContextID));
+            // restore the previous Jakarta Authorization contextID.
+            if(WildFlySecurityManager.isChecking()) {
+                setContextID(new SetContextIDAction(previousContextID));
+            } else {
+                PolicyContext.setContextID(previousContextID);
+            }
         }
     }
 

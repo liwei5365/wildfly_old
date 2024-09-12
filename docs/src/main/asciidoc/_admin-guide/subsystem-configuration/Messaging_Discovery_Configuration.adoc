@@ -1,0 +1,96 @@
+[[Messaging_Discovery_Configuration]]
+= Configuring Broadcast/Discovery
+
+Each Artemis server can be configured to broadcast itself and/or discovery other Artemis servers within a cluster.
+Artemis supports two mechanisms for configuring broadcast/discovery:
+
+== JGroups-based broadcast/discovery
+
+Artemis can leverage the membership of an existing JGroups channel to both broadcast its identity and discover nodes on which Artemis servers are deployed.
+WildFly's default full-ha profile uses this mechanism for broadcast/discovery using the default JGroups channel of the server (as defined by the JGroups subsystem).
+
+To add this support to a profile that does not include it by default, use the following:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/broadcast-group=bg-group1:add(jgroups-cluster=activemq-cluster,connectors=http-connector)
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/discovery-group=dg-group1:add(jgroups-cluster=activemq-cluster)
+----
+
+To segregate Artemis servers use a distinct membership, configure broadcast/discovery using a separate channel.  To do this, first create the channel resource:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] /subsystem=jgroups/channel=messaging:add(stack=tcp)
+----
+
+This creates a new JGroups channel resource based on the "tcp" protocol stack.
+Now create your broadcast/discovery groups using this channel:
+
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/broadcast-group=bg-group2:add(jgroups-channel=messaging, jgroups-cluster=activemq-cluster, connectors=http-connector)
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/discovery-group=dg-group2:add(jgroups-channel=messaging, jgroups-cluster=activemq-cluster)
+----
+
+
+== Multicast broadcast/discovery
+
+To broadcast identity to standalone messaging clients, you can additionally configure broadcast/discovery using multicast sockets.
+
+e.g.
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /] /socket-binding-group=standard-sockets/socket-binding=messaging(interface=private, multicast-address=230.0.0.4, multicast-port=45689)
+
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/broadcast-group=bg-group3:add(socket-binding=messaging, connectors=http-connector)
+[standalone@localhost:9990 /] /subsystem=messaging-activemq/server=default/discovery-group=dg-group3:add(socket-binding=messaging)
+----
+
+
+== Cluster behind an HTTP load balancer
+
+If the cluster is behind an HTTP load balancer we need to indicate to the clients that they must not use the cluster topology to connect to it but keep on using the initial connection to the load-balancer.
+For this you need to specify on the (pooled) connection factory not to use the topology by setting the attribute "use-topology-for-load-balancing" to false.
+
+[source,options="nowrap"]
+----
+/subsystem=messaging-activemq/pooled-connection-factory=remote-artemis:write-attribute(name="use-topology-for-load-balancing", value="false")
+----
+
+== Network Isolation (Split Brain)
+
+It is possible that if a replicated live or backup server becomes isolated in a network that failover will occur and you will end up with 2 live servers serving messages in a cluster, this we call split brain. You main mitigate this problem by configuring one or more addresses that are part of your network topology, that will be pinged through the life cycle of the server.
+
+The server will stop itself until the network is back on such case.
+This is configured using the following configuration attributes:
+
+* `network-check-NIC`: The NIC (Network Interface Controller) to be used to validate the network.
+* `network-check-period`: The frequency of how often we should check if the network is still up.
+* `network-check-timeout`: The timeout used on the ping.
+* `network-check-list`: This is a comma separated list, no spaces, of DNS or IPs (it should accept IPV6) to be used to validate the network.
+* `network-check-URL-list`: The list of HTTP URIs to be used to validate the network.
+* `network-check-ping-command`: The command used to ping IPV4 addresses.
+* `network-check-ping6-command`: The command used to ping IPV6 addresses.
+
+For example, let's ping the 10.0.0.1 IP address:
+[source,options="nowrap"]
+----
+[standalone@localhost:9990 /]
+/subsystem=messaging-activemq/server=default:write-attribute(name=network-check-list, value="10.0.0.1")
+----
+
+Once 10.0.0.1 stops responding to the ping you will get an exception and the broker will stop:
+
+[source,options="nowrap"]
+----
+WARN  [org.apache.activemq.artemis.logs] (ServerService Thread Pool -- 84) AMQ202002: Ping Address /10.0.0.1 wasnt reacheable.
+...
+INFO  [org.apache.activemq.artemis.logs] (Network-Checker-0 (NetworkChecker)) AMQ201001: Network is unhealthy, stopping service ActiveMQServerImpl::serverUUID=76e64326-f78e-11ea-b7a5-3ce1a1c35439
+----
+
+==== Warning
+
+Make sure you understand your network topology as this is meant to validate your network. Using IPs that could eventually disappear or be partially visible may defeat the purpose. You can use a list of multiple IPs. Any successful ping will make the server OK to continue running
+
+

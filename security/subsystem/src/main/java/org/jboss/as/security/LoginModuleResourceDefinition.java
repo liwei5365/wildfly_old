@@ -24,9 +24,7 @@
 
 package org.jboss.as.security;
 
-import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
-import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.PropertiesAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
@@ -34,7 +32,6 @@ import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.operations.validation.EnumValidator;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 
 /**
@@ -42,18 +39,18 @@ import org.jboss.dmr.ModelType;
  */
 public class LoginModuleResourceDefinition extends SimpleResourceDefinition {
     static final SimpleAttributeDefinition CODE = new SimpleAttributeDefinitionBuilder(Constants.CODE, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setMinSize(1)
             .build();
 
     static final SimpleAttributeDefinition FLAG = new SimpleAttributeDefinitionBuilder(Constants.FLAG, ModelType.STRING)
-            .setAllowNull(false)
+            .setRequired(true)
             .setAllowExpression(true)
             .setValidator(new EnumValidator<ModuleFlag>(ModuleFlag.class, false, true))
             .build();
 
     static final SimpleAttributeDefinition MODULE = new SimpleAttributeDefinitionBuilder(Constants.MODULE, ModelType.STRING)
-            .setAllowNull(true)
+            .setRequired(false)
             .setAllowExpression(false)
             .setMinSize(1)
             .build();
@@ -66,7 +63,7 @@ public class LoginModuleResourceDefinition extends SimpleResourceDefinition {
     LoginModuleResourceDefinition(final String key) {
         super(PathElement.pathElement(key),
                 SecurityExtension.getResourceDescriptionResolver(Constants.LOGIN_MODULE_STACK, Constants.LOGIN_MODULES),
-                new LoginModuleAdd(),
+                new SecurityDomainReloadAddHandler(ATTRIBUTES),
                 new SecurityDomainReloadRemoveHandler()
         );
     }
@@ -74,17 +71,9 @@ public class LoginModuleResourceDefinition extends SimpleResourceDefinition {
     @Override
     public void registerAttributes(ManagementResourceRegistration resourceRegistration) {
         super.registerAttributes(resourceRegistration);
+        SecurityDomainReloadWriteHandler writeHandler = new SecurityDomainReloadWriteHandler(ATTRIBUTES);
         for (AttributeDefinition attribute : ATTRIBUTES) {
-            resourceRegistration.registerReadWriteAttribute(attribute, null, new SecurityDomainReloadWriteHandler(attribute));
-        }
-    }
-
-    private static class LoginModuleAdd extends AbstractAddStepHandler {
-        @Override
-        protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
-            for (AttributeDefinition attribute : ATTRIBUTES) {
-                attribute.validateAndSet(operation, model);
-            }
+            resourceRegistration.registerReadWriteAttribute(attribute, null, writeHandler);
         }
     }
 }

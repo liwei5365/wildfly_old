@@ -26,7 +26,8 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.StatusLine;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
@@ -46,15 +47,14 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.xnio.IoUtils;
 
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
 
 import static org.junit.Assert.assertEquals;
 
@@ -116,7 +116,7 @@ public class WebModuleDeploymentTestCase {
 
 
         Indexer indexer = new Indexer();
-        try (final InputStream resource = ModuleServlet.class.getResourceAsStream(ModuleServlet.class.getSimpleName() + ".class")) {
+        try (InputStream resource = ModuleServlet.class.getResourceAsStream(ModuleServlet.class.getSimpleName() + ".class")) {
             indexer.index(resource);
         }
         Index index = indexer.complete();
@@ -135,16 +135,7 @@ public class WebModuleDeploymentTestCase {
     }
 
     private static void copyFile(File target, InputStream src) throws IOException {
-        final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(target));
-        try {
-            int i = src.read();
-            while (i != -1) {
-                out.write(i);
-                i = src.read();
-            }
-        } finally {
-            IoUtils.safeClose(out);
-        }
+        Files.copy(src, target.toPath());
     }
 
     private static File getModulePath() {
@@ -182,8 +173,7 @@ public class WebModuleDeploymentTestCase {
 
     @Test
     public void testSimpleBeanInjected() throws Exception {
-        DefaultHttpClient httpclient = new DefaultHttpClient();
-        try {
+        try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
             HttpGet httpget = new HttpGet(url.toExternalForm() + "/servlet");
 
             HttpResponse response = httpclient.execute(httpget);
@@ -194,11 +184,6 @@ public class WebModuleDeploymentTestCase {
 
             String result = EntityUtils.toString(entity);
             Assert.assertEquals(ModuleServlet.MODULE_SERVLET, result);
-        } finally {
-            // When HttpClient instance is no longer needed,
-            // shut down the connection manager to ensure
-            // immediate deallocation of all system resources
-            httpclient.getConnectionManager().shutdown();
         }
     }
 }

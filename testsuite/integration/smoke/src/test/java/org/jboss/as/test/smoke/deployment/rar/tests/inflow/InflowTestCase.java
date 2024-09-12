@@ -21,18 +21,17 @@
  */
 package org.jboss.as.test.smoke.deployment.rar.tests.inflow;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+
 import java.util.List;
 import java.util.Set;
-
 import javax.resource.spi.ActivationSpec;
 
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.connector.util.ConnectorServices;
-import org.jboss.as.test.integration.management.base.AbstractMgmtTestBase;
-import org.jboss.as.test.integration.management.base.ContainerResourceMgmtTestBase;
-import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.as.test.smoke.deployment.rar.inflow.PureInflowResourceAdapter;
 import org.jboss.jca.core.spi.mdr.MetadataRepository;
 import org.jboss.jca.core.spi.rar.Endpoint;
@@ -44,13 +43,8 @@ import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 
 /**
@@ -58,7 +52,7 @@ import static org.junit.Assert.assertNotNull;
  *         JBQA-5741 -Inflow RA deployment test
  */
 @RunWith(Arquillian.class)
-public class InflowTestCase extends ContainerResourceMgmtTestBase {
+public class InflowTestCase {
 
 
     /**
@@ -74,13 +68,12 @@ public class InflowTestCase extends ContainerResourceMgmtTestBase {
                 ShrinkWrap.create(ResourceAdapterArchive.class, deploymentName);
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, "multiple.jar");
         ja.addPackage(PureInflowResourceAdapter.class.getPackage()).
-                addClasses(InflowTestCase.class, MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class);
-        ja.addPackage(AbstractMgmtTestBase.class.getPackage());
+                addClasses(InflowTestCase.class);
         raa.addAsLibrary(ja);
 
-        raa.addAsManifestResource(InflowTestCase.class.getPackage(),"ra.xml", "ra.xml")
+        raa.addAsManifestResource(InflowTestCase.class.getPackage(), "ra.xml", "ra.xml")
                 .addAsManifestResource(InflowTestCase.class.getPackage(), "ironjacamar.xml", "ironjacamar.xml")
-                .addAsManifestResource(new StringAsset("Dependencies: org.jboss.as.controller-client,org.jboss.dmr,org.jboss.as.cli,javax.inject.api,org.jboss.as.connector\n"), "MANIFEST.MF");
+                .addAsManifestResource(new StringAsset("Dependencies: javax.inject.api,org.jboss.as.connector\n"), "MANIFEST.MF");
 
         return raa;
     }
@@ -105,8 +98,7 @@ public class InflowTestCase extends ContainerResourceMgmtTestBase {
         assertNotNull(ids);
         int pureInflowListener = 0;
         for (String id : ids) {
-            if (id.indexOf("PureInflow") != -1) 
-                pureInflowListener++;
+            if (id.indexOf("PureInflow") != -1) { pureInflowListener++; }
         }
         assertEquals(1, pureInflowListener);
 

@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,12 +41,11 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.message.BasicNameValuePair;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.OperateOnDeployment;
-import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.container.test.api.TargetsContainer;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.api.ServerSetup;
-import org.jboss.as.test.clustering.cluster.ClusterAbstractTestCase;
+import org.jboss.as.test.clustering.cluster.AbstractClusteringTestCase;
 import org.jboss.as.test.http.util.TestHttpClientUtils;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -59,18 +59,17 @@ import org.junit.runner.RunWith;
  * @author Paul Ferraro
  */
 @RunWith(Arquillian.class)
-@RunAsClient
 @ServerSetup(WebSecurityDomainSetup.class)
-public class FormAuthenticationWebFailoverTestCase extends ClusterAbstractTestCase {
+public class FormAuthenticationWebFailoverTestCase extends AbstractClusteringTestCase {
 
-    @Deployment(name = DEPLOYMENT_1, managed = false)
-    @TargetsContainer(CONTAINER_1)
+    @Deployment(name = DEPLOYMENT_1, managed = false, testable = false)
+    @TargetsContainer(NODE_1)
     public static Archive<?> deployment0() {
         return getDeployment();
     }
 
-    @Deployment(name = DEPLOYMENT_2, managed = false)
-    @TargetsContainer(CONTAINER_2)
+    @Deployment(name = DEPLOYMENT_2, managed = false, testable = false)
+    @TargetsContainer(NODE_2)
     public static Archive<?> deployment1() {
         return getDeployment();
     }
@@ -97,7 +96,6 @@ public class FormAuthenticationWebFailoverTestCase extends ClusterAbstractTestCa
         URI uri2 = SecureServlet.createURI(baseURL2);
 
         try (CloseableHttpClient client = TestHttpClientUtils.promiscuousCookieHttpClient()) {
-            System.out.println(uri1);
             HttpResponse response = client.execute(new HttpGet(uri1));
             try {
                 Assert.assertEquals(HttpServletResponse.SC_OK, response.getStatusLine().getStatusCode());
@@ -112,7 +110,7 @@ public class FormAuthenticationWebFailoverTestCase extends ClusterAbstractTestCa
             pairs.add(new BasicNameValuePair("j_username", "allowed"));
             pairs.add(new BasicNameValuePair("j_password", "password"));
 
-            login.setEntity(new UrlEncodedFormEntity(pairs, "UTF-8"));
+            login.setEntity(new UrlEncodedFormEntity(pairs, StandardCharsets.UTF_8));
             response = client.execute(login);
             try {
                 Assert.assertEquals(HttpServletResponse.SC_FOUND, response.getStatusLine().getStatusCode());

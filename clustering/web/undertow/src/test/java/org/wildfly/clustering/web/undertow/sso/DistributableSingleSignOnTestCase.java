@@ -22,22 +22,30 @@
 
 package org.wildfly.clustering.web.undertow.sso;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.same;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import java.util.Collections;
+import java.util.Iterator;
+import javax.servlet.http.HttpServletRequest;
+
 import io.undertow.security.api.AuthenticatedSessionManager.AuthenticatedSession;
 import io.undertow.security.idm.Account;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.server.session.Session;
-import io.undertow.server.session.SessionConfig;
 import io.undertow.server.session.SessionManager;
-
-import java.util.Collections;
-import java.util.Iterator;
-
-import javax.servlet.http.HttpServletRequest;
-
 import org.junit.Test;
-import org.mockito.Matchers;
 import org.wildfly.clustering.ee.Batch;
 import org.wildfly.clustering.ee.BatchContext;
 import org.wildfly.clustering.ee.Batcher;
@@ -46,11 +54,12 @@ import org.wildfly.clustering.web.sso.Sessions;
 
 /**
  * Unit test for {@link DistributableSingleSignOn}
+ *
  * @author Paul Ferraro
  */
 public class DistributableSingleSignOnTestCase {
 
-    private final SSO<AuthenticatedSession, String, Void> sso = mock(SSO.class);
+    private final SSO<AuthenticatedSession, String, String, Void> sso = mock(SSO.class);
     private final SessionManagerRegistry registry = mock(SessionManagerRegistry.class);
     private final Batcher<Batch> batcher = mock(Batcher.class);
     private final Batch batch = mock(Batch.class);
@@ -66,7 +75,7 @@ public class DistributableSingleSignOnTestCase {
 
         assertSame(id, result);
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
     }
 
     @Test
@@ -83,7 +92,7 @@ public class DistributableSingleSignOnTestCase {
 
         assertSame(account, result);
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
@@ -101,14 +110,14 @@ public class DistributableSingleSignOnTestCase {
 
         assertEquals(HttpServletRequest.CLIENT_CERT_AUTH, result);
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
     @Test
     public void iterator() {
         BatchContext context = mock(BatchContext.class);
-        Sessions<String> sessions = mock(Sessions.class);
+        Sessions<String, String> sessions = mock(Sessions.class);
         SessionManager manager = mock(SessionManager.class);
         Session session = mock(Session.class);
         String deployment = "deployment";
@@ -129,7 +138,7 @@ public class DistributableSingleSignOnTestCase {
         assertEquals(session.getId(), result.getId());
         assertFalse(results.hasNext());
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
 
         // Validate that returned sessions can be invalidated
@@ -137,12 +146,12 @@ public class DistributableSingleSignOnTestCase {
         Session mutableSession = mock(Session.class);
 
         when(session.getSessionManager()).thenReturn(manager);
-        when(manager.getSession(same(exchange), Matchers.<SessionConfig>any())).thenReturn(mutableSession);
+        when(manager.getSession(same(exchange), any())).thenReturn(mutableSession);
 
         result.invalidate(exchange);
 
         verify(mutableSession).invalidate(same(exchange));
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verifyNoMoreInteractions(context);
     }
 
@@ -152,7 +161,7 @@ public class DistributableSingleSignOnTestCase {
         BatchContext context = mock(BatchContext.class);
         Session session = mock(Session.class);
         SessionManager manager = mock(SessionManager.class);
-        Sessions<String> sessions = mock(Sessions.class);
+        Sessions<String, String> sessions = mock(Sessions.class);
 
         when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
         when(session.getSessionManager()).thenReturn(manager);
@@ -164,7 +173,7 @@ public class DistributableSingleSignOnTestCase {
 
         assertFalse(result);
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
         reset(context);
 
@@ -174,7 +183,7 @@ public class DistributableSingleSignOnTestCase {
 
         assertTrue(result);
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
@@ -185,7 +194,7 @@ public class DistributableSingleSignOnTestCase {
         BatchContext context = mock(BatchContext.class);
         Session session = mock(Session.class);
         SessionManager manager = mock(SessionManager.class);
-        Sessions<String> sessions = mock(Sessions.class);
+        Sessions<String, String> sessions = mock(Sessions.class);
 
         when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
         when(session.getId()).thenReturn(sessionId);
@@ -196,7 +205,7 @@ public class DistributableSingleSignOnTestCase {
         this.subject.add(session);
 
         verify(sessions).addSession(deployment, sessionId);
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
@@ -206,7 +215,7 @@ public class DistributableSingleSignOnTestCase {
         BatchContext context = mock(BatchContext.class);
         Session session = mock(Session.class);
         SessionManager manager = mock(SessionManager.class);
-        Sessions<String> sessions = mock(Sessions.class);
+        Sessions<String, String> sessions = mock(Sessions.class);
 
         when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
         when(session.getSessionManager()).thenReturn(manager);
@@ -216,7 +225,7 @@ public class DistributableSingleSignOnTestCase {
         this.subject.remove(session);
 
         verify(sessions).removeSession(deployment);
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
@@ -226,7 +235,7 @@ public class DistributableSingleSignOnTestCase {
         String sessionId = "session";
         BatchContext context = mock(BatchContext.class);
         SessionManager manager = mock(SessionManager.class);
-        Sessions<String> sessions = mock(Sessions.class);
+        Sessions<String, String> sessions = mock(Sessions.class);
 
         when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
         when(manager.getDeploymentName()).thenReturn(deployment);
@@ -238,50 +247,35 @@ public class DistributableSingleSignOnTestCase {
         assertSame(sessionId, result.getId());
         assertSame(manager, result.getSessionManager());
 
-        verifyZeroInteractions(this.batch);
+        verifyNoInteractions(this.batch);
         verify(context).close();
     }
 
     @Test
     public void close() {
-        when(this.batch.isActive()).thenReturn(false);
+        BatchContext context = mock(BatchContext.class);
+
+        when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
+
+        this.subject.close();
+
+        verify(this.batch).close();
+        verify(context).close();
+        reset(this.batch);
 
         this.subject.close();
 
         verify(this.batch, never()).close();
-
-        BatchContext context = mock(BatchContext.class);
-
-        when(this.batch.isActive()).thenReturn(true);
-        when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
-
-        this.subject.close();
-        
-        verify(this.batch).close();
-        verify(context).close();
     }
 
     @Test
     public void invalidate() {
         BatchContext context = mock(BatchContext.class);
 
-        when(this.batch.isActive()).thenReturn(true);
         when(this.batcher.resumeBatch(this.batch)).thenReturn(context);
 
         this.subject.invalidate();
 
         verify(context).close();
-        reset(this.batch, context);
-
-        Batch batch = mock(Batch.class);
-
-        when(this.batch.isActive()).thenReturn(false);
-        when(this.batcher.createBatch()).thenReturn(batch);
-
-        this.subject.invalidate();
-
-        verify(this.batch, never()).close();
-        verify(context, never()).close();
-        verify(batch).close();
     }
 }

@@ -1,0 +1,323 @@
+[[SSL_with_Client_Cert_Migration]]
+= SSL with Client Cert Migration
+As this documentation is primarily intended for users migrating to WildFly Elytron I am going to jump straight into the configuration required with WildFly Elytron.
+
+This section will cover how to create the various resources required to achieve CLIENT_CERT authentication with fallback to username / password authentication for both HTTP and SASL (i.e. Remoting) - both are being covered at the same time as predominantly they require the same core configuration, it is not until the definition of the authentication factories that the configuration becomes really specific.
+
+This suppose you have configured legacy Client-Cert SSL authentication using `truststore` in legacy `security-realm`, for example by link:Admin_Guide.html#add-client-cert-to-ssl[Admin Guide#Add Client-Cert to SSL], and your configuration looks like:
+
+[source,xml,options="nowrap"]
+----
+<security-realm name="ManagementRealm">
+  <server-identities>
+    <ssl>
+      <keystore path="server.keystore" relative-to="jboss.server.config.dir" keystore-password="keystore_password" alias="server" key-password="key_password" />
+    </ssl>
+  </server-identities>
+  <authentication>
+    <truststore path="server.truststore" relative-to="jboss.server.config.dir" keystore-password="truststore_password" />
+    <local default-user="$local"/>
+    <properties path="mgmt-users.properties" relative-to="jboss.server.config.dir"/>
+  </authentication>
+</security-realm>
+----
+
+This also suppose you have already followed <<Simple_SSL_Migration,Simple SSL Migration>> section, so your partialy migrated configuration looks like:
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:wildfly:elytron:1.0" ...>
+    ...
+    <tls>
+        <key-stores>
+            <key-store name="LocalhostKeyStore">
+                <credential-reference clear-text="keystore_password"/>
+                <implementation type="JKS"/>
+                <file path="server.keystore" relative-to="jboss.server.config.dir"/>
+            </key-store>
+            <key-store name="TrustStore">
+                <credential-reference clear-text="truststore_password"/>
+                <implementation type="JKS"/>
+                <file path="server.truststore" relative-to="jboss.server.config.dir"/>
+            </key-store>
+        </key-stores>
+        <key-managers>
+            <key-manager name="LocalhostKeyManager" key-store="LocalhostKeyStore" alias-filter="server">
+                <credential-reference clear-text="key_password"/>
+            </key-manager>
+        </key-managers>
+        <trust-managers>
+            <trust-manager name="TrustManager" key-store="TrustStore"/>
+        </trust-managers>
+        <server-ssl-contexts>
+            <server-ssl-context name="LocalhostSslContext" need-client-auth="true" key-manager="LocalhostKeyManager" trust-manager="TrustManager"/>
+        </server-ssl-contexts>
+    </tls>
+</subsystem>
+----
+
+However following steps are needed to be user identity provided to your applications or management console.
+
+== Realms and Domains
+
+We use users stored in standard properties files, so we can predefined Elytron security domain `ManagementDomain` and realm `ManagementRealm`:
+
+[source,xml,options="nowrap"]
+----
+    <security-domains>
+        <security-domain name="ManagementDomain" default-realm="ManagementRealm" permission-mapper="default-permission-mapper">
+            <realm name="ManagementRealm" role-decoder="groups-to-roles"/>
+            <realm name="local"/>
+        </security-domain>
+    </security-domains>
+    <security-realms>
+        <properties-realm name="ManagementRealm">
+            <users-properties path="mgmt-users.properties" relative-to="jboss.server.config.dir" digest-realm-name="ManagementRealm"/>
+            <groups-properties path="mgmt-groups.properties" relative-to="jboss.server.config.dir"/>
+        </properties-realm>
+    </security-realms>
+----
+
+The security realm will be used in two situations:
+* Authentication in password fallback case, when certificate authentication fails
+* Authorization in both - password and certificate auth - cases - the realm will provide roles of individual users
+
+This mean, for any client certificate there have to exists user in the security realm.
+
+== Principal decoder
+
+When certificate authentication is used and the security realm accepts usernames to resolve an identity, there have to be defined way to obtain username from a client certificate.
+In this case we will use first CN attribute in certificate subject:
+
+----
+./subsystem=elytron/x500-attribute-principal-decoder=x500-decoder:add(attribute-name=CN, maximum-segments=1)
+----
+
+Resulting in: -
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:wildfly:elytron:1.1" final-providers="combined-providers" disallowed-providers="OracleUcrypto">
+  ...
+  <mappers>
+    ...
+    <x500-attribute-principal-decoder name="x500-decoder" attribute-name="CN" maximum-segments="1"/>
+    ...
+  </mappers>
+  ...
+</subsystem>
+----
+
+== HTTP Authentication Factory
+
+For the HTTP connections we now define a HTTP authentication factory using the previously defined resources and it is configured to support CLIENT_CERT and DIGEST authentication.
+
+Because our security realm is not able to verify client certificates (properties realm verifies passwords only), we need to add configuring mechanism factory first, which will disable certificate verification against the security realm:
+
+----
+/subsystem=elytron/configurable-http-server-mechanism-factory=configured-cert:add(http-server-mechanism-factory=global, properties={org.wildfly.security.http.skip-certificate-verification=true})
+----
+
+As following, we can create HTTP authentication alone:
+
+----
+./subsystem=elytron/http-authentication-factory=client-cert-digest:add(http-server-mechanism-factory=configured-cert, \
+  security-domain=ManagementDomain, \
+ mechanism-configurations=[{ \
+  mechanism-name=CLIENT_CERT, \
+  pre-realm-principal-transformer=x500-decoder}, \
+ {mechanism-name=DIGEST, mechanism-realm-configurations=[{realm-name=ManagementRealm}]}])
+----
+
+Resulting in: -
+
+----
+<subsystem xmlns="urn:wildfly:elytron:1.1" final-providers="combined-providers" disallowed-providers="OracleUcrypto">
+  ...
+  <http>
+    ...
+    <http-authentication-factory name="client-cert-digest" http-server-mechanism-factory="global" security-domain="ManagementDomain">
+      <mechanism-configuration>
+        <mechanism mechanism-name="CLIENT_CERT" pre-realm-principal-transformer="x500-decoder"/>
+        <mechanism mechanism-name="DIGEST">
+          <mechanism-realm realm-name="ManagementRealm"/>
+        </mechanism>
+      </mechanism-configuration>
+    </http-authentication-factory>
+    ...
+    <configurable-http-server-mechanism-factory name="configured-cert" http-server-mechanism-factory="global">
+        <properties>
+            <property name="org.wildfly.security.http.skip-certificate-verification" value="true"/>
+        </properties>
+    </configurable-http-server-mechanism-factory>
+    ...
+  </http>
+  ...
+</subsystem>
+----
+
+== SASL Authentication Factory
+
+The architecture of the two authentication factories if very similar so a SASL authentication factory can be defined in the same way as the HTTP equivalent.
+However, as EXTERNAL SASL mechanism does not do any certificate verification, there is no need for configuring SASL server factory.
+
+----
+./subsystem=elytron/sasl-authentication-factory=client-cert-digest:add(sasl-server-factory=elytron, \
+  security-domain=ManagementDomain, \
+  mechanism-configurations=[{mechanism-name=EXTERNAL, \
+  pre-realm-principal-transformer=x500-decoder}, \
+  {mechanism-name=DIGEST-MD5, mechanism-realm-configurations=[{realm-name=ManagementRealm}]}])
+----
+
+This results in: -
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:wildfly:elytron:1.1" final-providers="combined-providers" disallowed-providers="OracleUcrypto">
+  ...
+  <sasl>
+    ...
+    <sasl-authentication-factory name="client-cert-digest" sasl-server-factory="elytron" security-domain="ManagementDomain">
+      <mechanism-configuration>
+        <mechanism mechanism-name="EXTERNAL" pre-realm-principal-transformer="x500-decoder"/>
+        <mechanism mechanism-name="DIGEST-MD5">
+          <mechanism-realm realm-name="ManagementRealm"/>
+        </mechanism>
+      </mechanism-configuration>
+    </sasl-authentication-factory>
+    ...
+  </sasl>
+  ...
+</subsystem>
+----
+
+There is used the same principal transformer as defined for HTTP.
+
+== SSL Context
+
+The SSL context was already defined, but we need to modify it to not fail on client certificate authentication failure, but to fallback to password authentication.
+
+----
+./subsystem=elytron/server-ssl-context=LocalhostSslContext:write-attribute(name=need-client-auth, value=false)
+./subsystem=elytron/server-ssl-context=LocalhostSslContext:write-attribute(name=want-client-auth, value=true)
+----
+
+Resulting in: -
+
+[source,xml,options="nowrap"]
+----
+<subsystem xmlns="urn:wildfly:elytron:1.1" final-providers="combined-providers" disallowed-providers="OracleUcrypto">
+  ...
+  <tls>
+    ...
+    <server-ssl-contexts>
+      <server-ssl-context name="LocalhostSslContext" want-client-auth="true" need-client-auth="false" key-manager="LocalhostKeyManager" trust-manager="TrustManager"/>
+    </server-ssl-contexts>
+  </tls>
+</subsystem>
+----
+
+As we will be supporting fallback to username/password authentication need-client-auth is set to false. This allows connections to be established but an alternative form of authentication will be required.
+
+== Using for Management
+
+At this point the management interfaces can be updated to use the newly defined resources, we need to add references to the two new authentication factories and the SSL context, we can also remove the existing reference to the legacy security realm. As this is modifying existing interfaces a server reload will also be required.
+
+----
+./core-service=management/management-interface=http-interface:write-attribute(name=ssl-context, value=LocalhostSslContext)
+./core-service=management/management-interface=http-interface:write-attribute(name=secure-socket-binding, value=management-https)
+./core-service=management/management-interface=http-interface:write-attribute(name=http-authentication-factory, value=client-cert-digest)
+./core-service=management/management-interface=http-interface:write-attribute(name=http-upgrade.sasl-authentication-factory, value=client-cert-digest)
+./core-service=management/management-interface=http-interface:undefine-attribute(name=security-realm)
+:reload
+----
+
+The management interface configuration then becomes: -
+
+[source,xml,options="nowrap"]
+----
+<management>
+  ...
+  <management-interfaces>
+    <http-interface http-authentication-factory="client-cert-digest" ssl-context="LocalhostSslContext">
+      <http-upgrade enabled="true" sasl-authentication-factory="client-cert-digest"/>
+      <socket-binding http="management-http" https="management-https"/>
+    </http-interface>
+  </management-interfaces>
+  ...
+</management>
+----
+
+=== Admin Clients
+
+At this stage assuming the same files have been used as in this example it should be possible to connect to the management interface of the server either using a web browser or the JBoss CLI with username and password from your original `mgmt-users.properties` file.
+
+For certificate based authentication certificates signed by your CA, whose subject DN resolves to username existing in properties realm will be accepted.
+
+==== CLI Client Configuration
+
+This suppose you have used following configuration in `bin/jboss-cli.xml`:
+
+[source,xml,options="nowrap"]
+----
+<ssl>
+  <alias>adminalias</alias>
+  <key-store>admin.keystore</key-store>
+  <key-store-password>keystore_password</key-store-password>
+  <trust-store>ca.truststore</trust-store>
+  <trust-store-password>truststore_password</trust-store-password>
+</ssl>
+----
+
+You can stay using this configuration, but since the integration of WildFly Elytron it is possible with the CLI to use a configuration file wildfly-config.xml to define the security settings including the settings for the client side SSL context.
+
+In such case, following wildfly-config.xml can be created in the location the JBoss CLI is being started from: -
+
+[source,xml,options="nowrap"]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+    <authentication-client xmlns="urn:elytron:1.0">
+        <key-stores>
+            <key-store name="admin" type="jks" >
+                <file name="admin.keystore"/>
+                <key-store-clear-password password="keystore_password" />
+            </key-store>
+            <key-store name="ca" type="jks">
+                <file name="ca.truststore"/>
+                <key-store-clear-password password="truststore_password" />
+            </key-store>
+        </key-stores>
+        <ssl-context-rules>
+            <rule use-ssl-context="default" />
+        </ssl-context-rules>
+        <ssl-contexts>
+            <ssl-context name="default">
+                <key-store-ssl-certificate key-store-name="admin" alias="adminalias">
+                    <key-store-clear-password password="key_password" />
+                </key-store-ssl-certificate>
+                <trust-store key-store-name="ca" />
+            </ssl-context>
+        </ssl-contexts>
+    </authentication-client>
+</configuration>
+----
+
+The CLI can now be started using the following command: -
+
+----
+./jboss-cli.sh -c -Dwildfly.config.url=wildfly-config.xml
+----
+
+The :whoami command can be used within the CLI to double check the current identity.
+
+----
+[standalone@localhost:9993 /] :whoami(verbose=true)
+{
+    "outcome" => "success",
+    "result" => {
+        "identity" => {"username" => "admin"},
+        "mapped-roles" => ["SuperUser"]
+    }
+}
+----

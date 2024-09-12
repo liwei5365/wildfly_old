@@ -22,19 +22,15 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.infinispan.commons.api.BasicCacheContainer;
-import org.jboss.as.clustering.controller.AddStepHandler;
+import org.jboss.as.clustering.controller.ManagementResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
-import org.jboss.as.clustering.controller.ResourceServiceHandler;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
-import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.registry.AttributeAccess;
-import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
@@ -45,13 +41,14 @@ import org.jboss.dmr.ModelType;
  * @author Richard Achmatowicz (c) 2011 Red Hat Inc.
  * @author Paul Ferraro
  */
+@Deprecated
 public class BackupForResourceDefinition extends ComponentResourceDefinition {
 
     static final PathElement PATH = pathElement("backup-for");
     static final PathElement LEGACY_PATH = PathElement.pathElement(PATH.getValue(), "BACKUP_FOR");
 
     enum Attribute implements org.jboss.as.clustering.controller.Attribute {
-        CACHE("remote-cache", ModelType.STRING, new ModelNode(BasicCacheContainer.DEFAULT_CACHE_NAME)),
+        CACHE("remote-cache", ModelType.STRING, new ModelNode("___defaultcache")),
         SITE("remote-site", ModelType.STRING, null),
         ;
         private final AttributeDefinition definition;
@@ -59,9 +56,10 @@ public class BackupForResourceDefinition extends ComponentResourceDefinition {
         Attribute(String name, ModelType type, ModelNode defaultValue) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
-                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    .setFlags(AttributeAccess.Flag.RESTART_NONE)
+                    .setDeprecated(InfinispanModel.VERSION_6_0_0.getVersion())
                     .build();
         }
 
@@ -79,16 +77,17 @@ public class BackupForResourceDefinition extends ComponentResourceDefinition {
 
     BackupForResourceDefinition() {
         super(PATH);
+        this.setDeprecated(InfinispanModel.VERSION_6_0_0.getVersion());
     }
 
     @Override
-    public void register(ManagementResourceRegistration parentRegistration) {
-        ManagementResourceRegistration registration = parentRegistration.registerSubModel(this);
-        parentRegistration.registerAlias(LEGACY_PATH, new SimpleAliasEntry(registration));
+    public ManagementResourceRegistration register(ManagementResourceRegistration parent) {
+        ManagementResourceRegistration registration = parent.registerSubModel(this);
+        parent.registerAlias(LEGACY_PATH, new SimpleAliasEntry(registration));
 
-        ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver()).addAttributes(Attribute.class);
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new BackupForBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver()).addIgnoredAttributes(Attribute.class);
+        new SimpleResourceRegistration(descriptor, null).register(registration);
+
+        return registration;
     }
 }

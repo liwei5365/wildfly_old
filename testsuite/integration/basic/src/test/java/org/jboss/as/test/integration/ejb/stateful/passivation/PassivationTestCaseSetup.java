@@ -29,6 +29,7 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUC
 
 import org.jboss.as.arquillian.api.ServerSetupTask;
 import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.test.shared.ServerReload;
 import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.junit.Assert;
@@ -59,8 +60,9 @@ public class PassivationTestCaseSetup implements ServerSetupTask {
         operation.get("name").set("max-size");
         operation.get("value").set(1);
         ModelNode result = managementClient.getControllerClient().execute(operation);
-        log.info("modelnode operation write attribute max-size=1: " + result);
+        log.trace("modelnode operation write attribute max-size=1: " + result);
         Assert.assertEquals(SUCCESS, result.get(OUTCOME).asString());
+        ServerReload.reloadIfRequired(managementClient);
     }
 
     @Override
@@ -74,5 +76,6 @@ public class PassivationTestCaseSetup implements ServerSetupTask {
         managementClient.getControllerClient().execute(operation);
         ModelNode result = managementClient.getControllerClient().execute(operation);
         Assert.assertEquals(SUCCESS, result.get(OUTCOME).asString());
+        ServerReload.reloadIfRequired(managementClient);
     }
 }

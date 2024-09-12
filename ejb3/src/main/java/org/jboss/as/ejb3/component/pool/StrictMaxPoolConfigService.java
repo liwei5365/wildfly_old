@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.msc.inject.Injector;
 import org.jboss.msc.service.Service;
-import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.StartContext;
 import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
@@ -36,15 +35,7 @@ import org.jboss.msc.value.InjectedValue;
 /**
  * User: jpai
  */
-public class StrictMaxPoolConfigService implements Service<PoolConfig> {
-
-    public static final ServiceName EJB_POOL_CONFIG_BASE_SERVICE_NAME = ServiceName.JBOSS.append("ejb").append("pool-config");
-
-    public static final ServiceName DEFAULT_SLSB_POOL_CONFIG_SERVICE_NAME = EJB_POOL_CONFIG_BASE_SERVICE_NAME.append("slsb-default");
-
-    public static final ServiceName DEFAULT_MDB_POOL_CONFIG_SERVICE_NAME = EJB_POOL_CONFIG_BASE_SERVICE_NAME.append("mdb-default");
-
-    public static final ServiceName DEFAULT_ENTITY_POOL_CONFIG_SERVICE_NAME = EJB_POOL_CONFIG_BASE_SERVICE_NAME.append("entity-default");
+public class StrictMaxPoolConfigService implements Service<StrictMaxPoolConfig> {
 
     private final StrictMaxPoolConfig poolConfig;
 
@@ -85,6 +76,10 @@ public class StrictMaxPoolConfigService implements Service<PoolConfig> {
         }
     }
 
+    public synchronized int getDerivedSize() {
+        return poolConfig.getMaxPoolSize();
+    }
+
     public synchronized void setDerive(Derive derive) {
         this.derive = derive;
         int max = this.declaredMaxSize;
@@ -117,7 +112,7 @@ public class StrictMaxPoolConfigService implements Service<PoolConfig> {
     }
 
     @Override
-    public PoolConfig getValue() throws IllegalStateException, IllegalArgumentException {
+    public StrictMaxPoolConfig getValue() throws IllegalStateException, IllegalArgumentException {
         return this.poolConfig;
     }
 

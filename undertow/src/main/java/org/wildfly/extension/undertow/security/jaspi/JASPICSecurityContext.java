@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -21,10 +21,11 @@
  */
 package org.wildfly.extension.undertow.security.jaspi;
 
+import static org.wildfly.extension.undertow.security.jaspi.SecurityActions.getAuthConfigFactory;
+
 import javax.security.auth.Subject;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.message.MessageInfo;
-import javax.security.auth.message.config.AuthConfigFactory;
 import javax.security.auth.message.config.AuthConfigProvider;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
@@ -43,7 +44,7 @@ import org.jboss.security.plugins.auth.JASPIServerAuthenticationManager;
 /**
  * <p>
  * A {@link io.undertow.security.api.SecurityContext} that implements the {@code login} and {@code logout} methods
- * according to the JASPIC 1.1 specification.
+ * according to the Jakarta Authentication 1.1 specification.
  * </p>
  *
  * @author <a href="mailto:sguilhen@redhat.com">Stefan Guilhen</a>
@@ -66,7 +67,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
 
     /**
      * <p>
-     * JASPIC 1.1 specification: if there is an {@code AuthConfigProvider} for the {@code HttpServlet} layer and
+     * Jakarta Authentication 1.1 specification: if there is an {@code AuthConfigProvider} for the {@code HttpServlet} layer and
      * application context, then @{@code login} must throw a {@code ServletException} which may convey that the
      * exception was caused by an incompatibility between the {@code login} method and the configured authentication
      * mechanism. If there is no such provider, then the container must proceed with the regular {@code login} processing.
@@ -75,15 +76,15 @@ class JASPICSecurityContext extends SecurityContextImpl {
      * @param username The username
      * @param password The password
      * @return <code>true</code> if the login succeeded, false otherwise
-     * @throws SecurityException if login is called when JASPIC is enabled for application context and layer.
+     * @throws SecurityException if login is called when Jakarta Authentication is enabled for application context and layer.
      */
     @Override
     public boolean login(final String username, final String password) {
         // if there is an AuthConfigProvider for the HttpServlet layer and appContext, this method must throw an exception.
         String appContext = this.buildAppContext();
-        AuthConfigProvider provider = AuthConfigFactory.getFactory().getConfigProvider(layer, appContext, null);
+        AuthConfigProvider provider = getAuthConfigFactory().getConfigProvider(layer, appContext, null);
         if (provider != null) {
-            ServletException se = new ServletException("login is not supported by the JASPIC mechanism");
+            ServletException se = new ServletException("login is not supported by the Jakarta Authentication mechanism");
             throw new SecurityException(se);
         }
         return super.login(username, password);
@@ -91,7 +92,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
 
     /**
      * <p>
-     * JASPIC 1.1 specification: if there is an {@code AuthConfigProvider} for the {@code HttpServlet} layer and
+     * Jakarta Authentication 1.1 specification: if there is an {@code AuthConfigProvider} for the {@code HttpServlet} layer and
      * application context, then @{@code logout} must acquire a {@code ServerAuthContext} and call {@code cleanSubject}
      * on the acquired context.
      * </p>
@@ -101,7 +102,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
      * we must retrieve it from there before calling {@code cleanSubject}.
      * </p>
      * <p>
-     * Once {@code cleanSubject} returns, {@code logout} must perform the regular (non-JASPIC) {@code logout} processing.
+     * Once {@code cleanSubject} returns, {@code logout} must perform the regular (non-Jakarta Authentication) {@code logout} processing.
      * </p>
      */
     @Override
@@ -111,7 +112,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
 
         // call cleanSubject() if there is an AuthConfigProvider for the HttpServlet layer and appContext.
         String appContext = this.buildAppContext();
-        if (AuthConfigFactory.getFactory().getConfigProvider(layer, appContext, null) != null) {
+        if (getAuthConfigFactory().getConfigProvider(layer, appContext, null) != null) {
             Subject authenticatedSubject = this.getAuthenticatedSubject();
             MessageInfo messageInfo = this.buildMessageInfo();
             this.manager.cleanSubject(messageInfo, authenticatedSubject, layer, appContext, handler);
@@ -141,7 +142,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
 
     /**
      * <p>
-     * Sets the cached authenticated account. This is set by the JASPIC mechanism when it detects an existing account
+     * Sets the cached authenticated account. This is set by the Jakarta Authentication mechanism when it detects an existing account
      * in the session.
      * </p>
      *
@@ -153,7 +154,7 @@ class JASPICSecurityContext extends SecurityContextImpl {
 
     /**
      * <p>
-     * Builds the JASPIC application context.
+     * Builds the Jakarta Authentication application context.
      * </p>
      *
      * @return a {@code String} representing the application context.
@@ -196,4 +197,6 @@ class JASPICSecurityContext extends SecurityContextImpl {
             subject = picketBoxContext.getSubjectInfo().getAuthenticatedSubject();
         return subject != null ? subject : new Subject();
     }
+
+
 }

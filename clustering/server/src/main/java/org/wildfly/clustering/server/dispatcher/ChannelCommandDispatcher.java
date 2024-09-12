@@ -22,16 +22,17 @@
 package org.wildfly.clustering.server.dispatcher;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 import org.jgroups.Address;
 import org.jgroups.Message;
@@ -39,21 +40,20 @@ import org.jgroups.blocks.MessageDispatcher;
 import org.jgroups.blocks.RequestOptions;
 import org.jgroups.blocks.ResponseMode;
 import org.jgroups.blocks.RspFilter;
-import org.jgroups.util.Rsp;
+import org.jgroups.util.Buffer;
 import org.wildfly.clustering.dispatcher.Command;
 import org.wildfly.clustering.dispatcher.CommandDispatcher;
-import org.wildfly.clustering.dispatcher.CommandResponse;
+import org.wildfly.clustering.dispatcher.CommandDispatcherException;
 import org.wildfly.clustering.group.Node;
-import org.wildfly.clustering.group.NodeFactory;
-import org.wildfly.clustering.server.Addressable;
+import org.wildfly.clustering.spi.group.Group;
 
 /**
  * MessageDispatcher-based command dispatcher.
  * @author Paul Ferraro
  *
- * @param <C> command execution context
+ * @param <CC> command execution context
  */
-public abstract class ChannelCommandDispatcher<C> implements CommandDispatcher<C> {
+public class ChannelCommandDispatcher<CC, MC> implements CommandDispatcher<CC> {
 
     private static final RspFilter FILTER = new RspFilter() {
         @Override
@@ -68,145 +68,101 @@ public abstract class ChannelCommandDispatcher<C> implements CommandDispatcher<C
     };
 
     private final MessageDispatcher dispatcher;
-    private final CommandMarshaller<C> marshaller;
-    private final NodeFactory<Address> factory;
-    private final long timeout;
-    private final CommandDispatcher<C> localDispatcher;
+    private final CommandMarshaller<CC> marshaller;
+    private final MC context;
+    private final Group<Address> group;
+    private final Duration timeout;
+    private final CommandDispatcher<CC> localDispatcher;
+    private final Runnable closeTask;
+    private final Address localAddress;
+    private final RequestOptions options;
 
-    public ChannelCommandDispatcher(MessageDispatcher dispatcher, CommandMarshaller<C> marshaller, NodeFactory<Address> factory, long timeout, CommandDispatcher<C> localDispatcher) {
+    public ChannelCommandDispatcher(MessageDispatcher dispatcher, CommandMarshaller<CC> marshaller, MC context, Group<Address> group, Duration timeout, CommandDispatcher<CC> localDispatcher, Runnable closeTask) {
         this.dispatcher = dispatcher;
         this.marshaller = marshaller;
-        this.factory = factory;
+        this.context = context;
+        this.group = group;
         this.timeout = timeout;
         this.localDispatcher = localDispatcher;
+        this.closeTask = closeTask;
+        this.localAddress = dispatcher.getChannel().getAddress();
+        this.options = new RequestOptions(ResponseMode.GET_ALL, this.timeout.toMillis(), false, FILTER, Message.Flag.DONT_BUNDLE, Message.Flag.OOB);
     }
 
     @Override
-    public <R> Map<Node, CommandResponse<R>> executeOnCluster(Command<R, C> command, Node... excludedNodes) throws Exception {
-        RequestOptions options = this.createRequestOptions(excludedNodes);
-        Map<Address, Rsp<R>> responses = this.dispatcher.castMessage(null, this.createMessage(command), options);
+    public CC getContext() {
+        return this.localDispatcher.getContext();
+    }
 
-        Map<Node, CommandResponse<R>> results = new HashMap<>();
-        for (Map.Entry<Address, Rsp<R>> entry: responses.entrySet()) {
-            Address address = entry.getKey();
-            Rsp<R> response = entry.getValue();
-            if (response.wasReceived() && !response.wasSuspected()) {
-                results.put(this.factory.createNode(address), createCommandResponse(response));
-            }
+    @Override
+    public void close() {
+        this.closeTask.run();
+    }
+
+    @Override
+    public <R> CompletionStage<R> executeOnMember(Command<R, ? super CC> command, Node member) throws CommandDispatcherException {
+        // Bypass MessageDispatcher if target node is local
+        Address address = this.group.getAddress(member);
+        if (this.localAddress.equals(address)) {
+            return this.localDispatcher.executeOnMember(command, member);
         }
-
-        return results;
+        Buffer buffer = this.createBuffer(command);
+        ServiceRequest<R, MC> request = new ServiceRequest<>(this.dispatcher.getCorrelator(), this.group.getAddress(member), this.options, this.context);
+        return request.send(buffer);
     }
 
     @Override
-    public <R> Map<Node, Future<R>> submitOnCluster(Command<R, C> command, Node... excludedNodes) throws Exception {
-        final Future<? extends Map<Address, Rsp<R>>> responses = this.dispatcher.castMessageWithFuture(null, this.createMessage(command), this.createRequestOptions(excludedNodes));
-
-        Map<Node, Future<R>> results = new HashMap<>();
-        Set<Node> excluded = (excludedNodes != null) ? new HashSet<>(Arrays.asList(excludedNodes)) : Collections.<Node>emptySet();
-        for (Address address: this.dispatcher.getChannel().getView().getMembers()) {
-            final Node node = this.factory.createNode(address);
-            if (!excluded.contains(node)) {
-                Future<R> future = new Future<R>() {
-                    @Override
-                    public boolean cancel(boolean mayInterruptIfRunning) {
-                        return responses.cancel(mayInterruptIfRunning);
+    public <R> Map<Node, CompletionStage<R>> executeOnGroup(Command<R, ? super CC> command, Node... excludedMembers) throws CommandDispatcherException {
+        Set<Node> excluded = (excludedMembers != null) ? new HashSet<>(Arrays.asList(excludedMembers)) : Collections.emptySet();
+        Map<Node, CompletionStage<R>> results = new ConcurrentHashMap<>();
+        Buffer buffer = this.createBuffer(command);
+        for (Node member : this.group.getMembership().getMembers()) {
+            if (!excluded.contains(member)) {
+                Address address = this.group.getAddress(member);
+                if (this.localAddress.equals(address)) {
+                    results.put(member, this.localDispatcher.executeOnMember(command, member));
+                } else {
+                    try {
+                        ServiceRequest<R, MC> request = new ServiceRequest<>(this.dispatcher.getCorrelator(), this.group.getAddress(member), this.options, this.context);
+                        CompletionStage<R> future = request.send(buffer);
+                        results.put(member, future);
+                        future.whenComplete(new PruneCancellationTask<>(results, member));
+                    } catch (CommandDispatcherException e) {
+                        // Cancel previously dispatched messages
+                        for (CompletionStage<R> result : results.values()) {
+                            result.toCompletableFuture().cancel(true);
+                        }
+                        throw e;
                     }
-
-                    @Override
-                    public R get() throws InterruptedException, ExecutionException {
-                        return createCommandResponse(responses.get().get(node)).get();
-                    }
-
-                    @Override
-                    public R get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
-                        return createCommandResponse(responses.get(timeout, unit).get(node)).get();
-                    }
-
-                    @Override
-                    public boolean isCancelled() {
-                        return responses.isCancelled();
-                    }
-
-                    @Override
-                    public boolean isDone() {
-                        return responses.isDone();
-                    }
-                };
-                results.put(node, future);
+                }
             }
         }
         return results;
     }
 
-    @Override
-    public <R> CommandResponse<R> executeOnNode(Command<R, C> command, Node node) throws Exception {
-        // Bypass MessageDispatcher if target node is local
-        if (this.isLocal(node)) {
-            return this.localDispatcher.executeOnNode(command, node);
-        }
-        // Use sendMessageWithFuture(...) instead of sendMessage(...) since we want to differentiate between sender exceptions and receiver exceptions
-        Future<R> future = this.dispatcher.sendMessageWithFuture(this.createMessage(command, node), this.createRequestOptions());
+    private <R> Buffer createBuffer(Command<R, ? super CC> command) {
         try {
-            return new SimpleCommandResponse<>(future.get());
-        } catch (InterruptedException e) {
-            return new SimpleCommandResponse<>(e);
-        } catch (ExecutionException e) {
-            return new SimpleCommandResponse<>(e);
-        }
-    }
-
-    @Override
-    public <R> Future<R> submitOnNode(Command<R, C> command, Node node) throws Exception {
-        // Bypass MessageDispatcher if target node is local
-        if (this.isLocal(node)) {
-            return this.localDispatcher.submitOnNode(command, node);
-        }
-        return this.dispatcher.sendMessageWithFuture(this.createMessage(command, node), this.createRequestOptions());
-    }
-
-    private <R> Message createMessage(Command<R, C> command) {
-        return this.createMessage(command, null);
-    }
-
-    private <R> Message createMessage(Command<R, C> command, Node node) {
-        try {
-            return new Message(getAddress(node), this.getLocalAddress(), this.marshaller.marshal(command));
+            ByteBuffer buffer = this.marshaller.marshal(command);
+            return new Buffer(buffer.array(), buffer.arrayOffset(), buffer.limit() - buffer.arrayOffset());
         } catch (IOException e) {
             throw new IllegalArgumentException(e);
         }
     }
 
-    private boolean isLocal(Node node) {
-        return this.getLocalAddress().equals(getAddress(node));
-    }
+    private static class PruneCancellationTask<T> implements BiConsumer<T, Throwable> {
+        private final Map<Node, CompletionStage<T>> results;
+        private final Node member;
 
-    private static Address getAddress(Node node) {
-        return (node instanceof Addressable) ? ((Addressable) node).getAddress() : null;
-    }
-
-    private RequestOptions createRequestOptions(Node... excludedNodes) {
-        RequestOptions options = this.createRequestOptions();
-        if ((excludedNodes != null) && (excludedNodes.length > 0)) {
-            Address[] addresses = new Address[excludedNodes.length];
-            for (int i = 0; i < excludedNodes.length; ++i) {
-                addresses[i] = getAddress(excludedNodes[i]);
-            }
-            options.setExclusionList(addresses);
+        PruneCancellationTask(Map<Node, CompletionStage<T>> results, Node member) {
+            this.results = results;
+            this.member = member;
         }
-        return options;
-    }
 
-    private RequestOptions createRequestOptions() {
-        return new RequestOptions(ResponseMode.GET_ALL, this.timeout, false, FILTER, Message.Flag.DONT_BUNDLE, Message.Flag.OOB);
-    }
-
-    static <R> CommandResponse<R> createCommandResponse(Rsp<R> response) {
-        Throwable exception = response.getException();
-        return (exception != null) ? new SimpleCommandResponse<>(exception) : new SimpleCommandResponse<>(response.getValue());
-    }
-
-    private Address getLocalAddress() {
-        return this.dispatcher.getChannel().getAddress();
+        @Override
+        public void accept(T result, Throwable exception) {
+            if (exception instanceof CancellationException) {
+                this.results.remove(this.member);
+            }
+        }
     }
 }

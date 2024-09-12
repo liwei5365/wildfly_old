@@ -21,8 +21,7 @@
  */
 package org.jboss.as.ee.beanvalidation;
 
-import org.wildfly.security.manager.WildFlySecurityManager;
-
+import javax.validation.ClockProvider;
 import javax.validation.ConstraintValidatorFactory;
 import javax.validation.MessageInterpolator;
 import javax.validation.ParameterNameProvider;
@@ -32,9 +31,11 @@ import javax.validation.Validator;
 import javax.validation.ValidatorContext;
 import javax.validation.ValidatorFactory;
 
+import org.wildfly.security.manager.WildFlySecurityManager;
+
 /**
  * This class lazily initialize the ValidatorFactory on the first usage One benefit is that no domain class is loaded until the
- * ValidatorFactory is really needed. Useful to avoid loading classes before JPA is initialized and has enhanced its classes.
+ * ValidatorFactory is really needed. Useful to avoid loading classes before Jakarta Persistence is initialized and has enhanced its classes.
  *
  * @author Emmanuel Bernard
  * @author Stuart Douglas
@@ -117,12 +118,20 @@ public class LazyValidatorFactory implements ValidatorFactory {
     }
 
     @Override
+    public ClockProvider getClockProvider() {
+        return getDelegate().getClockProvider();
+    }
+
+    @Override
     public <T> T unwrap(Class<T> clazz) {
         return getDelegate().unwrap(clazz);
     }
 
     @Override
     public void close() {
-        getDelegate().close();
+        // Avoid initializing delegate if closing it
+        if (delegate != null) {
+            getDelegate().close();
+        }
     }
 }

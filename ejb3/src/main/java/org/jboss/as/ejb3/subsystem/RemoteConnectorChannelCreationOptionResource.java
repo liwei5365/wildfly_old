@@ -34,8 +34,6 @@ import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.registry.AttributeAccess;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.RejectAttributeChecker;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.as.ejb3.remote.EJBRemoteConnectorService;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
@@ -80,7 +78,7 @@ class RemoteConnectorChannelCreationOptionResource extends SimpleResourceDefinit
     }
 
     private static void recreateParentService(OperationContext context, ModelNode ejb3RemoteServiceModelNode) throws OperationFailedException {
-        EJB3RemoteServiceAdd.INSTANCE.installRuntimeServices(context, ejb3RemoteServiceModelNode);
+        EJB3RemoteResourceDefinition.ADD_HANDLER.installRuntimeServices(context, ejb3RemoteServiceModelNode);
     }
 
     /**
@@ -88,8 +86,8 @@ class RemoteConnectorChannelCreationOptionResource extends SimpleResourceDefinit
      */
     private static class ChannelCreationOptionWriteAttributeHandler extends RestartParentWriteAttributeHandler {
 
-        public ChannelCreationOptionWriteAttributeHandler(final AttributeDefinition attributeDefinition) {
-            super(EJB3SubsystemModel.REMOTE, attributeDefinition);
+        ChannelCreationOptionWriteAttributeHandler(final AttributeDefinition attributeDefinition) {
+            super(EJB3SubsystemModel.SERVICE, attributeDefinition);
         }
 
         @Override
@@ -109,7 +107,7 @@ class RemoteConnectorChannelCreationOptionResource extends SimpleResourceDefinit
     private static class ChannelCreationOptionAdd extends RestartParentResourceAddHandler {
 
         private ChannelCreationOptionAdd() {
-            super(EJB3SubsystemModel.REMOTE);
+            super(EJB3SubsystemModel.SERVICE);
         }
 
         protected void populateModel(ModelNode operation, ModelNode model) throws OperationFailedException {
@@ -144,7 +142,7 @@ class RemoteConnectorChannelCreationOptionResource extends SimpleResourceDefinit
      */
     private static class ChannelCreationOptionRemove extends RestartParentResourceRemoveHandler {
         private ChannelCreationOptionRemove() {
-            super(EJB3SubsystemModel.REMOTE);
+            super(EJB3SubsystemModel.SERVICE);
         }
 
         @Override
@@ -158,9 +156,4 @@ class RemoteConnectorChannelCreationOptionResource extends SimpleResourceDefinit
         }
     }
 
-    static void registerTransformers_1_1_0(ResourceTransformationDescriptionBuilder parent) {
-        parent.addChildResource(INSTANCE.getPathElement())
-            .getAttributeBuilder()
-                .addRejectCheck(RejectAttributeChecker.SIMPLE_EXPRESSIONS, CHANNEL_CREATION_OPTION_VALUE);
-    }
 }

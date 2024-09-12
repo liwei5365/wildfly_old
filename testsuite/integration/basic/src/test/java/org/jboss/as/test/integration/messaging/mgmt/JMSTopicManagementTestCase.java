@@ -27,15 +27,14 @@ import static org.jboss.as.controller.client.helpers.ClientConstants.NAME;
 import static org.jboss.as.controller.client.helpers.ClientConstants.VALUE;
 import static org.jboss.as.controller.client.helpers.ClientConstants.WRITE_ATTRIBUTE_OPERATION;
 import static org.jboss.as.controller.operations.common.Util.getEmptyOperation;
-import static org.jboss.as.test.shared.IntermittentFailure.thisTestIsFailingIntermittently;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
-
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
+import javax.jms.TextMessage;
 import javax.jms.Topic;
 import javax.jms.TopicSubscriber;
 import javax.naming.Context;
@@ -49,6 +48,7 @@ import org.jboss.as.controller.client.OperationBuilder;
 import org.jboss.as.controller.client.helpers.ClientConstants;
 import org.jboss.as.test.integration.common.jms.JMSOperations;
 import org.jboss.as.test.integration.common.jms.JMSOperationsProvider;
+import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 import org.junit.After;
@@ -58,7 +58,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * Tests the management API for JMS topics.
+ * Tests the management API for Jakarta Messaging topics.
  *
  * @author Brian Stansberry (c) 2011 Red Hat Inc.
  */
@@ -110,8 +110,7 @@ public class JMSTopicManagementTestCase {
         addSecuritySettings();
     }
 
-    private void addSecuritySettings() throws Exception
-    {
+    private void addSecuritySettings() throws Exception {
         // <jms server address>/security-setting=#/role=guest:write-attribute(name=create-durable-queue, value=TRUE)
         ModelNode address = adminSupport.getServerAddress()
                 .add("security-setting", "#")
@@ -163,8 +162,7 @@ public class JMSTopicManagementTestCase {
         }
     }
 
-    private void removeSecuritySetting() throws Exception
-    {
+    private void removeSecuritySetting() throws Exception {
         // <jms server address>/security-setting=#/role=guest:write-attribute(name=create-durable-queue, value=FALSE)
         ModelNode address = adminSupport.getServerAddress()
                 .add("security-setting", "#")
@@ -347,8 +345,7 @@ public class JMSTopicManagementTestCase {
         result = execute(op, true);
         assertTrue(result.isDefined());
         for (ModelNode binding : result.asList()) {
-            if (binding.asString().equals(jndiName))
-                return;
+            if (binding.asString().equals(jndiName)) { return; }
         }
         Assert.fail(jndiName + " was not found");
     }
@@ -391,16 +388,13 @@ public class JMSTopicManagementTestCase {
         ModelNode result = execute(op, true);
         Assert.assertTrue(result.isDefined());
         for (ModelNode binding : result.asList()) {
-            if (binding.asString().equals(EXPORTED_PREFIX + getTopicJndiName()))
-                return;
+            if (binding.asString().equals(EXPORTED_PREFIX + getTopicJndiName())) { return; }
         }
         Assert.fail(getTopicJndiName() + " was not found");
     }
 
     @Test
     public void removeJMSTopicRemovesAllMessages() throws Exception {
-
-        thisTestIsFailingIntermittently("WFLY-5019");
 
         // create a durable subscriber
         final String subscriptionName = "removeJMSTopicRemovesAllMessages";
@@ -410,6 +404,8 @@ public class JMSTopicManagementTestCase {
         MessageProducer producer = session.createProducer(topic);
         producer.send(session.createTextMessage("A"));
 
+        TextMessage  message = (TextMessage)consumer.receive(TimeoutUtil.adjust(500));
+        Assert.assertNull("The message was received by the consumer, this is wrong as the connection is stopped", message);
         ModelNode operation = getTopicOperation("count-messages-for-subscription");
         operation.get("client-id").set(consumerConn.getClientID());
         operation.get("subscription-name").set(subscriptionName);
@@ -431,6 +427,56 @@ public class JMSTopicManagementTestCase {
         Assert.assertEquals(0, result.asInt());
     }
 
+    @Test
+    public void testPauseAndResume() throws Exception {
+
+        final ModelNode readAttr = getTopicOperation("read-attribute");
+        readAttr.get("name").set("paused");
+
+        ModelNode result = execute(readAttr, true);
+        Assert.assertTrue(result.isDefined());
+        Assert.assertFalse(result.asBoolean());
+
+        result = execute(getTopicOperation("pause"), true);
+        Assert.assertFalse(result.isDefined());
+
+        result = execute(readAttr, true);
+        Assert.assertTrue(result.isDefined());
+        Assert.assertTrue(result.asBoolean());
+
+        final String subscriptionName = "pauseJMSTopic";
+        TopicSubscriber consumer = consumerSession.createDurableSubscriber(topic, subscriptionName);
+        MessageProducer producer = session.createProducer(topic);
+        producer.send(session.createTextMessage("A"));
+
+        TextMessage message = (TextMessage)consumer.receive(TimeoutUtil.adjust(500));
+        Assert.assertNull("The message was received by the consumer, this is wrong as the connection is paused", message);
+        ModelNode operation = getTopicOperation("count-messages-for-subscription");
+        operation.get("client-id").set(consumerConn.getClientID());
+        operation.get("subscription-name").set(subscriptionName);
+        result = execute(operation, true);
+        assertTrue(result.isDefined());
+        Assert.assertEquals(1, result.asInt());
+
+        result = execute(getTopicOperation("resume"), true);
+        Assert.assertFalse(result.isDefined());
+
+        result = execute(readAttr, true);
+        Assert.assertTrue(result.isDefined());
+        Assert.assertFalse(result.asBoolean());
+
+        message = (TextMessage)consumer.receive(TimeoutUtil.adjust(500));
+        Assert.assertNotNull("The message was not received by the consumer, this is wrong as the connection is resumed", message);
+        Assert.assertEquals("A", message.getText());
+        Thread.sleep(TimeoutUtil.adjust(500));
+        operation = getTopicOperation("count-messages-for-subscription");
+        operation.get("client-id").set(consumerConn.getClientID());
+        operation.get("subscription-name").set(subscriptionName);
+        result = execute(operation, true);
+        assertTrue(result.isDefined());
+        Assert.assertEquals(0, result.asInt());
+    }
+
     private ModelNode getTopicOperation(String operationName) {
         final ModelNode address = adminSupport.getServerAddress()
                 .add("jms-topic", getTopicName());
@@ -441,15 +487,9 @@ public class JMSTopicManagementTestCase {
         ModelNode response = managementClient.getControllerClient().execute(op);
         final String outcome = response.get("outcome").asString();
         if (expectSuccess) {
-            if (!"success".equals(outcome)) {
-                System.out.println(response);
-            }
             Assert.assertEquals("success", outcome);
             return response.get("result");
         } else {
-            if ("success".equals(outcome)) {
-                System.out.println(response);
-            }
             Assert.assertEquals("failed", outcome);
             return response.get("failure-description");
         }
@@ -463,17 +503,15 @@ public class JMSTopicManagementTestCase {
         return "topic/" + getTopicName();
     }
 
-   static void applyUpdate(ModelNode update, final ModelControllerClient client) throws IOException {
+    static void applyUpdate(ModelNode update, final ModelControllerClient client) throws IOException {
         ModelNode result = client.execute(new OperationBuilder(update).build());
         if (result.hasDefined("outcome") && "success".equals(result.get("outcome").asString())) {
-            if (result.hasDefined("result")) {
+            /*if (result.hasDefined("result")) {
                 System.out.println(result.get("result"));
-            }
-        }
-        else if (result.hasDefined("failure-description")){
+            }*/
+        } else if (result.hasDefined("failure-description")) {
             throw new RuntimeException(result.get("failure-description").toString());
-        }
-        else {
+        } else {
             throw new RuntimeException("Operation not successful; outcome = " + result.get("outcome"));
         }
     }

@@ -28,6 +28,7 @@ import java.util.Map;
 
 import javax.ejb.TransactionManagementType;
 
+import com.arjuna.ats.jbossatx.jta.TransactionManagerService;
 import org.jboss.as.ee.component.Attachments;
 import org.jboss.as.ee.component.ComponentConfiguration;
 import org.jboss.as.ee.component.ComponentDescription;
@@ -77,7 +78,7 @@ import org.wildfly.iiop.openjdk.service.CorbaPOAService;
 import org.wildfly.iiop.openjdk.service.IORSecConfigMetaDataService;
 
 /**
- * This is the DUP that sets up IIOP for EJB's
+ * This is the DUP that sets up IIOP for Jakarta Enterprise Beans's
  */
 public class EjbIIOPDeploymentUnitProcessor implements DeploymentUnitProcessor {
 
@@ -90,24 +91,21 @@ public class EjbIIOPDeploymentUnitProcessor implements DeploymentUnitProcessor {
     @Override
     public void deploy(final DeploymentPhaseContext phaseContext) throws DeploymentUnitProcessingException {
 
-
         final DeploymentUnit deploymentUnit = phaseContext.getDeploymentUnit();
         if (!IIOPDeploymentMarker.isIIOPDeployment(deploymentUnit)) {
             return;
         }
 
-        final EEModuleDescription moduleDescription = deploymentUnit.getAttachment(Attachments.EE_MODULE_DESCRIPTION);
         if (!EjbDeploymentMarker.isEjbDeployment(deploymentUnit)) {
             return;
         }
-
 
         // a bean-name -> IIOPMetaData map, reflecting the assembly descriptor IIOP configuration.
         Map<String, IIOPMetaData> iiopMetaDataMap = new HashMap<String, IIOPMetaData>();
         final EjbJarMetaData ejbMetaData = deploymentUnit.getAttachment(EjbDeploymentAttachmentKeys.EJB_JAR_METADATA);
         if (ejbMetaData != null && ejbMetaData.getAssemblyDescriptor() != null) {
             List<IIOPMetaData> iiopMetaDatas = ejbMetaData.getAssemblyDescriptor().getAny(IIOPMetaData.class);
-            if (iiopMetaDatas != null && iiopMetaDatas.size() > 0) {
+            if (iiopMetaDatas != null && !iiopMetaDatas.isEmpty()) {
                 for (IIOPMetaData metaData : iiopMetaDatas) {
                     iiopMetaDataMap.put(metaData.getEjbName(), metaData);
                 }
@@ -115,6 +113,7 @@ public class EjbIIOPDeploymentUnitProcessor implements DeploymentUnitProcessor {
         }
 
         final DeploymentReflectionIndex deploymentReflectionIndex = deploymentUnit.getAttachment(org.jboss.as.server.deployment.Attachments.REFLECTION_INDEX);
+        final EEModuleDescription moduleDescription = deploymentUnit.getAttachment(Attachments.EE_MODULE_DESCRIPTION);
         final Module module = deploymentUnit.getAttachment(org.jboss.as.server.deployment.Attachments.MODULE);
         if (moduleDescription != null) {
             for (final ComponentDescription componentDescription : moduleDescription.getComponentDescriptions()) {
@@ -259,9 +258,7 @@ public class EjbIIOPDeploymentUnitProcessor implements DeploymentUnitProcessor {
         builder.addDependency(CorbaNamingService.SERVICE_NAME, NamingContextExt.class, service.getCorbaNamingContext());
         builder.addDependency(IORSecConfigMetaDataService.SERVICE_NAME, IORSecurityConfigMetaData.class, service.getIORSecConfigMetaDataInjectedValue());
         builder.addDependency(Services.JBOSS_SERVICE_MODULE_LOADER, ServiceModuleLoader.class, service.getServiceModuleLoaderInjectedValue());
-
-        //we need the arjunta transaction manager to be up, as it performs some initialization that is required by the orb interceptors
-        builder.addDependency(TxnServices.JBOSS_TXN_ARJUNA_TRANSACTION_MANAGER);
+        builder.addDependency(TxnServices.JBOSS_TXN_ARJUNA_TRANSACTION_MANAGER, TransactionManagerService.class, service.getTransactionManagerInjectedValue());
         builder.install();
 
     }

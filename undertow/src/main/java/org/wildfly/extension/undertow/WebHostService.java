@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2014, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -21,12 +21,13 @@
  */
 package org.wildfly.extension.undertow;
 
-import java.io.File;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.servlet.Servlet;
 
 import io.undertow.server.HttpHandler;
-import io.undertow.server.handlers.resource.FileResourceManager;
+import io.undertow.server.handlers.resource.PathResourceManager;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.DeploymentManager;
 import io.undertow.servlet.api.ServletContainer;
@@ -38,35 +39,39 @@ import org.jboss.as.web.host.WebDeploymentController;
 import org.jboss.as.web.host.WebHost;
 import org.jboss.msc.service.Service;
 import org.jboss.msc.service.StartContext;
-import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
-import org.jboss.msc.value.InjectedValue;
+import org.wildfly.extension.requestcontroller.ControlPoint;
+import org.wildfly.extension.requestcontroller.RequestController;
+import org.wildfly.extension.undertow.deployment.GlobalRequestControllerHandler;
 
 /**
  * Implementation of WebHost from common web, service starts with few more dependencies than default Host
  *
  * @author Tomaz Cerar (c) 2013 Red Hat Inc.
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
-class WebHostService implements Service<WebHost>, WebHost {
-    private final InjectedValue<Server> server = new InjectedValue<>();
-    private final InjectedValue<Host> host = new InjectedValue<>();
+final class WebHostService implements Service<WebHost>, WebHost {
+    private final Consumer<WebHost> webHostConsumer;
+    private final Supplier<Server> server;
+    private final Supplier<Host> host;
+    private final Supplier<RequestController> requestController;
+    private volatile ControlPoint controlPoint;
 
-    protected InjectedValue<Server> getServer() {
-        return server;
-    }
-
-    protected InjectedValue<Host> getHost() {
-        return host;
+    WebHostService(final Consumer<WebHost> webHostConsumer, final Supplier<Server> server,
+                   final Supplier<Host> host, final Supplier<RequestController> requestController) {
+        this.webHostConsumer = webHostConsumer;
+        this.server = server;
+        this.host = host;
+        this.requestController = requestController;
     }
 
     @Override
-    public WebDeploymentController addWebDeployment(final WebDeploymentBuilder webDeploymentBuilder) throws Exception {
-
+    public WebDeploymentController addWebDeployment(final WebDeploymentBuilder webDeploymentBuilder) {
         DeploymentInfo d = new DeploymentInfo();
         d.setDeploymentName(webDeploymentBuilder.getContextRoot());
         d.setContextPath(webDeploymentBuilder.getContextRoot());
         d.setClassLoader(webDeploymentBuilder.getClassLoader());
-        d.setResourceManager(new FileResourceManager(new File(webDeploymentBuilder.getDocumentRoot().getAbsolutePath()), 1024 * 1024));
+        d.setResourceManager(new PathResourceManager(webDeploymentBuilder.getDocumentRoot().toPath().toAbsolutePath(), 1024L * 1024L));
         d.setIgnoreFlush(false);
         for (ServletBuilder servlet : webDeploymentBuilder.getServlets()) {
             ServletInfo s;
@@ -85,6 +90,10 @@ class WebHostService implements Service<WebHost>, WebHost {
             d.addServlet(s);
         }
 
+        if (controlPoint != null) {
+            d.addOuterHandlerChainWrapper(GlobalRequestControllerHandler.wrapper(controlPoint, webDeploymentBuilder.getAllowRequestPredicates()));
+        }
+
         return new WebDeploymentControllerImpl(d);
     }
 
@@ -99,7 +108,7 @@ class WebHostService implements Service<WebHost>, WebHost {
 
         @Override
         public void create() throws Exception {
-            ServletContainer container = server.getValue().getServletContainer().getValue().getServletContainer();
+            ServletContainer container = server.get().getServletContainer().getValue().getServletContainer();
             manager = container.addDeployment(deploymentInfo);
             manager.deploy();
         }
@@ -107,31 +116,38 @@ class WebHostService implements Service<WebHost>, WebHost {
         @Override
         public void start() throws Exception {
             HttpHandler handler = manager.start();
-            host.getValue().registerDeployment(manager.getDeployment(), handler);
+            host.get().registerDeployment(manager.getDeployment(), handler);
         }
 
         @Override
         public void stop() throws Exception {
-            host.getValue().unregisterDeployment(manager.getDeployment());
+            host.get().unregisterDeployment(manager.getDeployment());
             manager.stop();
         }
 
         @Override
         public void destroy() throws Exception {
             manager.undeploy();
-            ServletContainer container = server.getValue().getServletContainer().getValue().getServletContainer();
+            ServletContainer container = server.get().getServletContainer().getValue().getServletContainer();
             container.removeDeployment(deploymentInfo);
         }
     }
 
     @Override
-    public void start(StartContext context) throws StartException {
-
+    public void start(final StartContext context) {
+        RequestController rq = requestController != null ? requestController.get() : null;
+        if (rq != null) {
+            controlPoint = rq.getControlPoint("", "org.wildfly.undertow.webhost." + server.get().getName() + "." + host.get().getName());
+        }
+        webHostConsumer.accept(this);
     }
 
     @Override
-    public void stop(StopContext context) {
-
+    public void stop(final StopContext context) {
+        webHostConsumer.accept(null);
+        if (controlPoint != null) {
+            requestController.get().removeControlPoint(controlPoint);
+        }
     }
 
     @Override

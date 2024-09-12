@@ -25,6 +25,7 @@ package org.wildfly.clustering.marshalling;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.util.OptionalInt;
 
 /**
  * Service provider interface for custom externalizers.
@@ -58,5 +59,13 @@ public interface Externalizer<T> {
      * Returns the target class of the object to externalize.
      * @return a class to be externalized
      */
-    Class<? extends T> getTargetClass();
+    Class<T> getTargetClass();
+
+    /**
+     * Returns the size of the buffer to use for marshalling the specified object, if known.
+     * @return the buffer size (in bytes), or empty if unknown.
+     */
+    default OptionalInt size(T object) {
+        return OptionalInt.empty();
+    }
 }

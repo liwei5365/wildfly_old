@@ -29,8 +29,9 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUB
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VALUE;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.WRITE_ATTRIBUTE_OPERATION;
 
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
+import javax.inject.Inject;
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
@@ -62,9 +63,8 @@ import org.junit.runner.RunWith;
 
 /**
  * Tests that the Resource injection with substitution works as expected
- * 
+ *
  * @author wangchao
- * 
  */
 @RunWith(Arquillian.class)
 @ServerSetup({ ResourceInjectionSubstitutionTestCase.SystemPropertySetup.class })
@@ -77,6 +77,8 @@ public class ResourceInjectionSubstitutionTestCase {
 
     private SimpleSLSB slsb;
     private SimpleSFSB sfsb;
+    @Inject
+    private SimpleCDIBean cdiBean;
 
     static class SystemPropertySetup implements ServerSetupTask {
 
@@ -253,5 +255,15 @@ public class ResourceInjectionSubstitutionTestCase {
         } finally {
             con.close();
         }
+    }
+
+    /**
+     * Test resource injection with SFSB
+     */
+    @Test
+    public void testResourceInjectionSubstitutionCDI() {
+        Assert.assertTrue("@Resource with name wasn't injected in CDI bean", cdiBean.isResourceWithNameInjected());
+        Assert.assertTrue("@Resource with lookup wasn't injected in CDI bean", cdiBean.isResourceWithLookupNameInjected());
+        Assert.assertTrue("@Resource with mappedName wasn't injected in CDI bean", cdiBean.isResourceWithMappedNameInjected());
     }
 }

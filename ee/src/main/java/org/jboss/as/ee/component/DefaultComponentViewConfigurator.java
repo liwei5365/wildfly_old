@@ -1,7 +1,29 @@
+/*
+ * JBoss, Home of Professional Open Source.
+ * Copyright 2011, Red Hat, Inc., and individual contributors
+ * as indicated by the @author tags. See the copyright.txt file in the
+ * distribution for a full listing of individual contributors.
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+ */
+
 package org.jboss.as.ee.component;
 
 import java.io.Serializable;
-import java.util.Map;
+import java.lang.reflect.Constructor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jboss.as.ee.logging.EeLogger;
@@ -9,6 +31,7 @@ import org.jboss.as.ee.component.serialization.WriteReplaceInterface;
 import org.jboss.as.server.deployment.DeploymentPhaseContext;
 import org.jboss.as.server.deployment.DeploymentUnit;
 import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
+import org.jboss.as.server.deployment.ModuleClassFactory;
 import org.jboss.as.server.deployment.reflect.ProxyMetadataSource;
 import org.jboss.invocation.proxy.ProxyConfiguration;
 import org.jboss.invocation.proxy.ProxyFactory;
@@ -18,6 +41,7 @@ import org.jboss.msc.service.ServiceName;
 
 /**
  * @author Stuart Douglas
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
 class DefaultComponentViewConfigurator extends AbstractComponentConfigurator implements ComponentConfigurator {
 
@@ -45,6 +69,7 @@ class DefaultComponentViewConfigurator extends AbstractComponentConfigurator imp
                 proxyConfiguration.setProxyName(viewClass.getName() + "$$$view" + PROXY_ID.incrementAndGet());
             }
             proxyConfiguration.setClassLoader(module.getClassLoader());
+            proxyConfiguration.setClassFactory(ModuleClassFactory.INSTANCE);
             proxyConfiguration.setProtectionDomain(viewClass.getProtectionDomain());
             proxyConfiguration.setMetadataSource(proxyReflectionIndex);
             if (view.isSerializable()) {
@@ -54,9 +79,26 @@ class DefaultComponentViewConfigurator extends AbstractComponentConfigurator imp
                 }
             }
 
+            Class<?> markupClass;
+            try {
+                if (view.getMarkupClassName() != null) {
+                    markupClass = module.getClassLoader().loadClass(view.getMarkupClassName());
+                    proxyConfiguration.addAdditionalInterface(markupClass);
+                }
+            } catch (ClassNotFoundException e) {
+                throw EeLogger.ROOT_LOGGER.cannotLoadViewClass(e, view.getMarkupClassName(), configuration);
+            }
+
             //we define it in the modules class loader to prevent permgen leaks
             if (viewClass.isInterface()) {
-                proxyConfiguration.setSuperClass(Object.class);
+                final Class<?> componentClass = configuration.getComponentClass();
+                Constructor<?> defaultConstructor = null;
+                try {
+                    defaultConstructor = componentClass.getConstructor();
+                } catch (Exception e) {
+                    //ignore
+                }
+                proxyConfiguration.setSuperClass(defaultConstructor == null ? Object.class : componentClass);
                 proxyConfiguration.addAdditionalInterface(viewClass);
                 viewConfiguration = view.createViewConfiguration(viewClass, configuration, new ProxyFactory(proxyConfiguration));
             } else {
@@ -71,11 +113,10 @@ class DefaultComponentViewConfigurator extends AbstractComponentConfigurator imp
 
         configuration.getStartDependencies().add(new DependencyConfigurator<ComponentStartService>() {
             @Override
-            public void configureDependency(final ServiceBuilder<?> serviceBuilder, ComponentStartService service) throws DeploymentUnitProcessingException {
-                for (final Map.Entry<ServiceName, ServiceBuilder.DependencyType> entry : description.getDependencies().entrySet()) {
-                    serviceBuilder.addDependency(entry.getValue(), entry.getKey());
+            public void configureDependency(final ServiceBuilder<?> serviceBuilder, ComponentStartService service) {
+                for (ServiceName dependencyName : description.getDependencies()) {
+                    serviceBuilder.requires(dependencyName);
                 }
-
             }
         });
     }

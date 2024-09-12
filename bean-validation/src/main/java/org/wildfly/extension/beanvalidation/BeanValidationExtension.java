@@ -36,7 +36,7 @@ import org.jboss.as.controller.parsing.ExtensionParsingContext;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 
 /*
- * This class implements the bean validation extension.
+ * This class implements the Jakarta Bean Validation extension.
  *
  * @author Eduardo Martins
  */
@@ -67,6 +67,6 @@ public class BeanValidationExtension implements Extension {
 
     @Override
     public void initializeParsers(final ExtensionParsingContext context) {
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.BEAN_VALIDATION_1_0.getUriString(), BeanValidationSubsystemParser.INSTANCE);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, Namespace.BEAN_VALIDATION_1_0.getUriString(), () -> BeanValidationSubsystemParser.INSTANCE);
     }
 }

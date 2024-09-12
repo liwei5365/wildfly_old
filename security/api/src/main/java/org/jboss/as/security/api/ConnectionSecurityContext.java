@@ -25,23 +25,27 @@ package org.jboss.as.security.api;
 import java.security.Principal;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 
 import javax.security.auth.Subject;
 
-import org.jboss.as.core.security.SubjectUserInfo;
+import org.jboss.as.core.security.RealmGroup;
+import org.jboss.as.core.security.RealmRole;
+import org.jboss.as.core.security.RealmUser;
+import org.jboss.as.core.security.api.RealmPrincipal;
+import org.jboss.as.security.remoting.RemoteConnection;
 import org.jboss.as.security.remoting.RemotingContext;
-import org.jboss.remoting3.Connection;
-import org.jboss.remoting3.security.UserInfo;
 import org.jboss.security.SecurityContext;
 import org.jboss.security.SecurityContextAssociation;
 import org.jboss.security.SecurityContextFactory;
+import org.wildfly.security.auth.server.SecurityIdentity;
 
 /**
  * Utility class to allow inspection and replacement of identity associated with the Connection.
  *
  * As a connection is established to the application server the remote user is authenticated, this API allows the
  * {@link Collection} of {@link Principal}s for the remote user to be obtained, the API then allows for an alternative identity
- * to be pushed by interceptors for validation in the security interceptors for subsequent EJB invocations.
+ * to be pushed by interceptors for validation in the security interceptors for subsequent Jakarta Enterprise Beans invocations.
  *
  * @author <a href="mailto:darran.lofthouse@jboss.com">Darran Lofthouse</a>
  */
@@ -60,13 +64,20 @@ public class ConnectionSecurityContext {
      *         the {@link Thread}
      */
     public static Collection<Principal> getConnectionPrincipals() {
-        Connection con = RemotingContext.getConnection();
+        RemoteConnection con = RemotingContext.getRemoteConnection();
 
         if (con != null) {
-            UserInfo userInfo = con.getUserInfo();
-            if (userInfo instanceof SubjectUserInfo) {
-                SubjectUserInfo sinfo = (SubjectUserInfo) userInfo;
-                return sinfo.getPrincipals();
+            Collection<Principal> principals = new HashSet<>();
+            SecurityIdentity localIdentity = con.getSecurityIdentity();
+            if (localIdentity != null) {
+                final Principal principal = localIdentity.getPrincipal();
+                final String realm = principal instanceof RealmPrincipal ? ((RealmPrincipal) principal).getRealm() : null;
+                principals.add(realm == null ? new RealmUser(principal.getName()) : new RealmUser(realm, principal.getName()));
+                for (String role : localIdentity.getRoles()) {
+                    principals.add(new RealmGroup(role));
+                    principals.add(new RealmRole(role));
+                }
+                return principals;
             } else {
                 return Collections.emptySet();
             }
@@ -78,12 +89,12 @@ public class ConnectionSecurityContext {
     /**
      * Push a new {@link Principal} and Credential pair.
      *
-     * This method is to be called before an EJB invocation is passed through it's security interceptor, at that point the
+     * This method is to be called before an Jakarta Enterprise Beans invocation is passed through it's security interceptor, at that point the
      * Principal and Credential pair can be verified.
      *
      * Note: This method should be called from within a {@link PrivilegedAction}.
      *
-     * @param principal - The alternative {@link Principal} to use in verification before the next EJB is called.
+     * @param principal - The alternative {@link Principal} to use in verification before the next Jakarta Enterprise Beans are called.
      * @param credential - The credential to verify with the {@linl Principal}
      * @return A {@link ContextStateCache} that can later be used to pop the identity pushed here and restore internal state to it's previous values.
      * @throws Exception If there is a problem associating the new {@link Principal} and Credential pair.
@@ -94,7 +105,7 @@ public class ConnectionSecurityContext {
         SecurityContext nextContext = SecurityContextFactory.createSecurityContext(principal, credential, new Subject(), "USER_DELEGATION");
         SecurityContextAssociation.setSecurityContext(nextContext);
 
-        Connection con = RemotingContext.getConnection();
+        RemoteConnection con = RemotingContext.getRemoteConnection();
         RemotingContext.clear();
 
         return new ContextStateCache(con, current);

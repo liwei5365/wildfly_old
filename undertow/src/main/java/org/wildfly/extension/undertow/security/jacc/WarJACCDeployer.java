@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2011, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -22,8 +22,8 @@
 
 package org.wildfly.extension.undertow.security.jacc;
 
-import org.jboss.as.security.deployment.AbstractSecurityDeployer;
-import org.jboss.as.security.service.JaccService;
+import org.jboss.as.ee.security.AbstractSecurityDeployer;
+import org.jboss.as.ee.security.JaccService;
 import org.jboss.as.server.deployment.AttachmentKey;
 import org.jboss.as.web.common.WarMetaData;
 

@@ -21,8 +21,6 @@
  */
 package org.wildfly.clustering.ejb.infinispan;
 
-import java.util.concurrent.Executor;
-
 import org.wildfly.clustering.ejb.BeanPassivationConfiguration;
 import org.wildfly.clustering.ejb.PassivationListener;
 
@@ -40,21 +38,5 @@ public interface PassivationConfiguration<T> {
      */
     PassivationListener<T> getPassivationListener();
 
-    /**
-     * Indicates whether the cache used by this bean manager uses a cache store and can evict beans.
-     * If so, passivation events are only triggered when a bean is passivated.
-     * @return true, if bean can be evicted, false otherwise.
-     */
-    boolean isEvictionAllowed();
-
-    /**
-     * Indicates whether the cache used by this bean manager will serialize a given bean on every request.
-     * If so, passivation events will be triggered every request.
-     * @return true, if this cache is persistent, false otherwise.
-     */
-    boolean isPersistent();
-
     BeanPassivationConfiguration getConfiguration();
-
-    Executor getExecutor();
 }

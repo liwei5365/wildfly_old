@@ -30,6 +30,8 @@ import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.as.arquillian.api.ServerSetup;
+import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.controller.client.helpers.Operations;
 import org.jboss.as.network.NetworkUtils;
 import org.jboss.as.test.integration.ws.WrapThreadContextClassLoader;
 import org.jboss.as.test.integration.ws.wsse.trust.actas.ActAsServiceIface;
@@ -37,11 +39,15 @@ import org.jboss.as.test.integration.ws.wsse.trust.bearer.BearerIface;
 import org.jboss.as.test.integration.ws.wsse.trust.holderofkey.HolderOfKeyIface;
 import org.jboss.as.test.integration.ws.wsse.trust.onbehalfof.OnBehalfOfServiceIface;
 import org.jboss.as.test.integration.ws.wsse.trust.service.ServiceIface;
+import org.jboss.as.test.shared.TestSuiteEnvironment;
+import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.exporter.ZipExporter;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.Assert;
+import org.junit.FixMethodOrder;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -56,6 +62,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
 import java.util.StringTokenizer;
 
 import static org.junit.Assert.assertEquals;
@@ -71,6 +78,7 @@ import static org.junit.Assert.assertEquals;
  */
 @RunWith(Arquillian.class)
 @ServerSetup(WSTrustTestCaseSecuritySetupTask.class)
+@FixMethodOrder
 public class WSTrustTestCase {
     private static final String STS_DEP = "jaxws-samples-wsse-policy-trust-sts";
     private static final String SERVER_DEP = "jaxws-samples-wsse-policy-trust";
@@ -91,7 +99,7 @@ public class WSTrustTestCase {
         WebArchive archive = ShrinkWrap.create(WebArchive.class, STS_DEP + ".war");
         archive
                 .setManifest(new StringAsset("Manifest-Version: 1.0\n"
-                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.apache.cxf.impl annotations\n")) //cxf impl required to extend STS impl
+                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.jboss.ws.cxf.sts annotations\n"))
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.sts.STSCallbackHandler.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.sts.SampleSTS.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.shared.WSTrustAppUtils.class)
@@ -146,7 +154,7 @@ public class WSTrustTestCase {
         WebArchive archive = ShrinkWrap.create(WebArchive.class, ACT_AS_SERVER_DEP + ".war");
         archive
                 .setManifest(new StringAsset("Manifest-Version: 1.0\n"
-                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client, org.apache.cxf.impl\n"))
+                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client, org.jboss.ws.cxf.sts\n"))
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.SayHello.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.SayHelloResponse.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.actas.ActAsCallbackHandler.class)
@@ -168,7 +176,7 @@ public class WSTrustTestCase {
         WebArchive archive = ShrinkWrap.create(WebArchive.class, ON_BEHALF_OF_SERVER_DEP + ".war");
         archive
                 .setManifest(new StringAsset("Manifest-Version: 1.0\n"
-                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client, org.apache.cxf.impl\n"))
+                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client, org.jboss.ws.cxf.sts\n"))
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.SayHello.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.SayHelloResponse.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.onbehalfof.OnBehalfOfCallbackHandler.class)
@@ -190,7 +198,7 @@ public class WSTrustTestCase {
         WebArchive archive = ShrinkWrap.create(WebArchive.class, HOLDER_OF_KEY_STS_DEP + ".war");
         archive
                 .setManifest(new StringAsset("Manifest-Version: 1.0\n"
-                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.apache.cxf.impl annotations\n")) //cxf impl required to extend STS impl
+                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.jboss.ws.cxf.sts annotations\n"))
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.stsholderofkey.STSHolderOfKeyCallbackHandler.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.stsholderofkey.SampleSTSHolderOfKey.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.shared.WSTrustAppUtils.class)
@@ -226,7 +234,7 @@ public class WSTrustTestCase {
         WebArchive archive = ShrinkWrap.create(WebArchive.class, BEARER_STS_DEP + ".war");
         archive
                 .setManifest(new StringAsset("Manifest-Version: 1.0\n"
-                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.apache.cxf.impl annotations\n")) //cxf impl required to extend STS impl
+                        + "Dependencies: org.jboss.ws.cxf.jbossws-cxf-client,org.jboss.ws.cxf.sts annotations\n"))
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.stsbearer.STSBearerCallbackHandler.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.stsbearer.SampleSTSBearer.class)
                 .addClass(org.jboss.as.test.integration.ws.wsse.trust.shared.WSTrustAppUtils.class)
@@ -264,9 +272,24 @@ public class WSTrustTestCase {
         jar.addManifest()
                 .addAsManifestResource(WSTrustTestCase.class.getPackage(), "META-INF/clientKeystore.properties", "clientKeystore.properties")
                 .addAsManifestResource(WSTrustTestCase.class.getPackage(), "META-INF/clientstore.jks", "clientstore.jks");
-        File jarFile = new File("jaxws-samples-wsse-policy-trust-client.jar");
+        File jarFile = new File(TestSuiteEnvironment.getTmpDir(), "jaxws-samples-wsse-policy-trust-client.jar");
         jar.as(ZipExporter.class).exportTo(jarFile, true);
         return jarFile.getAbsolutePath();
+    }
+
+    @Test
+    @OperateOnDeployment(HOLDER_OF_KEY_STS_DEP)
+    @RunAsClient
+    public void testReadDeploymentResource(@ArquillianResource ManagementClient client) throws Exception {
+        final ModelNode address = Operations.createAddress("deployment", HOLDER_OF_KEY_STS_DEP + ".war");
+        final ModelNode op = Operations.createReadResourceOperation(address);
+        op.get("include-runtime").set(true);
+        op.get("recursive").set(true);
+        final ModelNode result = client.getControllerClient().execute(op);
+        if (!Operations.isSuccessfulOutcome(result)) {
+            Assert.fail("Expected to be able to read the resource at deployment=" + HOLDER_OF_KEY_STS_DEP + ".war: "
+                    + Operations.getFailureDescription(result).asString());
+        }
     }
 
     /**
@@ -463,7 +486,7 @@ public class WSTrustTestCase {
             BusFactory.setThreadDefaultBus(bus);
 
             final QName serviceName = new QName("http://www.jboss.org/jbossws/ws-extensions/holderofkeywssecuritypolicy", "HolderOfKeyService");
-            final URL wsdlURL = new URL("https", serviceURL.getHost(), serviceURL.getPort() - 8080 + 8443, "/jaxws-samples-wsse-policy-trust-holderofkey/HolderOfKeyService?wsdl");
+            final URL wsdlURL = new URL("https", serviceURL.getHost(), serviceURL.getPort() - 8080 + 8444, "/jaxws-samples-wsse-policy-trust-holderofkey/HolderOfKeyService?wsdl");
             Service service = Service.create(wsdlURL, serviceName);
             HolderOfKeyIface proxy = (HolderOfKeyIface) service.getPort(HolderOfKeyIface.class);
 
@@ -531,7 +554,7 @@ public class WSTrustTestCase {
     private static String replaceNodeAddress(String resourceName) {
         String content = null;
         try {
-            content = IOUtils.toString(WSTrustTestCase.class.getResourceAsStream(resourceName), "UTF-8");
+            content = IOUtils.toString(WSTrustTestCase.class.getResourceAsStream(resourceName), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new RuntimeException("Exception during replacing node address in resource", e);
         }

@@ -21,60 +21,43 @@
  */
 package org.wildfly.clustering.server.dispatcher;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.function.Predicate;
 
-import org.jboss.marshalling.Marshaller;
-import org.jboss.marshalling.Marshalling;
-import org.jboss.marshalling.Unmarshaller;
-import org.jgroups.blocks.RpcDispatcher;
-import org.jgroups.util.Buffer;
-import org.wildfly.clustering.jgroups.spi.ChannelFactory;
-import org.wildfly.clustering.marshalling.jboss.IndexExternalizer;
-import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.marshalling.spi.IndexSerializer;
+import org.wildfly.clustering.marshalling.spi.ByteBufferMarshaller;
 
 /**
  * Marshalling strategy for the command response.
  * @author Paul Ferraro
- *
- * @param <C> command execution context
  */
-public class CommandResponseMarshaller implements RpcDispatcher.Marshaller {
-    private final MarshallingContext context;
-    private final ChannelFactory factory;
+public class CommandResponseMarshaller implements org.jgroups.blocks.Marshaller {
+    private final ByteBufferMarshaller marshaller;
+    private final Predicate<ByteBuffer> unknownForkPredicate;
 
     CommandResponseMarshaller(ChannelCommandDispatcherFactoryConfiguration config) {
-        this.context = config.getMarshallingContext();
-        this.factory = config.getChannelFactory();
+        this.marshaller = config.getMarshaller();
+        this.unknownForkPredicate = config.getUnknownForkPredicate();
     }
 
     @Override
-    public Buffer objectToBuffer(Object object) throws Exception {
-        int version = this.context.getCurrentVersion();
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream output = new DataOutputStream(bytes)) {
-            IndexExternalizer.VARIABLE.writeData(output, version);
-            try (Marshaller marshaller = this.context.createMarshaller(version)) {
-                marshaller.start(Marshalling.createByteOutput(output));
-                marshaller.writeObject(object);
-                marshaller.flush();
-            }
-        }
-        return new Buffer(bytes.toByteArray());
+    public void objectToStream(Object object, DataOutput stream) throws IOException {
+        ByteBuffer buffer = this.marshaller.write(object);
+
+        int length = buffer.limit() - buffer.arrayOffset();
+        IndexSerializer.VARIABLE.writeInt(stream, length);
+        stream.write(buffer.array(), buffer.arrayOffset(), length);
     }
 
     @Override
-    public Object objectFromBuffer(byte[] buffer, int offset, int length) throws Exception {
-        if (this.factory.isUnknownForkResponse(ByteBuffer.wrap(buffer, offset, length))) return NoSuchService.INSTANCE;
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(buffer, offset, length))) {
-            int version = IndexExternalizer.VARIABLE.readData(input);
-            try (Unmarshaller unmarshaller = this.context.createUnmarshaller(version)) {
-                unmarshaller.start(Marshalling.createByteInput(input));
-                return unmarshaller.readObject();
-            }
-        }
+    public Object objectFromStream(DataInput stream) throws IOException {
+        int size = IndexSerializer.VARIABLE.readInt(stream);
+        byte[] bytes = new byte[size];
+        stream.readFully(bytes);
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        return this.unknownForkPredicate.test(buffer) ? NoSuchService.INSTANCE : this.marshaller.read(buffer);
     }
 }

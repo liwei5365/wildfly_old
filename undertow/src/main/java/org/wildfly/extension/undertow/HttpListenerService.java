@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source.
- * Copyright 2013, Red Hat, Inc., and individual contributors
+ * Copyright 2017, Red Hat, Inc., and individual contributors
  * as indicated by the @author tags. See the copyright.txt file in the
  * distribution for a full listing of individual contributors.
  *
@@ -24,10 +24,9 @@ package org.wildfly.extension.undertow;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.function.Consumer;
 
 import io.undertow.UndertowOptions;
-import io.undertow.server.HandlerWrapper;
-import io.undertow.server.HttpHandler;
 import io.undertow.server.ListenerRegistry;
 import io.undertow.server.OpenListener;
 import io.undertow.server.handlers.ChannelUpgradeHandler;
@@ -36,12 +35,13 @@ import io.undertow.server.handlers.SSLHeaderHandler;
 import io.undertow.server.protocol.http.HttpOpenListener;
 import io.undertow.server.protocol.http2.Http2UpgradeHandler;
 
+import org.jboss.as.controller.PathAddress;
 import org.jboss.as.network.NetworkUtils;
+import org.jboss.as.server.deployment.DelegatingSupplier;
+import org.jboss.msc.Service;
+import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.StartContext;
-import org.jboss.msc.service.ValueService;
-import org.jboss.msc.value.ImmediateValue;
-import org.jboss.msc.value.InjectedValue;
 import org.wildfly.extension.undertow.logging.UndertowLogger;
 import org.xnio.ChannelListener;
 import org.xnio.IoUtils;
@@ -50,59 +50,50 @@ import org.xnio.StreamConnection;
 import org.xnio.XnioWorker;
 import org.xnio.channels.AcceptingChannel;
 
+import static org.wildfly.extension.undertow.HttpListenerResourceDefinition.HTTP_UPGRADE_REGISTRY_CAPABILITY;
+
 /**
  * @author Stuart Douglas
  * @author Tomaz Cerar
+ * @author <a href="mailto:ropalka@redhat.com">Richard Opalka</a>
  */
-public class HttpListenerService extends ListenerService<HttpListenerService> {
+public class HttpListenerService extends ListenerService {
     private volatile AcceptingChannel<StreamConnection> server;
 
     private final ChannelUpgradeHandler httpUpgradeHandler = new ChannelUpgradeHandler();
-    protected final InjectedValue<ListenerRegistry> httpListenerRegistry = new InjectedValue<>();
+    /**
+     * @deprecated Replaced by HTTP_UPGRADE_REGISTRY.getCapabilityServiceName()
+     */
+    @Deprecated
+    protected final DelegatingSupplier<ListenerRegistry> httpListenerRegistry = new DelegatingSupplier<>();
     static final ServiceName HTTP_UPGRADE_REGISTRY = ServiceName.JBOSS.append("http-upgrade-registry");
     static final String PROTOCOL = "http";
 
     private final String serverName;
+    private final PathAddress address ;
 
-    public HttpListenerService(String name, final String serverName, OptionMap listenerOptions, OptionMap socketOptions, boolean certificateForwarding, boolean proxyAddressForwarding) {
-        super(name, listenerOptions, socketOptions);
+    public HttpListenerService(final Consumer<ListenerService> serviceConsumer, final PathAddress address, final String serverName, OptionMap listenerOptions, OptionMap socketOptions, boolean certificateForwarding, boolean proxyAddressForwarding, boolean proxyProtocol) {
+        super(serviceConsumer, address.getLastElement().getValue(), listenerOptions, socketOptions, proxyProtocol);
+        this.address = address;
         this.serverName = serverName;
-        addWrapperHandler(new HandlerWrapper() {
-            @Override
-            public HttpHandler wrap(final HttpHandler handler) {
-                httpUpgradeHandler.setNonUpgradeHandler(handler);
-                return httpUpgradeHandler;
-            }
+        addWrapperHandler(handler -> {
+            httpUpgradeHandler.setNonUpgradeHandler(handler);
+            return httpUpgradeHandler;
         });
         if(listenerOptions.get(UndertowOptions.ENABLE_HTTP2, false)) {
-            addWrapperHandler(new HandlerWrapper() {
-                @Override
-                public HttpHandler wrap(HttpHandler handler) {
-                    return new Http2UpgradeHandler(handler);
-                }
-            });
+            addWrapperHandler(Http2UpgradeHandler::new);
         }
         if (certificateForwarding) {
-            addWrapperHandler(new HandlerWrapper() {
-                @Override
-                public HttpHandler wrap(HttpHandler handler) {
-                    return new SSLHeaderHandler(handler);
-                }
-            });
+            addWrapperHandler(SSLHeaderHandler::new);
         }
         if (proxyAddressForwarding) {
-            addWrapperHandler(new HandlerWrapper() {
-                @Override
-                public HttpHandler wrap(HttpHandler handler) {
-                    return new ProxyPeerAddressHandler(handler);
-                }
-            });
+            addWrapperHandler(ProxyPeerAddressHandler::new);
         }
     }
 
     @Override
     protected OpenListener createOpenListener() {
-        return new HttpOpenListener(getBufferPool().getValue(), OptionMap.builder().addAll(commonOptions).addAll(listenerOptions).set(UndertowOptions.ENABLE_CONNECTOR_STATISTICS, getUndertowService().isStatisticsEnabled()).getMap());
+        return new HttpOpenListener(getBufferPool().get(), OptionMap.builder().addAll(commonOptions).addAll(listenerOptions).set(UndertowOptions.ENABLE_STATISTICS, getUndertowService().isStatisticsEnabled()).getMap());
     }
 
     @Override
@@ -114,33 +105,42 @@ public class HttpListenerService extends ListenerService<HttpListenerService> {
     protected void preStart(final StartContext context) {
         //adds the HTTP upgrade service
         //TODO: have a bit more of a think about how we handle this
-        context.getChildTarget().addService(HTTP_UPGRADE_REGISTRY.append(getName()), new ValueService<Object>(new ImmediateValue<Object>(httpUpgradeHandler)))
-                .install();
-        ListenerRegistry.Listener listener = new ListenerRegistry.Listener(getProtocol(), getName(), serverName, getBinding().getValue().getSocketAddress());
-        listener.setContextInformation("socket-binding", getBinding().getValue());
-        httpListenerRegistry.getValue().addListener(listener);
+        final ServiceBuilder<?> sb = context.getChildTarget().addService(HTTP_UPGRADE_REGISTRY_CAPABILITY.getCapabilityServiceName(address));
+        final Consumer<Object> serviceConsumer = sb.provides(HTTP_UPGRADE_REGISTRY_CAPABILITY.getCapabilityServiceName(address), HTTP_UPGRADE_REGISTRY.append(getName()));
+        sb.setInstance(Service.newInstance(serviceConsumer, httpUpgradeHandler));
+        sb.install();
+        ListenerRegistry.Listener listener = new ListenerRegistry.Listener(getProtocol(), getName(), serverName, getBinding().get().getSocketAddress());
+        listener.setContextInformation("socket-binding", getBinding().get());
+        httpListenerRegistry.get().addListener(listener);
     }
 
     protected void startListening(XnioWorker worker, InetSocketAddress socketAddress, ChannelListener<AcceptingChannel<StreamConnection>> acceptListener)
             throws IOException {
         server = worker.createStreamConnectionServer(socketAddress, acceptListener, OptionMap.builder().addAll(commonOptions).addAll(socketOptions).getMap());
         server.resumeAccepts();
-        UndertowLogger.ROOT_LOGGER.listenerStarted("HTTP", getName(), NetworkUtils.formatIPAddressForURI(socketAddress.getAddress()), socketAddress.getPort());
+
+        final InetSocketAddress boundAddress = server.getLocalAddress(InetSocketAddress.class);
+        UndertowLogger.ROOT_LOGGER.listenerStarted("HTTP", getName(), NetworkUtils.formatIPAddressForURI(boundAddress.getAddress()), boundAddress.getPort());
     }
 
     @Override
     protected void cleanFailedStart() {
-        httpListenerRegistry.getValue().removeListener(getName());
+        httpListenerRegistry.get().removeListener(getName());
+    }
+
+    protected void unregisterBinding() {
+        httpListenerRegistry.get().removeListener(getName());
+        super.unregisterBinding();
     }
 
     @Override
     protected void stopListening() {
+        final InetSocketAddress boundAddress = server.getLocalAddress(InetSocketAddress.class);
         server.suspendAccepts();
         UndertowLogger.ROOT_LOGGER.listenerSuspend("HTTP", getName());
         IoUtils.safeClose(server);
         server = null;
-        UndertowLogger.ROOT_LOGGER.listenerStopped("HTTP", getName(), NetworkUtils.formatIPAddressForURI(getBinding().getValue().getSocketAddress().getAddress()), getBinding().getValue().getPort());
-        httpListenerRegistry.getValue().removeListener(getName());
+        UndertowLogger.ROOT_LOGGER.listenerStopped("HTTP", getName(), NetworkUtils.formatIPAddressForURI(boundAddress.getAddress()), boundAddress.getPort());
     }
 
     @Override
@@ -148,12 +148,12 @@ public class HttpListenerService extends ListenerService<HttpListenerService> {
         return this;
     }
 
-    public InjectedValue<ListenerRegistry> getHttpListenerRegistry() {
+    public DelegatingSupplier<ListenerRegistry> getHttpListenerRegistry() {
         return httpListenerRegistry;
     }
 
     @Override
-    protected String getProtocol() {
+    public String getProtocol() {
         return PROTOCOL;
     }
 }

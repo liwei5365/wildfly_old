@@ -22,31 +22,41 @@
 
 package org.jboss.as.connector.subsystems.jca;
 
+import static org.jboss.as.connector._private.Capabilities.JCA_NAMING_CAPABILITY;
+import static org.jboss.as.connector.util.ConnectorServices.TRANSACTION_INTEGRATION_CAPABILITY_NAME;
+import static org.jboss.as.connector.util.ConnectorServices.LOCAL_TRANSACTION_PROVIDER_CAPABILITY;
+import static org.jboss.as.connector.util.ConnectorServices.TRANSACTION_SYNCHRONIZATION_REGISTRY_CAPABILITY;
+import static org.jboss.as.connector.util.ConnectorServices.TRANSACTION_XA_RESOURCE_RECOVERY_REGISTRY_CAPABILITY;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.SUBSYSTEM;
 
-import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.SimpleResourceDefinition;
-import org.jboss.as.controller.SubsystemRegistration;
+import org.jboss.as.controller.capability.RuntimeCapability;
 import org.jboss.as.controller.operations.common.GenericSubsystemDescribeHandler;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
-import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
-import org.jboss.as.controller.transform.description.TransformationDescription;
-import org.jboss.as.controller.transform.description.TransformationDescriptionBuilder;
+import org.jboss.jca.core.spi.transaction.TransactionIntegration;
 
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2012 Red Hat Inc.
  */
 public class JcaSubsystemRootDefinition extends SimpleResourceDefinition {
     protected static final PathElement PATH_SUBSYSTEM = PathElement.pathElement(SUBSYSTEM, JcaExtension.SUBSYSTEM_NAME);
+
+    static final RuntimeCapability<Void> TRANSACTION_INTEGRATION_CAPABILITY = RuntimeCapability.Builder.of(TRANSACTION_INTEGRATION_CAPABILITY_NAME, TransactionIntegration.class)
+            .addRequirements(LOCAL_TRANSACTION_PROVIDER_CAPABILITY,
+                    TRANSACTION_XA_RESOURCE_RECOVERY_REGISTRY_CAPABILITY,
+                    TRANSACTION_SYNCHRONIZATION_REGISTRY_CAPABILITY)
+            .build();
+
     private final boolean registerRuntimeOnly;
 
 
     private JcaSubsystemRootDefinition(final boolean registerRuntimeOnly) {
-        super(PATH_SUBSYSTEM,
-                JcaExtension.getResourceDescriptionResolver(),
-                JcaSubsystemAdd.INSTANCE,
-                JcaSubSystemRemove.INSTANCE);
+        super(new Parameters(PATH_SUBSYSTEM, JcaExtension.getResourceDescriptionResolver())
+                .setAddHandler(JcaSubsystemAdd.INSTANCE)
+                .setRemoveHandler(JcaSubSystemRemove.INSTANCE)
+                .setCapabilities(JCA_NAMING_CAPABILITY, TRANSACTION_INTEGRATION_CAPABILITY)
+        );
         this.registerRuntimeOnly = registerRuntimeOnly;
     }
 
@@ -58,38 +68,16 @@ public class JcaSubsystemRootDefinition extends SimpleResourceDefinition {
     public void registerOperations(ManagementResourceRegistration resourceRegistration) {
         super.registerOperations(resourceRegistration);
         resourceRegistration.registerOperationHandler(GenericSubsystemDescribeHandler.DEFINITION, GenericSubsystemDescribeHandler.INSTANCE);
-
-
     }
 
     @Override
     public void registerChildren(ManagementResourceRegistration resourceRegistration) {
         resourceRegistration.registerSubModel(JcaArchiveValidationDefinition.INSTANCE);
-
         resourceRegistration.registerSubModel(JcaBeanValidationDefinition.INSTANCE);
-
         resourceRegistration.registerSubModel(TracerDefinition.INSTANCE);
-
         resourceRegistration.registerSubModel(JcaCachedConnectionManagerDefinition.INSTANCE);
-
         resourceRegistration.registerSubModel(JcaWorkManagerDefinition.createInstance(registerRuntimeOnly));
-
         resourceRegistration.registerSubModel(JcaDistributedWorkManagerDefinition.createInstance(registerRuntimeOnly));
-
         resourceRegistration.registerSubModel(JcaBootstrapContextDefinition.INSTANCE);
-
-    }
-
-    static void registerTransformers(SubsystemRegistration subsystem) {
-        ResourceTransformationDescriptionBuilder builder12 = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder12.rejectChildResource(JcaDistributedWorkManagerDefinition.PATH_DISTRIBUTED_WORK_MANAGER);
-        builder12.discardChildResource(TracerDefinition.PATH_TRACER);
-        TransformationDescription.Tools.register(builder12.build(), subsystem, ModelVersion.create(1, 2, 0));
-        ResourceTransformationDescriptionBuilder builder20 = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        builder20.discardChildResource(TracerDefinition.PATH_TRACER);
-        TransformationDescription.Tools.register(builder20.build(), subsystem, ModelVersion.create(2, 0, 0));
-        ResourceTransformationDescriptionBuilder builder30 = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
-        JcaDistributedWorkManagerDefinition.registerTransformers300(builder30);
-        TransformationDescription.Tools.register(builder30.build(), subsystem, ModelVersion.create(3, 0, 0));
     }
 }

@@ -21,6 +21,7 @@
 */
 package org.jboss.as.jacorb;
 
+import static org.jboss.as.controller.capability.RuntimeCapability.buildDynamicCapabilityName;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.EXTENSION;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
@@ -32,10 +33,12 @@ import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.OperationStepHandler;
 import org.jboss.as.controller.PathAddress;
 import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.ProcessType;
 import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
 import org.jboss.as.controller.RunningMode;
 import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
+import org.jboss.as.controller.capability.registry.RuntimeCapabilityRegistry;
 import org.jboss.as.controller.descriptions.StandardResourceDescriptionResolver;
 import org.jboss.as.controller.descriptions.common.ControllerResolver;
 import org.jboss.as.controller.extension.ExtensionRegistry;
@@ -46,9 +49,13 @@ import org.jboss.as.subsystem.test.AbstractSubsystemTest;
 import org.jboss.as.subsystem.test.AdditionalInitialization;
 import org.jboss.as.subsystem.test.KernelServices;
 import org.jboss.dmr.ModelNode;
+import org.jboss.security.SecurityDomain;
 import org.junit.Assert;
 import org.junit.Test;
 import org.wildfly.iiop.openjdk.IIOPExtension;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  *
@@ -86,17 +93,16 @@ public class JacORBMigrateTestCase extends AbstractSubsystemTest {
         Assert.assertTrue(model.get(SUBSYSTEM).hasDefined(IIOPExtension.SUBSYSTEM_NAME));
 
         ModelNode newSubsystem = model.get(SUBSYSTEM).get("iiop-openjdk");
-        Assert.assertTrue(newSubsystem.get("export-corbaloc").equals(new ModelNode(true)));
+        Assert.assertTrue(newSubsystem.get("export-corbaloc").equals(ModelNode.TRUE));
         Assert.assertTrue(newSubsystem.get("confidentiality").equals(new ModelNode("required")));
+        Assert.assertTrue(newSubsystem.get("iona").equals(ModelNode.TRUE));
     }
 
     private static class NewSubsystemAdditionalInitialization extends AdditionalInitialization {
         IIOPExtension newSubsystem = new IIOPExtension();
         boolean extensionAdded = false;
         @Override
-        public void initializeExtraSubystemsAndModel(final ExtensionRegistry extensionRegistry, Resource rootResource,
-                final ManagementResourceRegistration rootRegistration) {
-
+        protected void initializeExtraSubystemsAndModel(ExtensionRegistry extensionRegistry, Resource rootResource, ManagementResourceRegistration rootRegistration, RuntimeCapabilityRegistry capabilityRegistry) {
 
             final OperationDefinition removeExtension = new SimpleOperationDefinitionBuilder("remove", new StandardResourceDescriptionResolver("test", "test", getClass().getClassLoader()))
                     .build();
@@ -115,11 +121,20 @@ public class JacORBMigrateTestCase extends AbstractSubsystemTest {
                                     rootRegistration, ExtensionRegistryType.SLAVE));
                         }
                     }, null));
+
+            Map<String, Class> capabilities = new HashMap<>();
+            capabilities.put(buildDynamicCapabilityName("org.wildfly.security.legacy-security-domain", "security-domain"), SecurityDomain.class);
+            registerServiceCapabilities(capabilityRegistry, capabilities);
         }
 
         @Override
         protected RunningMode getRunningMode() {
             return RunningMode.ADMIN_ONLY;
         }
+
+        @Deprecated
+        protected ProcessType getProcessType() {
+                    return ProcessType.HOST_CONTROLLER;
+                }
     }
 }

@@ -29,8 +29,8 @@ public interface WebLogger extends BasicLogger {
     @Message(id = 3, value = "Could not migrate attribute %s from resource %s")
     String couldNotMigrateResource(String attribute, PathAddress node);
 
-    @Message(id = 4, value = "Could not migrate SSL connector as no SSL config is defined")
-    OperationFailedException noSslConfig();
+    @Message(id = 4, value = "No SSL config is defined for connector %s, it will be created as http connector")
+    String noSslConfig(String connector);
 
     @Message(id = 5, value = "Migration failed, see results for more details.")
     String migrationFailed();
@@ -40,4 +40,11 @@ public interface WebLogger extends BasicLogger {
 
     @Message(id = 7, value = "Could not migrate verify-client expression %s")
     String couldNotTranslateVerifyClientExpression(String s);
+
+    @Message(id = 8, value = "Could not migrate valve %s")
+    String couldNotMigrateValve(String valveName);
+
+    @Message(id = 9, value = "Could not migrate attribute %s from valve %s")
+    String couldNotMigrateValveAttribute(String attribute, String valveName);
+
 }

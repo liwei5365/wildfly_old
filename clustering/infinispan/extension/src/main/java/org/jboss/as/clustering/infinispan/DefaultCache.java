@@ -22,44 +22,25 @@
 
 package org.jboss.as.clustering.infinispan;
 
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.function.Consumer;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.cache.impl.AbstractDelegatingAdvancedCache;
-import org.infinispan.context.Flag;
 import org.infinispan.manager.EmbeddedCacheManager;
-import org.wildfly.clustering.ee.Batch;
-import org.wildfly.clustering.ee.Batcher;
 
 /**
  * {@link AdvancedCache} decorator associated with a {@link DefaultCacheContainer}.
- * Overrides {@link #startBatch()} and {@link #endBatch(boolean)} methods to use WildFly's {@link Batcher} mechanism, instead of Infinispan's {@link org.infinispan.batch.BatchContainer}.
  * @author Paul Ferraro
  */
 public class DefaultCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
-    // Holds reference to active batch across start/end batch methods
-    private static final ThreadLocal<Batch> CURRENT_BATCH = new ThreadLocal<>();
-
     private final EmbeddedCacheManager manager;
-    private final Batcher<? extends Batch> batcher;
-    private final Set<Flag> flags;
+    private final Consumer<Cache<?, ?>> consumer;
 
-    DefaultCache(final EmbeddedCacheManager manager, final Batcher<? extends Batch> batcher, final AdvancedCache<K, V> cache, final Set<Flag> flags) {
-        super(cache, new AdvancedCacheWrapper<K, V>() {
-            @Override
-            public AdvancedCache<K, V> wrap(AdvancedCache<K, V> cache) {
-                return new DefaultCache<>(manager, batcher, cache, flags);
-            }
-        });
+    DefaultCache(EmbeddedCacheManager manager, AdvancedCache<K, V> cache, Consumer<Cache<?, ?>> consumer) {
+        super(cache);
         this.manager = manager;
-        this.batcher = batcher;
-        this.flags = flags;
-    }
-
-    public DefaultCache(EmbeddedCacheManager manager, BatcherFactory batcherFactory, AdvancedCache<K, V> cache) {
-        this(manager, batcherFactory.createBatcher(cache), cache, EnumSet.noneOf(Flag.class));
+        this.consumer = consumer;
     }
 
     @Override
@@ -68,39 +49,15 @@ public class DefaultCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
     }
 
     @Override
-    public boolean startBatch() {
-        // If cache was not configured with a Batcher then this is a no-op
-        if (this.batcher == null) return false;
-        // If a batch is already associated with the current thread then don't create a new one
-        if (CURRENT_BATCH.get() != null) return false;
-        // Associate a new catch with the current thread
-        CURRENT_BATCH.set(this.batcher.createBatch());
-        return true;
+    public synchronized void start() {
+        super.start();
+        this.consumer.accept(this);
     }
 
     @Override
-    public void endBatch(boolean successful) {
-        Batch batch = CURRENT_BATCH.get();
-        // If no batch is associated with the current thread then this is a no-op
-        if (batch != null) {
-            try {
-                if (successful) {
-                    batch.close();
-                } else {
-                    batch.discard();
-                }
-            } finally {
-                // Disassociate the batch with the current thread no matter what
-                CURRENT_BATCH.remove();
-            }
-        }
-    }
-
-    @Override
-    public AdvancedCache<K, V> withFlags(Flag... flags) {
-        Set<Flag> set = EnumSet.copyOf(this.flags);
-        set.addAll(Arrays.asList(flags));
-        return new DefaultCache<>(this.manager, this.batcher, this.cache.withFlags(flags), set);
+    public synchronized void stop() {
+        this.consumer.accept(null);
+        super.stop();
     }
 
     @Override
@@ -111,5 +68,11 @@ public class DefaultCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
     @Override
     public int hashCode() {
         return this.cache.hashCode();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public AdvancedCache rewrap(AdvancedCache newDelegate) {
+        return new DefaultCache<>(this.manager, newDelegate, this.consumer);
     }
 }

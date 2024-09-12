@@ -25,9 +25,13 @@ package org.jboss.as.connector.deployers.ds.processors;
 import static org.jboss.as.connector.logging.ConnectorLogger.DEPLOYER_JDBC_LOGGER;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Driver;
+import java.util.Enumeration;
 import java.util.List;
 
+import org.jboss.as.connector._drivermanager.DriverManagerAdapter;
 import org.jboss.as.connector.services.driver.DriverService;
 import org.jboss.as.connector.services.driver.InstalledDriver;
 import org.jboss.as.connector.services.driver.registry.DriverRegistry;
@@ -42,6 +46,7 @@ import org.jboss.modules.Module;
 import org.jboss.modules.ModuleClassLoader;
 import org.jboss.msc.service.ServiceController.Mode;
 import org.jboss.msc.service.ServiceName;
+import org.wildfly.common.Assert;
 
 /**
  * Deploy any JDBC drivers in a deployment unit.
@@ -58,6 +63,7 @@ public final class DriverProcessor implements DeploymentUnitProcessor {
         if (module != null && servicesAttachment != null) {
             final ModuleClassLoader classLoader = module.getClassLoader();
             final List<String> driverNames = servicesAttachment.getServiceImplementations(Driver.class.getName());
+            int idx = 0;
             for (String driverClassName : driverNames) {
                 try {
                     final Class<? extends Driver> driverClass = classLoader.loadClass(driverClassName).asSubclass(Driver.class);
@@ -67,11 +73,9 @@ public final class DriverProcessor implements DeploymentUnitProcessor {
                     final int minorVersion = driver.getMinorVersion();
                     final boolean compliant = driver.jdbcCompliant();
                     if (compliant) {
-                        DEPLOYER_JDBC_LOGGER.deployingCompliantJdbcDriver(driverClass, Integer.valueOf(majorVersion),
-                                Integer.valueOf(minorVersion));
+                        DEPLOYER_JDBC_LOGGER.deployingCompliantJdbcDriver(driverClass, majorVersion, minorVersion);
                     } else {
-                        DEPLOYER_JDBC_LOGGER.deployingNonCompliantJdbcDriver(driverClass, Integer.valueOf(majorVersion),
-                                Integer.valueOf(minorVersion));
+                        DEPLOYER_JDBC_LOGGER.deployingNonCompliantJdbcDriver(driverClass, majorVersion, minorVersion);
                     }
                     String driverName = deploymentUnit.getName();
                     if ((driverName.contains(".") && ! driverName.endsWith(".jar")) || driverNames.size() != 1) {
@@ -86,7 +90,19 @@ public final class DriverProcessor implements DeploymentUnitProcessor {
                             .addDependency(ConnectorServices.JDBC_DRIVER_REGISTRY_SERVICE, DriverRegistry.class,
                                     driverService.getDriverRegistryServiceInjector()).setInitialMode(Mode.ACTIVE).install();
 
-                } catch (Exception e) {
+                    if (idx == 0 && driverNames.size() != 1) {
+                        // create short name driver service
+                        driverName = deploymentUnit.getName(); // reset driverName to the deployment unit name
+                        driverMetadata = new InstalledDriver(driverName, driverClass.getName(), null,
+                                null, majorVersion, minorVersion, compliant);
+                        driverService = new DriverService(driverMetadata, driver);
+                        phaseContext.getServiceTarget()
+                                .addService(ServiceName.JBOSS.append("jdbc-driver", driverName.replaceAll("\\.", "_")), driverService)
+                                .addDependency(ConnectorServices.JDBC_DRIVER_REGISTRY_SERVICE, DriverRegistry.class, driverService.getDriverRegistryServiceInjector())
+                                .setInitialMode(Mode.ACTIVE).install();
+                    }
+                    idx++;
+                } catch (Throwable e) {
                     DEPLOYER_JDBC_LOGGER.cannotInstantiateDriverClass(driverClassName, e);
                 }
 
@@ -97,5 +113,33 @@ public final class DriverProcessor implements DeploymentUnitProcessor {
     /** {@inheritDoc} */
     @Override
     public void undeploy(final DeploymentUnit context) {
+        /**
+         * https://issues.redhat.com/browse/WFLY-14114
+         *
+         * This hack allows to deregister all drivers registered by this module. See comments in {@link DriverManagerAdapterProcessor}
+         */
+        final Module module = context.getAttachment(org.jboss.as.server.deployment.Attachments.MODULE);
+        final ServicesAttachment servicesAttachment = context.getAttachment(Attachments.SERVICES);
+        if (module != null && servicesAttachment != null) {
+            final List<String> driverNames = servicesAttachment.getServiceImplementations(Driver.class.getName());
+            if (!driverNames.isEmpty()) {
+                try {
+                    Class<?> driverManagerAdapterClass = module.getClassLoader().loadClass(DriverManagerAdapter.class.getName());
+
+                    Method getDriversMethod = driverManagerAdapterClass.getDeclaredMethod("getDrivers");
+                    Enumeration<Driver> drivers = (Enumeration<Driver>) getDriversMethod.invoke(null, null);
+
+                    Method deregisterDriverMethod = driverManagerAdapterClass.getDeclaredMethod("deregisterDriver", Driver.class);
+                    while (drivers.hasMoreElements()) {
+                        Driver driver = drivers.nextElement();
+                        if(driverNames.contains(driver.getClass().getName())) {
+                            deregisterDriverMethod.invoke(null, driver);
+                        }
+                    }
+                } catch (ClassNotFoundException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+                    Assert.unreachableCode();
+                }
+            }
+        }
     }
 }

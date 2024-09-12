@@ -154,7 +154,7 @@ public class HibernateAnnotationScanner implements Scanner {
             throw JPA_LOGGER.missingPersistenceUnitMetadata();
         }
 
-        if (annotationsToLookFor.size() > 0) {  // Hibernate doesn't pass any annotations currently
+        if (!annotationsToLookFor.isEmpty()) {  // Hibernate doesn't pass any annotations currently
             resultClasses = getClassesInJar(jarToScan, annotationsToLookFor);
         } else {
             if (pu.getAnnotationIndex() != null) {
@@ -168,7 +168,7 @@ public class HibernateAnnotationScanner implements Scanner {
                 for (ClassInfo classInfo : allClasses) {
                     String className = classInfo.name().toString();
                     try {
-                        resultClasses.add(pu.getNewTempClassLoader().loadClass(className));
+                        resultClasses.add(pu.cacheTempClassLoader().loadClass(className));
                     } catch (ClassNotFoundException e) {
                         JPA_LOGGER.cannotLoadEntityClass(e, className);
                     } catch (NoClassDefFoundError e) {
@@ -178,7 +178,7 @@ public class HibernateAnnotationScanner implements Scanner {
             }
         }
 
-        if (pu.getAnnotationIndex() != null || annotationsToLookFor.size() > 0) {
+        if (pu.getAnnotationIndex() != null || !annotationsToLookFor.isEmpty()) {
             Map<String, Package> uniquePackages = new HashMap<String, Package>();
             for (Class<?> classWithAnnotation : resultClasses) {
                 Package classPackage = classWithAnnotation.getPackage();
@@ -219,7 +219,7 @@ public class HibernateAnnotationScanner implements Scanner {
             if (annotationsToLookFor == null) {
                 throw JPA_LOGGER.nullVar("annotationsToLookFor");
             }
-            if (annotationsToLookFor.size() == 0) {
+            if (annotationsToLookFor.isEmpty()) {
                 throw JPA_LOGGER.emptyParameter("annotationsToLookFor");
             }
 
@@ -236,7 +236,7 @@ public class HibernateAnnotationScanner implements Scanner {
                         String className = annotationInstance.target().toString();
                         try {
                             JPA_LOGGER.tracef("getClassesInJar found class %s with annotation %s", className, annClass.getName());
-                            Class<?> clazz = pu.getNewTempClassLoader().loadClass(className);
+                            Class<?> clazz = pu.cacheTempClassLoader().loadClass(className);
                             result.add(clazz);
                             classesForAnnotation.add(clazz);
                         } catch (ClassNotFoundException e) {

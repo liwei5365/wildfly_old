@@ -52,7 +52,6 @@ import org.jboss.as.webservices.util.ASHelper;
 import org.jboss.as.webservices.util.WSAttachmentKeys;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.metadata.web.jboss.JBossWebMetaData;
-import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.vfs.VirtualFile;
 import org.jboss.wsf.spi.metadata.config.EndpointConfig;
@@ -150,10 +149,10 @@ public final class WSIntegrationProcessorJAXWS_HANDLER extends AbstractIntegrati
     private static void propagateNamingContext(final ComponentDescription jaxwsHandlerDescription, final EJBEndpoint ejbEndpoint) {
         final ServiceName ejbContextServiceName = ejbEndpoint.getContextServiceName();
         final DeploymentDescriptorEnvironment ejbEnv = ejbEndpoint.getDeploymentDescriptorEnvironment();
-        // configure JAXWS EJB3 handler to be able to see EJB3 environment
+        // configure Jakarta XML Web Services Enterprise Beans 3 handler to be able to see Enterprise Beans 3 environment
         jaxwsHandlerDescription.setContextServiceName(ejbContextServiceName);
         jaxwsHandlerDescription.setDeploymentDescriptorEnvironment(ejbEnv);
-        jaxwsHandlerDescription.addDependency(ejbContextServiceName, ServiceBuilder.DependencyType.REQUIRED);
+        jaxwsHandlerDescription.addDependency(ejbContextServiceName);
     }
 
 }

@@ -21,13 +21,15 @@
  */
 package org.jboss.as.security;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
 import java.security.Principal;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.jboss.as.controller.AbstractRuntimeOnlyHandler;
 import org.jboss.as.controller.OperationContext;
@@ -43,7 +45,9 @@ import org.jboss.as.controller.access.constraint.ApplicationTypeConfig;
 import org.jboss.as.controller.access.management.AccessConstraintDefinition;
 import org.jboss.as.controller.access.management.ApplicationTypeAccessConstraintDefinition;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
+import org.jboss.as.controller.capability.RuntimeCapability;
 import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.controller.operations.validation.StringAllowedValuesValidator;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
 import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.as.security.logging.SecurityLogger;
@@ -51,9 +55,10 @@ import org.jboss.as.security.plugins.SecurityDomainContext;
 import org.jboss.as.security.service.SecurityDomainService;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
+import org.jboss.msc.service.LifecycleEvent;
+import org.jboss.msc.service.LifecycleListener;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
-import org.jboss.msc.service.StabilityMonitor;
 import org.jboss.security.CacheableManager;
 import org.jboss.security.SimplePrincipal;
 
@@ -62,22 +67,44 @@ import org.jboss.security.SimplePrincipal;
  */
 class SecurityDomainResourceDefinition extends SimpleResourceDefinition {
 
+    static final String CACHE_CONTAINER_NAME = "security";
+    static final String INFINISPAN_CACHE_TYPE = "infinispan";
+    static final RuntimeCapability<Void> LEGACY_SECURITY_DOMAIN = RuntimeCapability.Builder.of("org.wildfly.security.legacy-security-domain", true)
+            .setServiceType(SecurityDomainContext.class)
+            .build();
+
     public static final SimpleAttributeDefinition CACHE_TYPE = new SimpleAttributeDefinitionBuilder(Constants.CACHE_TYPE, ModelType.STRING, true)
             .setAllowExpression(true)
-            .setAllowedValues("default", "infinispan")
+            .setValidator(new StringAllowedValuesValidator("default", INFINISPAN_CACHE_TYPE))
             .build();
 
     private final boolean registerRuntimeOnly;
     private final List<AccessConstraintDefinition> accessConstraints;
 
     SecurityDomainResourceDefinition(boolean registerRuntimeOnly) {
-        super(SecurityExtension.SECURITY_DOMAIN_PATH,
-                SecurityExtension.getResourceDescriptionResolver(Constants.SECURITY_DOMAIN), SecurityDomainAdd.INSTANCE,
-                new ServiceRemoveStepHandler(SecurityDomainService.SERVICE_NAME, SecurityDomainAdd.INSTANCE));
+        super(new Parameters(SecurityExtension.SECURITY_DOMAIN_PATH,
+                SecurityExtension.getResourceDescriptionResolver(Constants.SECURITY_DOMAIN))
+                .setAddHandler(SecurityDomainAdd.INSTANCE)
+                .setRemoveHandler(new ServiceRemoveStepHandler(SecurityDomainService.SERVICE_NAME, SecurityDomainAdd.INSTANCE) {
+                    @Override
+                    protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) {
+                        super.performRuntime(context, operation, model);
+                        if (context.isResourceServiceRestartAllowed()) {
+                            String cacheType = SecurityDomainAdd.getAuthenticationCacheType(model);
+                            String securityDomain = context.getCurrentAddressValue();
+                            if (SecurityDomainResourceDefinition.INFINISPAN_CACHE_TYPE.equals(cacheType)) {
+                                for (org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement requirement : EnumSet.allOf(org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement.class)) {
+                                    context.removeService(requirement.getServiceName(context, CACHE_CONTAINER_NAME, securityDomain));
+                                }
+                            }
+                        }
+                    }
+                })
+                .setCapabilities(LEGACY_SECURITY_DOMAIN));
         this.registerRuntimeOnly = registerRuntimeOnly;
         ApplicationTypeConfig atc = new ApplicationTypeConfig(SecurityExtension.SUBSYSTEM_NAME, Constants.SECURITY_DOMAIN);
         AccessConstraintDefinition acd = new ApplicationTypeAccessConstraintDefinition(atc);
-        this.accessConstraints = Arrays.asList((AccessConstraintDefinition) SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN, acd);
+        this.accessConstraints = Arrays.asList(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN, acd);
         setDeprecated(SecurityExtension.DEPRECATED_SINCE);
     }
 
@@ -119,6 +146,7 @@ class SecurityDomainResourceDefinition extends SimpleResourceDefinition {
         static final ListCachePrincipals INSTANCE = new ListCachePrincipals();
         static final SimpleOperationDefinition DEFINITION = new SimpleOperationDefinitionBuilder(Constants.LIST_CACHED_PRINCIPALS,
                 SecurityExtension.getResourceDescriptionResolver(Constants.LIST_CACHED_PRINCIPALS))
+                .setReadOnly()
                 .setRuntimeOnly()
                 .setReplyType(ModelType.LIST)
                 .setReplyValueType(ModelType.STRING)
@@ -159,7 +187,7 @@ class SecurityDomainResourceDefinition extends SimpleResourceDefinition {
                 SecurityExtension.getResourceDescriptionResolver(Constants.SECURITY_DOMAIN))
                 .setEntryType(OperationEntry.EntryType.PUBLIC)
                 .setRuntimeOnly()
-                .addParameter(new SimpleAttributeDefinition(Constants.PRINCIPAL_ARGUMENT, ModelType.STRING, true))
+                .addParameter(new SimpleAttributeDefinitionBuilder(Constants.PRINCIPAL_ARGUMENT, ModelType.STRING).setRequired(false).build())
                 .build();
 
         @Override
@@ -200,23 +228,24 @@ class SecurityDomainResourceDefinition extends SimpleResourceDefinition {
      * @throws OperationFailedException if the service is not available, or the thread was interrupted.
      */
     private static void waitForService(final ServiceController<?> controller) throws OperationFailedException {
-        if (controller.getState() == ServiceController.State.UP) return;
-
-        final StabilityMonitor monitor = new StabilityMonitor();
-        monitor.addController(controller);
         try {
-            monitor.awaitStability(100, MILLISECONDS);
+            final CountDownLatch latch = new CountDownLatch(1);
+            final LifecycleListener listener = new LifecycleListener() {
+                @Override
+                public void handleEvent(ServiceController<?> controller, LifecycleEvent event) {
+                    latch.countDown();
+                    controller.removeListener(this);
+                }
+            };
+            controller.addListener(listener);
+            latch.await(100, TimeUnit.MILLISECONDS);
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             throw SecurityLogger.ROOT_LOGGER.interruptedWaitingForSecurityDomain(controller.getName().getSimpleName());
-        } finally {
-            monitor.removeController(controller);
-        }
-
+        } catch (final Throwable ignored) {}
         if (controller.getState() != ServiceController.State.UP) {
             throw SecurityLogger.ROOT_LOGGER.requiredSecurityDomainServiceNotAvailable(controller.getName().getSimpleName());
         }
     }
-
 
 }

@@ -21,42 +21,34 @@
  */
 package org.jboss.as.test.integration.jca.beanvalidation;
 
-import org.jboss.as.arquillian.api.ServerSetup;
-import org.jboss.as.arquillian.container.ManagementClient;
-import org.jboss.as.test.integration.jca.JcaMgmtBase;
-import org.jboss.as.test.integration.jca.JcaMgmtServerSetupTask;
-import org.jboss.as.test.integration.jca.beanvalidation.ra.ValidConnectionFactory;
-import org.jboss.as.test.integration.management.util.MgmtOperationException;
 import org.jboss.arquillian.container.test.api.Deployer;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.container.test.api.RunAsClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
+import org.jboss.as.arquillian.api.ServerSetup;
+import org.jboss.as.arquillian.container.ManagementClient;
+import org.jboss.as.test.integration.jca.JcaMgmtBase;
+import org.jboss.as.test.integration.jca.JcaMgmtServerSetupTask;
+import org.jboss.as.test.integration.jca.beanvalidation.ra.ValidConnectionFactory;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.ResourceAdapterArchive;
-import org.jboss.staxmapper.XMLElementReader;
-import org.jboss.staxmapper.XMLElementWriter;
-import org.junit.*;
+import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * @author <a href="vrastsel@redhat.com">Vladimir Rastseluev</a> 
- * JBQA-6006 - disabled bean validation 
+ * @author <a href="vrastsel@redhat.com">Vladimir Rastseluev</a>
+ *         JBQA-6006 - disabled bean validation
  */
 @RunWith(Arquillian.class)
 @ServerSetup(DisabledValidationTestCase.DisabledValidationTestCaseSetup.class)
 @RunAsClient
-public class DisabledValidationTestCase extends JcaMgmtBase {
+public class DisabledValidationTestCase {
 
     static class DisabledValidationTestCaseSetup extends JcaMgmtServerSetupTask {
         ModelNode bvAddress = subsystemAddress.clone().add("bean-validation", "bean-validation");
-
-        @Override
-        public void tearDown(ManagementClient managementClient, String containerId) throws Exception {
-            writeAttribute(bvAddress, "enabled", "true");
-        }
 
         @Override
         protected void doSetup(ManagementClient managementClient) throws Exception {
@@ -71,7 +63,7 @@ public class DisabledValidationTestCase extends JcaMgmtBase {
 
     /**
      * Define the deployment
-     * 
+     *
      * @return The deployment archive
      */
     public static ResourceAdapterArchive createDeployment(String ij) throws Exception {
@@ -80,8 +72,7 @@ public class DisabledValidationTestCase extends JcaMgmtBase {
         ResourceAdapterArchive raa = ShrinkWrap.create(ResourceAdapterArchive.class, deploymentName + ".rar");
         JavaArchive ja = ShrinkWrap.create(JavaArchive.class, deploymentName + ".jar");
         ja.addPackage(ValidConnectionFactory.class.getPackage()).addClasses(DisabledValidationTestCase.class,
-                MgmtOperationException.class, XMLElementReader.class, XMLElementWriter.class, JcaMgmtServerSetupTask.class,
-                JcaMgmtBase.class);
+                JcaMgmtServerSetupTask.class, JcaMgmtBase.class);
         raa.addAsLibrary(ja);
 
         raa.addAsManifestResource(DisabledValidationTestCase.class.getPackage(), "ra.xml", "ra.xml").addAsManifestResource(

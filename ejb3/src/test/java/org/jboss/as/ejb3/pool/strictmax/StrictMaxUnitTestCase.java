@@ -37,6 +37,7 @@ import org.jboss.as.ejb3.pool.Pool;
 import org.jboss.as.ejb3.pool.StatelessObjectFactory;
 import org.jboss.as.ejb3.pool.common.MockBean;
 import org.jboss.as.ejb3.pool.common.MockFactory;
+import org.junit.Test;
 
 /**
  * Comment
@@ -52,12 +53,14 @@ public class StrictMaxUnitTestCase {
         used = new AtomicInteger(0);
     }
 
+    @Test
     public void test1() {
+        MockBean.reset();
         StatelessObjectFactory<MockBean> factory = new MockFactory();
         Pool<MockBean> pool = new StrictMaxPool<MockBean>(factory, 10, 1, TimeUnit.SECONDS);
         pool.start();
 
-        MockBean beans[] = new MockBean[10];
+        MockBean[] beans = new MockBean[10];
         for (int i = 0; i < beans.length; i++) {
             beans[i] = pool.get();
         }
@@ -76,7 +79,9 @@ public class StrictMaxUnitTestCase {
     /**
      * More threads than the pool size.
      */
+    @Test
     public void testMultiThread() throws Exception {
+        MockBean.reset();
         StatelessObjectFactory<MockBean> factory = new MockFactory();
         final Pool<MockBean> pool = new StrictMaxPool<MockBean>(factory, 10, 60, TimeUnit.SECONDS);
         pool.start();
@@ -102,7 +107,7 @@ public class StrictMaxUnitTestCase {
         };
 
         ExecutorService service = Executors.newFixedThreadPool(20);
-        Future<?> results[] = new Future<?>[20];
+        Future<?>[] results = new Future<?>[20];
         for (int i = 0; i < results.length; i++) {
             results[i] = service.submit(task);
         }
@@ -123,12 +128,14 @@ public class StrictMaxUnitTestCase {
         assertEquals(10, MockBean.getPreDestroys());
     }
 
+    @Test
     public void testTooMany() {
+        MockBean.reset();
         StatelessObjectFactory<MockBean> factory = new MockFactory();
         Pool<MockBean> pool = new StrictMaxPool<MockBean>(factory, 10, 1, TimeUnit.SECONDS);
         pool.start();
 
-        MockBean beans[] = new MockBean[10];
+        MockBean[] beans = new MockBean[10];
         for (int i = 0; i < beans.length; i++) {
             beans[i] = pool.get();
         }

@@ -1,0 +1,62 @@
+[[Messaging_JDBC_Store_for_Messaging_Journal]]
+= JDBC Store for Messaging Journal
+
+The Artemis server that are integrated to WildFly can be configured to
+use a JDBC store for its messaging journal instead of its file-based
+journal. +
+The `server resource` of the messaging-activemq subsystem needs to
+configure its `journal-datasource` attribute to be able to use JDBC
+store. If this attribute is not defined, the regular file-base journal
+will be used for the Artemis server. +
+This attribute value must correspond to a data source defined in the
+datasource subsystem.
+
+For example, if the datasources subsystem defines an `ExampleDS` data
+source at `/subsystem=datasources/data-source=ExampleDS`, the Artemis
+server can use it for its JDBC store with the operation:
+
+[source,options="nowrap"]
+----
+/subsystem=messaging-activemq/server=default:write-attribute(name=journal-datasource, value=ExampleDS)
+----
+
+Artemis JDBC store uses SQL commands to create the tables used to
+persist its information. +
+These SQL commands may differ depending on the type of database. The SQL
+commands used by the JDBC store are located in `modules/system/layers/base/org/apache/activemq/artemis/main/artemis-jdbc-store-${ARTEMIS_VERSION}.jar/journal-sql.properties`.
+
+
+Artemis uses different JDBC tables to store its bindings information,
+the persistent messages and the large messages (paging is not supported
+yet).
+
+The name of these tables can be configured with the
+`journal-bindings-table`, `journal-messages-table`,
+`journal-page-store-table, and journal-large-messages-table`.
+
+Please note that the configuration of the underlying pool is something that you need to take care of.
+You  need at least four connections:
+
+ * one for the binding
+ * one for the messages journal
+ * one for the lease lock (if you use HA)
+ * one for the node manager shared state (if you use HA)
+
+So you should define a link:wildscribe/subsystem/datasources/xa-data-source/index.html#attr-min-pool-size[`min-pool-size`] of 4 for the pool. +
+But one fact that you need to take into account is that paging and large messages can use an unbounded number of threads.
+The size, a.k.a. link:wildscribe/subsystem/datasources/xa-data-source/index.html#attr-max-pool-size[`max-pool-size`], of the pool should be defined according to the amount of concurrent threads that perform page/large message streaming operations. There is no defined rule for this as there is no 1-1 relation between the number of threads and the number of connections. The number of connections depend on the number of threads processing paging and large messages operations as well as the time you are willing to wait to get a connection (cf. https://docs.wildfly.org/22/wildscribe/subsystem/datasources/xa-data-source/index.html#attr-blocking-timeout-wait-millis[`blocking-timeout-wait-millis`]). When new large messages or paging operations occur they will be in a dedicated thread and will try to get a connection, being enqueued until one is ready or the time to obtain one runs out which will create a failure. +
+You really need to tailor your configuration according to your needs and test it in your environment following the <<DataSource>> subsystem documentation and perform tests and peroformance runs before going to production.
+
+
+[[reference]]
+== Reference
+
+****
+
+* Artemis JDBC Persistence -
+https://activemq.apache.org/components/artemis/documentation/latest/persistence.html#configuring-jdbc-persistence
+* WildFly DataSource subsystem documentation -
+<<DataSource>>
+* WildFly datasource configuration model
+link:wildscribe/subsystem/datasources/xa-data-source/index.html
+****

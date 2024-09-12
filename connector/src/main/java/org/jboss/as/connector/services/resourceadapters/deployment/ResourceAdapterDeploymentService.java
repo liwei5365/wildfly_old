@@ -26,6 +26,8 @@ import static org.jboss.as.connector.logging.ConnectorLogger.DEPLOYMENT_CONNECTO
 
 import java.io.File;
 import java.net.URL;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -188,6 +190,11 @@ public final class ResourceAdapterDeploymentService extends AbstractResourceAdap
         }
     }
 
+    @Override
+    public Collection<String> getJndiAliases() {
+        return Collections.emptyList();
+    }
+
     /**
      * Stop
      */
@@ -238,7 +245,7 @@ public final class ResourceAdapterDeploymentService extends AbstractResourceAdap
                 if (ra != null && ra.getOutboundResourceadapter() != null &&
                         ra.getOutboundResourceadapter().getConnectionDefinitions() != null) {
                     List<ConnectionDefinition> cdMetas = ra.getOutboundResourceadapter().getConnectionDefinitions();
-                    if (cdMetas.size() > 0) {
+                    if (!cdMetas.isEmpty()) {
                         for (ConnectionDefinition cdMeta : cdMetas) {
                             raMcfClasses.add(cdMeta.getManagedConnectionFactoryClass().getValue());
                         }
@@ -247,7 +254,7 @@ public final class ResourceAdapterDeploymentService extends AbstractResourceAdap
 
                 if (ra != null && ra.getAdminObjects() != null) {
                     List<AdminObject> aoMetas = ra.getAdminObjects();
-                    if (aoMetas.size() > 0) {
+                    if (!aoMetas.isEmpty()) {
                         for (AdminObject aoMeta : aoMetas) {
                             raAoClasses.add(aoMeta.getAdminobjectClass().getValue());
                         }
@@ -255,7 +262,7 @@ public final class ResourceAdapterDeploymentService extends AbstractResourceAdap
                 }
 
                 // Pure inflow always active except in case it is deployed as module
-                if (raMcfClasses.size() == 0 && raAoClasses.size() == 0 && !fromModule)
+                if (raMcfClasses.isEmpty() && raAoClasses.isEmpty() && !fromModule)
                     return true;
 
 

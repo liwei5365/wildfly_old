@@ -44,7 +44,7 @@ public class JMSOperationsProvider {
     private static final String FILE_NAME = "jmsoperations.properties";
 
     /**
-     * Gets an instance of a JMSOperations implementation for a particular JMS provider based on the classname
+     * Gets an instance of a JMSOperations implementation for a particular Jakarta Messaging provider based on the classname
      * given by property "jmsoperations.implementation.class" in jmsoperations.properties somewhere on the classpath
      * The property should contain a fully qualified name of a class that implements JMSOperations interface
      * The setting in that file can be overriden by a system property declaration
@@ -75,7 +75,6 @@ public class JMSOperationsProvider {
         if(className == null) {
             throw new JMSOperationsException("Please specify a property " + PROPERTY_NAME + " in " + FILE_NAME);
         }
-        //System.out.println("Creating instance of class: " + className);
         Object jmsOperationsInstance;
         try {
             Class clazz = Class.forName(className);
@@ -90,7 +89,7 @@ public class JMSOperationsProvider {
     }
 
     /**
-     * Gets an instance of a JMSOperations implementation for a particular JMS provider based on the classname
+     * Gets an instance of a JMSOperations implementation for a particular Jakarta Messaging provider based on the classname
      * given by property "jmsoperations.implementation.class" in jmsoperations.properties somewhere on the classpath
      * The property should contain a fully qualified name of a class that implements JMSOperations interface
      * The setting in that file can be overriden by a system property declaration
@@ -118,7 +117,6 @@ public class JMSOperationsProvider {
         if(className == null) {
             throw new JMSOperationsException("Please specify a property " + PROPERTY_NAME + " in " + FILE_NAME);
         }
-        //System.out.println("Creating instance of class: " + className);
         Object jmsOperationsInstance;
         try {
             Class clazz = Class.forName(className);
@@ -139,7 +137,7 @@ public class JMSOperationsProvider {
     static void execute(ModelControllerClient client, final ModelNode operation) throws IOException, JMSOperationsException {
         ModelNode result = client.execute(operation);
         if (result.hasDefined(ClientConstants.OUTCOME) && ClientConstants.SUCCESS.equals(result.get(ClientConstants.OUTCOME).asString())) {
-            logger.info("Operation successful for update = " + operation.toString());
+            logger.trace("Operation successful for update = " + operation.toString());
         } else if (result.hasDefined(ClientConstants.FAILURE_DESCRIPTION)) {
             final String failureDesc = result.get(ClientConstants.FAILURE_DESCRIPTION).toString();
             throw new JMSOperationsException(failureDesc);

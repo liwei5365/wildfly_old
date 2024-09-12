@@ -1,0 +1,76 @@
+[[jboss-ejb-client]]
+= jboss-ejb-client
+
+The jboss-ejb-client.xml can be used to conifure EJB client from within a deployment. The file
+should be located in jar's `META-INF` directory.
+
+[source,xml,options="nowrap"]
+----
+<jboss-ejb-client xmlns="urn:jboss:ejb-client:1.4">
+    <client-context invocation-timeout="1000" deployment-node-selector="org.foo.DeploymentNodeSelector" default-compression="5">
+        <ejb-receivers exclude-local-receiver="false" local-receiver-pass-by-value="true">
+            <remoting-ejb-receiver outbound-connection-ref="connection" connection-timeout="3000"/>
+        </ejb-receivers>
+        <http-connections>
+            <http-connection uri="http://localhost:8180/wildfly-services"/>
+        </http-connections>
+        <profile name="test-profile"/>
+    </client-context>
+</jboss-ejb-client>
+----
+
+[[client-context]]
+== <client-context>
+
+Configurations that will be used to setup an EJB client context for the deployment.
+
+* `invocation-timeout` A timeout, in milliseconds, that will be used for EJB invocations.
+A value of zero or a negative value will imply a "wait forever" semantic where the invocation
+will never timeout and the client will wait for the invocation result indefinitely.
+
+* `deployment-node-selector` The fully qualified class name of the class which implements the
+`org.jboss.ejb.client.DeploymentNodeSelector` interface. The instance of this class will be used
+for selecting nodes, from among multiple eligible nodes within an EJB client context, which can
+handle a particular deployment.
+
+* `default-compression` Default compression level (from 0 to 9) of request and response message
+payload.
+
+[[ejb-receivers]]
+=== <ejb-receivers>
+
+Configures a number of remoting based EJB receivers.
+
+* `exclude-local-receiver` Set to true if the local receiver which gets added to the EJB client
+ context by default, has to be excluded from the context.
+
+* `local-receiver-pass-by-value` Set to false if the local receiver that's available in the EJB
+client context, should use pass-by-reference (instead of pass-by-value) semantics for the EJB invocations.
+
+[[remoting-ejb-receiver]]
+==== <remoting-ejb-receiver>
+
+* `outbound-connection-ref` Reference to an outbound connection configured in the remoting subsystem.
+* `connect-timeout` The timeout, in milliseconds, to be used while creating a connection.
+
+[[http-connections]]
+=== <http-connections>
+
+Configures remote http-connection for EJB invocation
+
+[[http-connection]]
+==== <http-connection>
+
+HTTP Connection for EJB invocation.
+
+* `uri` Uniform Resource Identifier for the HTTP connection should be defined.
+
+[[profile]]
+=== <profile>
+
+References a remoting profile configured in the remoting subsystem.
+
+* `name` The name of the profile.
+
+NOTE: References in this document to Enterprise JavaBeans(EJB) refer to the Jakarta Enterprise Beans unless otherwise noted.
+

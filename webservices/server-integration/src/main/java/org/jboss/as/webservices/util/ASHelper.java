@@ -36,7 +36,6 @@ import java.util.List;
 import javax.jws.WebService;
 import javax.xml.ws.WebServiceProvider;
 
-import org.jboss.as.controller.OperationContext;
 import org.jboss.as.ee.component.EEModuleClassDescription;
 import org.jboss.as.ee.metadata.ClassAnnotationInformation;
 import org.jboss.as.server.CurrentServiceContainer;
@@ -84,10 +83,10 @@ public final class ASHelper {
     }
 
     /**
-     * Gets list of JAXWS EJBs meta data.
+     * Gets list of Jakarta XML Web Services Jakarta Enterprise Beans meta data.
      *
      * @param unit deployment unit
-     * @return list of JAXWS EJBs meta data
+     * @return list of Jakarta XML Web Services Jakarta Enterprise Beans meta data
      */
     public static List<EJBEndpoint> getJaxwsEjbs(final DeploymentUnit unit) {
         final JAXWSDeployment jaxwsDeployment = getOptionalAttachment(unit, WSAttachmentKeys.JAXWS_ENDPOINTS_KEY);
@@ -398,12 +397,6 @@ public final class ASHelper {
         return service != null ? service.getValue() : null;
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T> T getMSCService(final ServiceName serviceName, final Class<T> clazz, final OperationContext context) {
-        ServiceController<T> service = (ServiceController<T>)context.getServiceRegistry(false).getService(serviceName);
-        return service != null ? service.getValue() : null;
-    }
-
     public static WSRefRegistry getWSRefRegistry(final DeploymentUnit unit) {
         WSRefRegistry refRegistry = unit.getAttachment(WSAttachmentKeys.WS_REFREGISTRY);
         if (refRegistry == null) {
@@ -417,7 +410,7 @@ public final class ASHelper {
         // wars define resource roots
         AttachmentList<ResourceRoot> resourceRoots = unit.getAttachment(RESOURCE_ROOTS);
         if (!unit.getName().endsWith(".war") && EjbDeploymentMarker.isEjbDeployment(unit)) {
-            // ejb archives don't define resource roots, using root resource
+            // Jakarta Enterprise Beans archives don't define resource roots, using root resource
             resourceRoots = new AttachmentList<ResourceRoot>(ResourceRoot.class);
             final ResourceRoot root = unit.getAttachment(DEPLOYMENT_ROOT);
             resourceRoots.add(root);

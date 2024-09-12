@@ -40,6 +40,7 @@ import org.jboss.as.server.deployment.DeploymentUnitProcessingException;
 import org.jboss.as.server.deployment.DeploymentUnitProcessor;
 import org.jboss.as.server.deployment.MountedDeploymentOverlay;
 import org.jboss.as.server.deployment.SubDeploymentMarker;
+import org.jboss.as.server.deployment.SubExplodedDeploymentMarker;
 import org.jboss.as.server.deployment.module.ModuleRootMarker;
 import org.jboss.as.server.deployment.module.MountHandle;
 import org.jboss.as.server.deployment.module.ResourceRoot;
@@ -188,10 +189,9 @@ public class EarStructureProcessor implements DeploymentUnitProcessor {
 
                     if (libDir != null) {
                         VirtualFile moduleParentFile = moduleFile.getParent();
-                        if (moduleParentFile != null) {
-                            if (libDir.equals(moduleParentFile)) {
-                                throw EeLogger.ROOT_LOGGER.earModuleChildOfLibraryDirectory(libDirName, module.getFileName());
-                            }
+                        if (moduleParentFile != null && libDir.equals(moduleParentFile)) {
+                            throw EeLogger.ROOT_LOGGER.earModuleChildOfLibraryDirectory(libDirName, module.getFileName());
+
                         }
                     }
 
@@ -277,6 +277,7 @@ public class EarStructureProcessor implements DeploymentUnitProcessor {
         }
         if (war) {
             resourceRoot.putAttachment(Attachments.INDEX_RESOURCE_ROOT, false);
+            SubExplodedDeploymentMarker.mark(resourceRoot);
         }
         return resourceRoot;
     }
